@@ -67,20 +67,6 @@ def need(cond, msg):
         raise AssertionError(msg)
 
 
-def first_point(geom):
-    """从 GeoJSON 几何里取第一个顶点。"""
-    kind, coord = geom["type"], geom["coordinates"]
-    if kind == "Point":
-        return coord[0], coord[1]
-    if kind in ("MultiPoint", "LineString"):
-        return coord[0][0], coord[0][1]
-    if kind in ("Polygon", "MultiLineString"):
-        return coord[0][0][0], coord[0][0][1]
-    if kind == "MultiPolygon":
-        return coord[0][0][0][0], coord[0][0][0][1]
-    raise AssertionError("没见过的几何类型：%s" % kind)
-
-
 def wait_ready(base, deadline=60.0):
     started = time.perf_counter()
     while time.perf_counter() - started < deadline:
@@ -184,17 +170,22 @@ def main(argv=None):
         need(status == 200 and ctype.startswith("image/png"), "不是 PNG：%s" % ctype)
         need(body[:8] == b"\x89PNG\r\n\x1a\n", "PNG 头不对")
 
-    @check("identify 点选（矢量）")
+    @check("identify 点选（栅格）")
     def _(cli):
-        # 点一个真实要素的顶点。界面上矢量走的是 MapLibre 的 queryRenderedFeatures，
-        # 这个接口主要给栅格和脚本用；给一点容差，避免投影往返的舍入把点甩到界外
-        _, page, _ = cli.get("/api/vector", path=str(gpkg), layer=0, limit=1, tolerance=0)
-        lng, lat = first_point(page["features"][0]["geometry"])
-        status, data, _ = cli.get("/api/identify", path=str(gpkg), layer=0,
-                                  lng=lng, lat=lat, tol=0.002)
+        # 用经纬度范围的中心（投影坐标范围是米，不能直接当经纬度用）
+        _, info, _ = cli.get("/api/inspect", path=str(tif))
+        ext = info.get("extent_wgs84") or info.get("extent")
+        need(ext, "没有范围信息")
+        if isinstance(ext, dict):
+            lng = (ext["left"] + ext["right"]) / 2
+            lat = (ext["bottom"] + ext["top"]) / 2
+        else:
+            lng, lat = (ext[0] + ext[2]) / 2, (ext[1] + ext[3]) / 2
+        status, data, _ = cli.get("/api/identify", path=str(tif), kind="raster", lng=lng, lat=lat)
         need(status == 200 and data.get("ok"), "识别失败：%s" % data.get("error"))
-        got = data.get("identify") or {}   # 前端读的也是这一层
-        need(got.get("features"), "点在要素顶点上却没识别出来")
+        got = data.get("identify") or {}
+        need(got.get("inside") is True, "中心点不在影像内")
+        need(got.get("row") is not None and got.get("col") is not None, "没有行列号")
 
     @check("measure 按原始几何量算")
     def _(cli):

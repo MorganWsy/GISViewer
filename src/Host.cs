@@ -42,6 +42,54 @@ namespace GISViewer
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int max);
 
+        /* 壳路径（::{GUID} 这类）转成磁盘路径。在"此电脑"里选中桌面、文档、下载这类
+           已知文件夹时，资源管理器给的 Path 是壳路径，直接当文件名用会报"找不到"。
+           转得出来就用转出来的，转不出来（此电脑、回收站本身）说明确实不是磁盘上的东西 */
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern int SHParseDisplayName(string name, IntPtr pbc, out IntPtr ppidl, uint sfgao, out uint psfgao);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern bool SHGetPathFromIDListW(IntPtr pidl, StringBuilder path);
+        [DllImport("shell32.dll")]
+        static extern void CoTaskMemFree(IntPtr pv);
+
+        public static string RealPath(string shellPath)
+        {
+            if (string.IsNullOrEmpty(shellPath)) return "";
+            if (!shellPath.StartsWith("::", StringComparison.Ordinal)) return shellPath;
+            IntPtr pidl;
+            uint attrs;
+            try
+            {
+                if (SHParseDisplayName(shellPath, IntPtr.Zero, out pidl, 0, out attrs) != 0) return "";
+            }
+            catch { return ""; }
+            try
+            {
+                StringBuilder sb = new StringBuilder(1024);
+                return SHGetPathFromIDListW(pidl, sb) ? sb.ToString() : "";
+            }
+            finally { CoTaskMemFree(pidl); }
+        }
+
+        /* 环境里可能同时存在大小写两份同名变量（Git Bash 会给出 HTTPS_PROXY 和 https_proxy）。
+           ProcessStartInfo.EnvironmentVariables 复制父环境时按"不区分大小写"建字典，
+           第二次 Add 会抛"已添加项"，引擎直接拉不起来。启动时先去掉重复的那一份 */
+        public static string DedupeEnv()
+        {
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> kill = new List<string>();
+            foreach (System.Collections.DictionaryEntry kv in Environment.GetEnvironmentVariables())
+            {
+                string k = (string)kv.Key;
+                if (!seen.Add(k)) kill.Add(k);
+            }
+            foreach (string k in kill)
+            {
+                try { Environment.SetEnvironmentVariable(k, null); } catch { }
+            }
+            return string.Join(",", kill.ToArray());
+        }
+
         /* 已经在跑的主窗口：标题以"图览"开头、类是 WinForms 的顶层窗口。
            窗口收进托盘后 IsWindowVisible 是假，所以这里不能按可见性过滤 */
         public static IntPtr ExistingShellWindow()

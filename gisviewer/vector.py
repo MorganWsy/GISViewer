@@ -18,8 +18,6 @@ MAX_LAYERS = 60
 GEOM_SAMPLE = 2000
 SAMPLE_FEATURES = 3
 MAX_FEATURES_PER_REQUEST = 50000
-# 范围框筛出来的候选最多精确算这么多次相交，重叠严重的图层不至于卡死
-MAX_IDENTIFY_CANDIDATES = 400
 
 _Z_FLAG = 0x80000000
 _M_FLAG = 0x40000000
@@ -576,10 +574,6 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     return {"type": "FeatureCollection", "features": features, "gisviewer": meta}
 
 
-_IDENTIFY_LOCK = threading.Lock()
-_IDENTIFY = {}
-
-
 def geom_type_counts(target, layer_index=0):
     """逐个数每个几何类型各有多少个要素。
 
@@ -621,117 +615,6 @@ def _stamp(target):
         return (int(st.st_mtime), st.st_size)
     except OSError:
         return (0, 0)
-
-
-def _identify_layer(target, layer_index):
-    """开文件、定位图层，顺手把每个要素的范围框留一份底。
-
-    GeoJSON 这类格式没有空间索引，每次点击都从头扫一遍要十几秒
-    （133 MB、10.9 万要素实测 9.5 秒）；范围框留在内存里之后，
-    一次点击只要几十毫秒。只认最近打开的那一份文件，不换文件就一直留着。
-    """
-    target = read_target(target)
-    key = (str(target), int(layer_index or 0)) + _stamp(target)
-    if _IDENTIFY.get("key") == key:
-        return _IDENTIFY["lyr"], _IDENTIFY["env"], _IDENTIFY["index"], _IDENTIFY["assume_local"]
-    ds = ogr.Open(target)
-    if ds is None:
-        raise InspectError("没有可识别的矢量图层", hint="确认文件没损坏，伴生文件都在同一个文件夹里。")
-    total = ds.GetLayerCount()
-    if total < 1:
-        del ds
-        raise InspectError("这个数据里没有矢量图层")
-    index = max(0, min(int(layer_index or 0), total - 1))
-    lyr = ds.GetLayerByIndex(index)
-    if lyr is None:
-        del ds
-        raise InspectError("打不开这个图层")
-    env = []
-    lyr.ResetReading()
-    while True:
-        feat = lyr.GetNextFeature()
-        if feat is None:
-            break
-        geom = feat.GetGeometryRef()
-        if geom is None:
-            continue
-        try:
-            x0, x1, y0, y1 = geom.GetEnvelope()
-        except Exception:
-            continue
-        env.append((feat.GetFID(), x0, x1, y0, y1))
-    lyr.SetSpatialFilter(None)
-    srs = lyr.GetSpatialRef()
-    # 没有坐标系又不是天生 WGS 84 的格式（CAD 图纸这类）：按"原始坐标当作米"的
-    # 本地摆法对待，点选的换算方式要和 read_features 里保持一致
-    assume_local = (not (srs and srs.ExportToWkt())) and \
-        ds.GetDriver().ShortName not in DEFAULT_WGS84_DRIVERS
-    _IDENTIFY.clear()
-    _IDENTIFY.update({"key": key, "ds": ds, "lyr": lyr, "env": env, "index": index,
-                      "assume_local": assume_local})
-    return lyr, env, index, assume_local
-
-
-def identify_point(target, layer_index=0, lon=0.0, lat=0.0, tol=0.0, limit=8):
-    """点选识别：先看有没有要素正好压在这个点上，没有就取容差范围内最近的几个。"""
-    with _IDENTIFY_LOCK:
-        lyr, env, index, assume_local = _identify_layer(target, layer_index)
-
-        x, y = float(lon), float(lat)
-        pad = max(float(tol or 0.0), 0.0)
-        srs = lyr.GetSpatialRef()
-        wkt = srs.ExportToWkt() if srs else ""
-        to_wgs = None
-        if assume_local:
-            # 本地坐标图层：点击的经纬度先倒推回"当作米"的平面坐标才能和要素相交；
-            # 高亮用的几何再顺着同一套换算转回经纬度
-            local = osr.SpatialReference()
-            local.ImportFromEPSG(3857)
-            _, _, to_wgs = _pair(local.ExportToWkt())
-            x, y, _ = osr.CoordinateTransformation(_wgs84(), local).TransformPoint(x, y)
-            pad *= 111320.0
-        elif wkt and not srs.IsGeographic():
-            src, dst, to_wgs = _pair(wkt)
-            x, y, _ = osr.CoordinateTransformation(dst, src).TransformPoint(x, y)
-            pad *= 111320.0
-        point = ogr.Geometry(ogr.wkbPoint)
-        point.AddPoint_2D(x, y)
-
-        xp, xm, yp, ym = x + pad, x - pad, y + pad, y - pad
-        cand = [e for e in env if e[1] <= xp and e[2] >= xm and e[3] <= yp and e[4] >= ym]
-        hit, near = [], []
-        for fid in [e[0] for e in cand[:MAX_IDENTIFY_CANDIDATES]]:
-            feat = lyr.GetFeature(fid)
-            if feat is None:
-                continue
-            geom = feat.GetGeometryRef()
-            if geom is None:
-                continue
-            item = {"properties": feat.items()}
-            try:
-                left, right, bottom, top = geom.GetEnvelope()
-                item["bounds"] = [round(left, 6), round(bottom, 6), round(right, 6), round(top, 6)]
-            except Exception:
-                pass
-            # 点中的要素要在地图上描一圈，几何得给经纬度坐标
-            try:
-                g2 = geom.Clone()
-                if to_wgs is not None:
-                    g2.Transform(to_wgs)
-                item["geometry"] = json.loads(g2.ExportToJson())
-            except Exception:
-                pass
-            try:
-                on = geom.Intersects(point)
-            except Exception:
-                on = False
-            (hit if on else near).append(item)
-            if len(hit) >= limit:
-                break
-        name = lyr.GetName()
-        picked = (hit or near)[:limit]
-        return {"layer_index": index, "layer_name": name, "features": picked,
-                "exact": bool(hit), "limit": limit}
 
 
 # 量算缓存：大 GeoJSON 每打开一次都要重新解析整份文件（133 MB、10.9 万要素实测 7 秒），

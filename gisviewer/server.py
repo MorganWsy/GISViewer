@@ -227,7 +227,8 @@ def write_config(data):
                "ramp", "class_count", "nodata_view", "raster_default", "vector_color",
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
-               "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act"}
+               "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act",
+               "open_dir", "toast_sec"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:
@@ -573,13 +574,18 @@ class Handler(BaseHTTPRequestHandler):
             payload.setdefault("restore_last", False)
             payload.setdefault("cache_dir", "")
             payload.setdefault("keep_hours", 12)
+            payload.setdefault("open_dir", "desktop")
+            payload.setdefault("toast_sec", 5)
             payload["cache_note"] = _cache_note
             return self._send(200, {
                 "ok": True, "config": payload, "version": __version__,
                 # 色带的端点颜色只在这里给一份，设置页照着画预览条，不再抄第二遍。
                 # 放在 config 外面：它是"有哪些可选"的说明，不是用户的一项设置
                 "ramps": [
-                    {"value": key, "colors": ["rgb(%d,%d,%d)" % c for c in stops]}
+                    {"value": key,
+                     "label": formats.RAMP_META.get(key, (key, False))[0],
+                     "discrete": bool(formats.RAMP_META.get(key, (key, False))[1]),
+                     "colors": ["rgb(%d,%d,%d)" % c for c in stops]}
                     for key, stops in formats.RAMPS.items()
                 ],
             })
@@ -602,7 +608,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._geomtypes(query)
         if route == "/api/cache":
             return self._send(200, {"ok": True, "cache": cache.stats(),
-                                    "data_dir": str(config_dir())})
+                                    "data_dir": str(config_dir()),
+                                    "cache_dir": str(config_dir() / "cache")})
         if route.startswith("/api/tile/"):
             return self._amap_tile(route)
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})
@@ -623,7 +630,8 @@ class Handler(BaseHTTPRequestHandler):
             # 设置页的"清空缓存"：清完把新一轮的占用直接带回去
             cache.clear()
             return self._send(200, {"ok": True, "cache": cache.stats(),
-                                    "data_dir": str(config_dir())})
+                                    "data_dir": str(config_dir()),
+                                    "cache_dir": str(config_dir() / "cache")})
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})
 
     def _inspect(self, path):
@@ -816,27 +824,30 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, png, "image/png", {"X-Image-Width": str(w), "X-Image-Height": str(h)})
 
     def _identify(self, query):
+        """只给栅格用：点一个位置，报出该像元的行列号和数值。
+
+        矢量点选在界面上走的是地图自己渲染出来的要素（MapLibre 的
+        queryRenderedFeatures），点中的就是眼前画出来的那些，不需要引擎再扫一遍文件。
+        """
         path = (query.get("path") or [""])[0].strip()
         if not _readable(path):
             return self._send(404, {"ok": False, "error": {"title": "找不到这个文件"}})
         try:
             lon = float((query.get("lng") or [""])[0])
             lat = float((query.get("lat") or [""])[0])
-            tol = max(0.0, float((query.get("tol") or ["0"])[0]))
         except ValueError:
             return self._send(400, {"ok": False, "error": {"title": "点击位置不对"}})
-        kind = (query.get("kind") or ["vector"])[0]
+        if (query.get("kind") or ["raster"])[0] != "raster":
+            return self._send(400, {"ok": False, "error": {
+                "title": "这个接口只处理栅格",
+                "hint": "矢量要素请直接点地图，界面拿渲染出来的要素判断点中了谁。"}})
         try:
-            if kind == "raster":
-                got = raster.identify_value(path, lon, lat)
-                if not got:
-                    return self._send(200, {"ok": False, "error": {
-                        "title": "这个位置没有读到像元",
-                        "hint": "点击处可能落在数据范围外，或者这张图没有地理参考。"}})
-                return self._send(200, {"ok": True, "kind": "raster", "identify": got})
-            layer = int((query.get("layer") or ["0"])[0])
-            got = vector.identify_point(path, layer, lon, lat, tol)
-            return self._send(200, {"ok": True, "kind": "vector", "identify": got})
+            got = raster.identify_value(path, lon, lat)
+            if not got:
+                return self._send(200, {"ok": False, "error": {
+                    "title": "这个位置没有读到像元",
+                    "hint": "点击处可能落在数据范围外，或者这张图没有地理参考。"}})
+            return self._send(200, {"ok": True, "kind": "raster", "identify": got})
         except Exception as exc:
             return self._send(200, engine.error_block(exc, path))
 

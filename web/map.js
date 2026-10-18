@@ -722,14 +722,25 @@
         group.appendChild(btn);
       });
     }
-    // 复位：不管当前在第几级、转到哪，回到开场那个中国全图的视野
+    // 复位：不管当前在第几级、转到哪，飞回开场那个中国全图的视野。
+    // 用 flyTo 而不是 jumpTo——一秒钟的移动能让人看清"从哪飞到哪"，不会像画面被换掉
     const home = document.getElementById('homeBtn');
     if (home) home.addEventListener('click', () => {
-      if (live()) map.jumpTo({ center: [104, 35], zoom: 3.2, bearing: 0, pitch: 0 });
+      if (live()) {
+        map.flyTo({ center: [104, 35], zoom: 3.2, bearing: 0, pitch: 0, duration: 900, essential: true });
+      }
     });
-    // 指北针的提示语换成中文（库默认是英文）
+    // 指北针：库自己只把方位角转回正北，俯仰角留着不动。这里连俯仰一起压平，
+    // 不然刚拖成斜视的地图"回正"之后还是歪的
     const compass = map.getContainer().querySelector('.maplibregl-ctrl-compass');
-    if (compass) compass.title = '指北：把地图转向正北';
+    if (compass) {
+      compass.title = '指北：转正北并压平俯仰角';
+      compass.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+      }, true);   // 捕获阶段拦下，别让库自己再转一次
+    }
     /* 容器尺寸在栅格里会被右栏挤动，MapLibre 只监听窗口，不监听容器，得自己补。
        拖动窗口一次会连着触发几十次布局，每次都重建画布就是用户看到的闪烁——
        攒成每帧最多一次，尺寸没真变就不动手。 */

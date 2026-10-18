@@ -3,7 +3,7 @@
 from . import bootstrap
 from . import labels
 from .crs import bounds_to_wgs84, describe, extent_warning, ring_to_wgs84, transform_points
-from .formats import CLASS_DEFAULT, RAMPS, RAMP_DEFAULT
+from .formats import CLASS_DEFAULT, RAMP_META, RAMPS, RAMP_DEFAULT
 
 gdal = bootstrap.gdal
 osr = bootstrap.osr
@@ -471,9 +471,20 @@ def band_histogram(target, band_index, height, width, dtype_name, exact=True):
 
 
 def ramp_colors(k=5, ramp=RAMP_DEFAULT):
-    """在选定色带上等距取 k 个颜色。"""
+    """在选定色带上取 k 个颜色。
+
+    连续色带按位置插值；分类色带直接取若干个互不相同的色——插值会把两种色
+    混成介于其间的第三种，相邻类别就看不出区别了。
+    """
     stops = RAMPS.get(ramp) or RAMPS[RAMP_DEFAULT]
     k = max(2, min(int(k), 12))
+    if RAMP_META.get(ramp, ("", False))[1]:
+        n = len(stops)
+        picked = []
+        for i in range(k):
+            idx = min(n - 1, int(round(i * (n - 1) / float(k - 1))))
+            picked.append("#%02x%02x%02x" % stops[idx])
+        return picked
     out = []
     for i in range(k):
         t = i / (k - 1) * (len(stops) - 1)

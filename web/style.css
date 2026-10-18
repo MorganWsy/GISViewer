@@ -1528,9 +1528,11 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .key-eye:hover { color: var(--text); background: var(--panel-alt); }
 .key-eye svg { width: 17px; height: 17px; }
 /* 默认睁眼（点了就显示）；正显示密钥时换成划掉的眼，示意"再点就藏回去" */
-.key-eye .eye-hide { display: none; }
-.key-eye.peeking .eye-show { display: none; }
-.key-eye.peeking .eye-hide { display: block; }
+/* 眼睛图标跟"密钥现在是否露出来"一致：藏着时闭眼，点开才睁眼 */
+.key-eye .eye-show { display: none; }
+.key-eye .eye-hide { display: block; }
+.key-eye.peeking .eye-show { display: block; }
+.key-eye.peeking .eye-hide { display: none; }
 
 .loading { color: var(--text-dim); padding: 12px 0; }
 .side-note { font-size: 12px; color: var(--text-dim); }

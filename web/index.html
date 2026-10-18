@@ -296,6 +296,16 @@
           <option value="70">70%（很透）</option>
         </select>
       </div>
+      <div class="field">
+        <label for="cfgToastSec">消息浮窗停留</label>
+        <select id="cfgToastSec">
+          <option value="3">3 秒</option>
+          <option value="5">5 秒（默认）</option>
+          <option value="8">8 秒</option>
+          <option value="12">12 秒</option>
+          <option value="20">20 秒</option>
+        </select>
+      </div>
 
       <div class="set-sec">系统</div>
       <!-- 两列排：高的配高的、矮的配矮的，不然某一列下面会空出一块 -->
@@ -361,6 +371,14 @@
       </div>
 
       <div class="set-sec">文件与副本</div>
+      <div class="field">
+        <label for="cfgOpenDir">打开文件框从哪开始</label>
+        <select id="cfgOpenDir">
+          <option value="desktop">桌面（默认）</option>
+          <option value="last">上次打开文件所在的文件夹</option>
+          <option value="documents">文档</option>
+        </select>
+      </div>
       <div class="field inline">
         <label for="cfgRestore">启动时恢复上次的文件</label>
         <input id="cfgRestore" type="checkbox">
@@ -396,6 +414,8 @@
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
         </div>
+        <!-- 缓存到底存在哪：直接写出来，不用悬停去气泡里找 -->
+        <p class="hint wide" id="cachePathHint"></p>
       </div>
     </div>
   </div>

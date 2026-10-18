@@ -79,6 +79,8 @@ namespace GISViewer
         bool _hk2Ok;
         string _hk2Text = "Ctrl+Alt+空格";
         string _lastDir = "";
+        /* 文件框从哪起步：desktop（默认）/ last / documents，由设置页通过 opendir: 告知 */
+        string _openDir = "desktop";
         /* 顶栏关闭按钮的行为：min＝最小化留在托盘（默认），exit＝直接退出；页面读设置后告知 */
         string _closeAction = "min";
 
@@ -89,6 +91,9 @@ namespace GISViewer
             _logPath = Path.Combine(DataDir, "shell.log");
             try { File.WriteAllText(_logPath, ""); } catch { }
             Log("启动，参数 " + string.Join(" | ", _startupPaths));
+            // 先清掉重复的环境变量，否则引擎进程会拉不起来（见 Native.DedupeEnv）
+            string dup = Native.DedupeEnv();
+            if (dup.Length > 0) Log("环境里有同名大小写变量，已去掉重复的一份：" + dup);
             string renamed = DesktopShortcut.Normalize();
             if (renamed.Length > 0) Log(renamed);
             Text = Title;
@@ -514,6 +519,13 @@ namespace GISViewer
             }
             if (msg == "pickfile") { Log("界面点了选择文件"); PickFiles(); return; }
             if (msg == "pickfolder") { Log("界面点了选择文件夹"); PickFolder(); return; }
+            if (msg.StartsWith("opendir:"))
+            {
+                // 文件框 / 文件夹框从哪起步，由设置页决定（desktop / last / documents）
+                _openDir = msg.Substring(8).Trim();
+                Log("文件框起始位置设为 " + _openDir);
+                return;
+            }
             if (msg.StartsWith("jserr:"))
             {
                 Log("页面脚本出错 " + msg.Substring(6));
@@ -525,6 +537,23 @@ namespace GISViewer
         {
             WindowState = WindowState == FormWindowState.Maximized
                 ? FormWindowState.Normal : FormWindowState.Maximized;
+        }
+
+        /* 文件框的起始目录。桌面可能被重定向到 OneDrive 或根本不存在，
+           一路退到文档、最后退到用户目录，总要给出一个真实存在的路径 */
+        string StartDir()
+        {
+            string dir = "";
+            if (_openDir == "last") dir = _lastDir;
+            else if (_openDir == "documents")
+                dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            else
+                dir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return dir;
         }
 
         /* 网页里的文件框在 WebView2 里只能拿到 C:\fakepath，选完还得先复制一份临时副本；
@@ -551,9 +580,7 @@ namespace GISViewer
                            系统会记住上一次用过的目录，碰到网络位置或几十万文件的目录时
                            打开框会卡半天，看起来就像按钮没反应 */
                         dlg.RestoreDirectory = true;
-                        string start = _lastDir;
-                        if (string.IsNullOrEmpty(start) || !Directory.Exists(start))
-                            start = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                        string start = StartDir();
                         if (!string.IsNullOrEmpty(start) && Directory.Exists(start))
                             dlg.InitialDirectory = start;
                         Log("选择文件框已打开，从 " + (start ?? "系统默认位置") + " 开始");
@@ -581,9 +608,7 @@ namespace GISViewer
                 SuspendDragWatch();
                 try
                 {
-                    string start = _lastDir;
-                    if (string.IsNullOrEmpty(start) || !Directory.Exists(start))
-                        start = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                    string start = StartDir();
                     Log("选择文件夹框已打开，从 " + (start ?? "系统默认位置") + " 开始");
                     string picked = Native.PickFolder(Handle, Title + "：选择数据文件夹", start);
                     if (string.IsNullOrEmpty(picked))
@@ -677,11 +702,12 @@ namespace GISViewer
                 Log("按了选中即开，但资源管理器里没有选中的文件");
                 if (_sawVirtualPick)
                 {
-                    /* "此电脑"、"回收站"这类虚拟位置给的是 ::{GUID} 壳路径，
-                       照直去开会报"找不到这个文件"——干脆在这里说清楚怎么办 */
+                    /* 停在"此电脑"、"回收站"这类位置时给的是 ::{GUID} 壳路径，
+                       或者选中的是桌面、文档这类文件夹——都不是能打开的数据文件 */
                     Push("notice", "{title:" + Json("这里没有能打开的文件") + ",detail:" +
-                        Json("资源管理器现在停在\"此电脑\"一类的虚拟位置。请先进入文件所在的" +
-                             "真实文件夹，点选文件（比如 .tif、.shp、.gdb）后再按快捷键。") + "}");
+                        Json("资源管理器现在停在\"此电脑\"这类没有磁盘路径的位置，或者选中的是" +
+                             "桌面、文档这样的文件夹。请进入文件所在的真实文件夹，" +
+                             "点选文件（比如 .tif、.shp、.gdb）后再按快捷键。") + "}");
                     return;
                 }
                 Push("notice", "{title:" + Json("没拿到选中的文件") + ",detail:" +
@@ -762,25 +788,51 @@ namespace GISViewer
         string[] ReadSelection(dynamic w, bool folderIfEmpty)
         {
             List<string> paths = new List<string>();
+            string folder = "";
             try
             {
+                folder = (string)w.Document.Folder.Self.Path;
                 dynamic items = w.Document.SelectedItems();
                 int c = (int)items.Count;
+                Log("资源管理器窗口（文件夹 " + (string.IsNullOrEmpty(folder) ? "?" : folder) +
+                    "）选中 " + c + " 项");
                 for (int k = 0; k < c; k++)
                 {
-                    string p = (string)items.Item(k).Path;
-                    if (string.IsNullOrEmpty(p)) continue;
-                    /* "此电脑"、"回收站"里的条目给的是 ::{GUID} 形式的壳路径，
-                       不是磁盘上的路径，拿去打开只会报"找不到这个文件"，直接滤掉 */
-                    if (p.StartsWith("::")) { _sawVirtualPick = true; continue; }
-                    paths.Add(p);
+                    /* 每一项单独兜底：某一项取不到路径（云文件、异常的壳扩展）时，
+                       不能把同一批里其它选中的文件一起丢掉 */
+                    try
+                    {
+                        string raw = (string)items.Item(k).Path;
+                        if (string.IsNullOrEmpty(raw)) { Log("  第 " + k + " 项没有路径，跳过"); continue; }
+                        string real = Native.RealPath(raw);
+                        if (string.IsNullOrEmpty(real))
+                        {
+                            _sawVirtualPick = true;
+                            Log("  第 " + k + " 项是壳路径且没有磁盘路径：" + raw);
+                            continue;
+                        }
+                        /* 桌面、文档、下载在"此电脑"里选中时给的是 ::{GUID}，上面已经转成真实路径；
+                           转出来是个普通文件夹的话，只有 .gdb 才算数据，别的当"这里没有文件"处理 */
+                        if (Directory.Exists(real) &&
+                            !real.TrimEnd('\\').EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _sawVirtualPick = true;
+                            Log("  第 " + k + " 项是普通文件夹：" + real);
+                            continue;
+                        }
+                        Log("  选中：" + real);
+                        paths.Add(real);
+                    }
+                    catch (Exception ex) { Log("  读第 " + k + " 项失败：" + ex.Message); }
                 }
                 if (paths.Count == 0 && folderIfEmpty)
                 {
-                    string p = (string)w.Document.Folder.Self.Path;
-                    if (string.IsNullOrEmpty(p)) { }
-                    else if (p.StartsWith("::")) _sawVirtualPick = true;
-                    else paths.Add(p);
+                    /* 没选中东西时，"打开当前文件夹"只对 .gdb 这种以文件夹形式存在的数据有意义。
+                       桌面、文档这类普通文件夹打开只会报"这是一个文件夹"，不如老实说没选中 */
+                    string p = Native.RealPath(folder);
+                    if (string.IsNullOrEmpty(p)) _sawVirtualPick = true;
+                    else if (p.TrimEnd('\\').EndsWith(".gdb", StringComparison.OrdinalIgnoreCase)) paths.Add(p);
+                    else Log("当前文件夹不是 .gdb，按没选中处理：" + p);
                 }
             }
             catch (Exception ex) { Log("读这个资源管理器窗口失败：" + ex.Message); return new string[0]; }

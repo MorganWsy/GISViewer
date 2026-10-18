@@ -1252,6 +1252,59 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
   另复验：单选对话框 UIA `CanSelectMultiple=False`、控件组圆角裁剪、指北指针光标、房子图标、
   CAD 开图后跳转 0 瓦片请求、设置页 27 提示且无小字、缓存气泡含真实路径；退出无残留
 
+### 第二十一轮：0.13 待发布（2026-10-18，用户十五条意见）
+
+界面与交互为主，只有两处动了引擎（接口收窄、色带扩容）。
+
+- **`/api/identify` 收窄成栅格专用**：矢量点选界面上走 MapLibre 的
+  `queryRenderedFeatures`，这个接口的 vector 分支从来没被调用过。删掉分支，连同
+  `vector.identify_point`、`_identify_layer`（含要素包围盒索引，111 行）和
+  `MAX_IDENTIFY_CANDIDATES` 一并删除；传 `kind=vector` 现在返回 400 并说明走地图点选。
+- **几何类型一直显示"正在统计…"的两个根因**（都是死代码，从没跑通过）：
+  ① `fillGeomTypes` 取 `d.target`，而数据对象上根本没有 `target` 字段，第一行就 return；
+  ② 就算走到底也调用了从未定义的 `enc()`。现在按"图层 read_path → 文件 path → 当前路径"
+  取读取目标，用 `encodeURIComponent`；统计期间每秒报"正在统计… N 秒"；结果比右栏先到
+  （缓存命中 30 ms）就隔 100 ms 重试着填，最多 3 秒。实测 10.9 万要素：1/2/3 秒逐秒跳，
+  最终"面 108989 · 多面 18"。
+- **最近打开浮窗两个 bug**：
+  ① 列表是空的——`renderRecent()` 在配置读回来之前就画了一次，之后没人再画。改成
+  `loadConfig` 末尾再画；实测 7 条记录正常列出。
+  ② 点不进去——上一轮把 `samples/` 搬到了 `..\GISViewer-data\samples`，老记录全指向
+  `D:\GISViewer\samples\...`。已迁移 `config.json`（近 7 条去重），并加自愈：点开失败
+  且提示"找不到"时，自动把这条从最近列表里删掉。
+  ③ 点顶栏空白不关闭——那里一按下就把窗口交给系统拖动循环，`click` 再也回不到页面。
+  改成 `pointerdown` 里直接收；"打开"菜单与最近列表互斥。
+- **选中即开的加固**（用户报"选中文件后按快捷键说这里是此电脑"）：
+  逐项 try/catch（一项取不到路径不再连累整批）；`::{GUID}` 壳路径用
+  `SHParseDisplayName` + `SHGetPathFromIDListW` 解析成磁盘路径；解析出来是普通文件夹
+  （桌面、文档）不再当数据打开，只有 `.gdb` 才认；"没选中就打开当前文件夹"同样收窄到 `.gdb`；
+  每个资源管理器窗口的文件夹、选中项数、每一项的原始路径都写进 `shell.log`。
+  本机实测：桌面窗口里选中"文档"这个虚拟项时，日志明确记为"普通文件夹"并按未选中处理，
+  不再误开一个文件夹当图层。
+- **浮窗停留时间进设置**（外观 → "消息浮窗停留"，3/5/8/12/20 秒，默认 5 秒，配置键
+  `toast_sec`）：错误卡片与顶栏定位后的"已定位到…"共用这个值；实测 5.6 秒后自动收。
+- **文件框起始位置进设置**（文件与副本 → "打开文件框从哪开始"，桌面 / 上次 / 文档，
+  默认桌面，配置键 `open_dir`，消息 `opendir:`）：壳侧 `StartDir()` 逐级回退
+  （桌面→文档→用户目录）；实测日志"选择文件框已打开，从 C:\Users\wsy\Desktop 开始"。
+- **地图控件**：复位由 `jumpTo` 改成 `flyTo`（900 ms，`essential`），能看清从哪飞到哪；
+  指北针在捕获阶段拦下点击，`easeTo({bearing:0, pitch:0})`，俯仰角一起压平。
+- **EPSG 提示加官网链接**：提示气泡支持 `data-tip-href` / `data-tip-link`，链接走
+  `target=_blank` → 壳的 `NewWindowRequested` → 系统浏览器，不把页面导航走。
+- **色带从 3 条扩到 20 条**（`formats.RAMP_META` 带中文名与"连续/分类"标记）：
+  连续 14 条（Viridis、Plasma、Inferno、Magma、Cividis、Turbo、Spectral、红蓝、高程、
+  深海、火焰、林地、土黄、灰阶），分类 6 条（Set1、Set2、Paired、Dark2、Accent、Tableau 10）。
+  分类色带取色不插值（插值会混出第三种颜色，相邻类别分不开）；下拉整张清单由
+  `/api/config.ramps` 生成，界面不维护第二份。
+- **密钥眼睛图标反过来**：原来"藏着"时画的是睁眼，现在藏着闭眼、点开才睁眼。
+- **缓存位置直接写出来**：`/api/cache` 新增 `cache_dir`，设置页"数据缓存"下面一行小字
+  显示真实路径（本机 `C:\Users\wsy\AppData\Roaming\GISViewer\cache`）。
+- **顺带修掉一个启动崩溃**：从 Git Bash 这类环境启动时，进程环境里同时有 `HTTPS_PROXY`
+  和 `https_proxy`，`ProcessStartInfo.EnvironmentVariables` 复制父环境时按不区分大小写建字典，
+  第二次 Add 抛"已添加项"，引擎直接拉不起来。启动时先 `Native.DedupeEnv()` 去掉重复的一份。
+- 验证：`tools\regress.ps1` 五节全过（17.5 s）；真窗口 CDP 逐项核对设置项、色带 20 条、
+  眼睛状态、缓存路径、最近打开 5 条可点开、几何统计逐秒跳变并出结果、浮窗 5 秒自收、
+  EPSG 气泡含 epsg.org 链接、文件框从桌面开始；销毁对话框与实例后无残留。
+
 ---
 
 ## 8. 风险与待验证

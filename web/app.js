@@ -109,7 +109,7 @@ const FIELD_TIPS = {
   '像元大小': '一个格子在地面上代表的实际尺寸，直接决定影像的精细程度',
   '左上角坐标': '影像最上一行、最左一列的起始位置，与像元大小一起决定每个格子的坐标；两行分别是西边界与北边界',
   '坐标系': '数据采用的坐标参考系统。投影坐标系给出投影方式与参数，地理坐标系给出椭球与基准面，两者共同决定坐标怎样落到真实地球上',
-  'EPSG': '坐标系在 EPSG 数据集里的统一编号（如 4326、4490）。与别的软件核对坐标系时，看编号最快也最不会认错',
+  'EPSG': '坐标系在 EPSG 数据集里的统一编号（如 4326、4490）。与别的软件核对坐标系时，看编号最快也最不会认错；下面这条链接可以直接到官网按编号查它的定义与适用范围',
   '类型': '坐标系的投影方式，常见有高斯-克吕格、横轴墨卡托、兰勃特圆锥等；不同投影对长度、角度、面积的变形规律不一样',
   '中心纬度': '投影原点的纬度（Latitude of Origin）。圆锥类投影以它为基准建立坐标原点，同一投影带内所有要素都参照它换算',
   '中央经线': '投影中央子午线的经度（Central Meridian）。离它越远的点角度变形越大；我国常见 3° 或 6° 分带，每带一条中央经线',
@@ -177,6 +177,18 @@ function tipBubble() {
 function showTipBox(anchor, text) {
   const box = tipBubble();
   box.textContent = text;
+  // 提示气泡里可以带一条外链：锚点给 data-tip-href，链接文案给 data-tip-link。
+  // target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走
+  const href = anchor.getAttribute('data-tip-href');
+  if (href) {
+    const a = document.createElement('a');
+    a.className = 'tip-link';
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noreferrer';
+    a.textContent = anchor.getAttribute('data-tip-link') || href;
+    box.appendChild(a);
+  }
   box.hidden = false;
   tipState.anchor = anchor;
   const r = anchor.getBoundingClientRect();
@@ -210,6 +222,10 @@ function hintIcon(label) {
   if (!tip) return null;
   const i = el('i', 'tip-ico');
   i.setAttribute('data-tip', tip);
+  if (label === 'EPSG') {
+    i.setAttribute('data-tip-href', 'https://epsg.org/');
+    i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
+  }
   i.innerHTML = HINT_ICO;
   return i;
 }
@@ -681,24 +697,76 @@ function railVector(rail, d) {
 }
 
 /* 混合几何类型的图层：各类型有多少个由引擎后台数（大文件要几秒），
-   数完只重画信息栏这一块，地图和别的行都不动 */
+   数完只改这一格文字，地图和别的行都不动。
+   统计期间每秒把秒数写出来——一直挂着"正在统计…"看不出它是在干活还是卡死了 */
 const geomTypeAsked = {};
+
+/* 右栏里按字段名找值那一格；找不到（已经重画或换了文件）返回 null */
+function railValueCell(key) {
+  const rows = document.querySelectorAll('#rail .rail-table tbody tr');
+  for (let i = 0; i < rows.length; i++) {
+    const k = rows[i].querySelector('.rail-k');
+    if (k && k.textContent.trim() === key) return rows[i].querySelector('td');
+  }
+  return null;
+}
+
+/* 几何统计要问的是"这个图层实际是从哪个文件读的"：
+   压缩包里的图层是 /vsizip/... 那种路径，普通文件就是文件本身；
+   顶层数据对象没有 target 字段，早先按 d.target 取，一直是 undefined，
+   于是这一行永远停在"正在统计…"——这就是它卡住的根因 */
+function geomTypesTarget(d) {
+  const layers = d.layers || [];
+  const layer = layers[d.layerIndex || 0] || layers[0] || {};
+  return layer.read_path || (d.file && d.file.path) || (current && current.path) || '';
+}
+
 function fillGeomTypes(primary) {
   const d = current && current.data;
-  if (!d || !d.target) return;
-  const key = d.target + '|' + (d.layerIndex || 0);
+  const target = d ? geomTypesTarget(d) : '';
+  if (!target) return;
+  const layerIndex = d.layerIndex || 0;
+  const key = target + '|' + layerIndex;
   if (geomTypeAsked[key]) return;
   geomTypeAsked[key] = 1;
-  fetch('/api/geomtypes?path=' + enc(d.target) + '&layer=' + (d.layerIndex || 0))
+  const started = Date.now();
+  /* 结果可能比右栏先到（缓存命中时几十毫秒就回来了），也可能晚到几秒。
+     所以两件事都要做：填字时找不到那一格就隔一会儿再试；统计期间每秒报一次秒数 */
+  const putText = (text) => {
+    let tries = 0;
+    const put = () => {
+      const cell = railValueCell('几何类型');
+      if (cell) { cell.textContent = text; return; }
+      if (tries++ < 30) setTimeout(put, 100);   // 最多等 3 秒，等右栏画出来
+    };
+    put();
+  };
+  const tick = setInterval(() => {
+    const cell = railValueCell('几何类型');
+    if (!cell) return;                          // 右栏还没画好，这一拍先跳过，别把钟停了
+    cell.textContent = '正在统计… ' + Math.round((Date.now() - started) / 1000) + ' 秒';
+  }, 1000);
+  fetch('/api/geomtypes?path=' + encodeURIComponent(target) + '&layer=' + layerIndex)
     .then((r) => r.json())
     .then((res) => {
-      const types = (res && res.ok && res.types) || [];
-      primary.geometry_counts_text = types.length
+      clearInterval(tick);
+      if (!res || !res.ok) {
+        delete geomTypeAsked[key];      // 允许下次重画再试
+        putText((res && res.error && res.error.title) || '统计没成功');
+        return;
+      }
+      const types = res.types || [];
+      const text = types.length
         ? types.map((t) => t.label + ' ' + num(t.count)).join(' · ')
         : '类型混合';
-      if (current && current.data === d) renderRail(d);
+      primary.geometry_counts_text = text;   // 重画右栏时直接复用，不再问一遍
+      putText(text);
     })
-    .catch(() => { delete geomTypeAsked[key]; });   // 这次没问成，下次重画再试
+    .catch(() => {
+      clearInterval(tick);
+      delete geomTypeAsked[key];
+      putText('统计没成功，重新打开这个文件再试');
+    });
 }
 
 function railTileset(rail, d) {
@@ -1994,6 +2062,10 @@ function wireChrome() {
   bar.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     if (e.target.closest('input, button, label, select, .combo, .no-drag')) return;
+    /* 顶栏空白处一按下，窗口就交给系统拖动循环了，这一下之后的 click 再也回不到页面，
+       所以浮窗只能在这里主动收掉，不能等外面的 document click */
+    hideRecent();
+    hidePickPop();
     const now = Date.now();
     if (now - barTap < 450) { barTap = 0; toShell('win:max'); return; }
     barTap = now;
@@ -2019,9 +2091,16 @@ function closeLayer() {
 
 /* ---------- 读取入口 ---------- */
 
+/* 浮窗停留多久由设置页决定（默认 5 秒）：错误卡片和地图上那条"已定位到…"共用同一个数 */
+function toastMs() {
+  const n = Number(config.toast_sec);
+  const sec = isFinite(n) && n > 0 ? Math.min(30, Math.max(1, Math.round(n))) : 5;
+  return sec * 1000;
+}
+
 /* 错误/警告浮层卡片：加载失败这类事都从这里报。
    它是浮层不是模态——不占版面，也不把正开着的图层清掉。
-   没有关闭按钮：点卡片本身就关，不点的话 12 秒后自己收走 */
+   没有关闭按钮：点卡片本身就关，不点的话到设定时间自己收走 */
 let errToastTimer = 0;
 
 function showErrToast(title, detail, hint) {
@@ -2039,7 +2118,7 @@ function showErrToast(title, detail, hint) {
   box.classList.add('pop');
   // 每次弹出来都把自动收走的钟重新拨一遍，新消息不会刚出现就被上一条的钟收走
   clearTimeout(errToastTimer);
-  errToastTimer = setTimeout(hideErrToast, 12000);
+  errToastTimer = setTimeout(hideErrToast, toastMs());
 }
 
 function hideErrToast() {
@@ -2110,6 +2189,14 @@ async function inspectPath(path) {
   }
   /* 已经开着图层时又拖进来一个读不出来的东西（比如文件夹）：
      浮层卡片说明原因，眼前这块原样留着，不能顺手把人正在看的东西清了 */
+  /* 最近打开里的路径可能已经不在（文件被移走、改名）：顺手从清单里删掉，
+     否则这一条以后每次点都会失败一次 */
+  if (!data.ok && (config.recent || []).indexOf(path) >= 0 &&
+      /找不到|不存在/.test((data.error && data.error.title) || '')) {
+    config.recent = config.recent.filter((x) => x !== path);
+    renderRecent();
+    commitConfig();
+  }
   if (!data.ok && hadLayer) {
     const err = data.error || {};
     loadTip(false);
@@ -2167,6 +2254,8 @@ const SETTING_TIPS = {
   cfgUnitLang: '量算结果与坐标读数使用的单位写法：符号（m、km）或中文（米、千米）',
   cfgZoom: '仅缩放界面文字与面板，地图画布不参与缩放，因此不影响坐标取点的精度',
   cfgAlpha: '浮在地图上的面板的不透明度；顶栏与右侧信息栏始终保持不透明',
+  cfgToastSec: '错误提示卡片与地图上那条"已定位到…"停留多久后自动收起；点一下卡片可以立即关掉',
+  cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。软件不记住系统上一次用过的目录，网络位置或几十万文件的目录会把对话框拖住',
   cfgCloseAct: '点击窗口右上角关闭按钮时的行为：收进托盘（任务栏不再保留按钮），或直接退出软件。收进托盘后可通过托盘图标或快捷键重新唤出',
   cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
@@ -2174,7 +2263,7 @@ const SETTING_TIPS = {
   cfgToken: '仅在检查更新时用于访问发布接口，不写入任何文件；软件未公开时无需填写',
   cfgRestore: '启动时自动打开上次查看的文件',
   cfgRecentMax: '顶栏路径框点开时，下拉列表里"最近打开"最多显示的条数',
-  cfgCache: '从别处拖进来的文件会先复制一份到此目录供读取，软件退出后自动删除；读取结果的缓存不在这个目录，固定存放于数据目录',
+  cfgCache: '从别处拖进来的文件会先复制一份到此目录供读取，软件退出后自动删除；读取结果的缓存不在这个目录，固定存放于系统的数据目录（设置页"数据缓存"气泡里写着真实路径）',
   cfgKeepHours: '软件异常退出时，临时副本保留的时长，超过后自动清理',
 };
 
@@ -2269,6 +2358,7 @@ function showRecent() {
   if (!pop || !input || !(config.recent || []).length) return;
   // 有弹窗开着就不凑热闹：这时候点不到路径框，别在弹窗后面露出一块列表
   if (!$('settings').hidden) return;
+  hidePickPop();
   const r = input.getBoundingClientRect();
   pop.style.left = Math.round(r.left) + 'px';
   pop.style.top = Math.round(r.bottom + 6) + 'px';
@@ -2290,6 +2380,7 @@ function showPickPop() {
   const pop = $('pickPop');
   const btn = $('filePickBtn');
   if (!pop || !btn) return;
+  hideRecent();
   pop.textContent = '';
   const mk = (label, note, action) => {
     const item = el('button');
@@ -2367,7 +2458,7 @@ function mapToast(text) {
   box.textContent = text;
   box.hidden = false;
   clearTimeout(box.__timer);
-  box.__timer = setTimeout(() => { box.hidden = true; }, 2200);
+  box.__timer = setTimeout(() => { box.hidden = true; }, toastMs());
 }
 
 async function uploadFiles(files) {
@@ -2447,16 +2538,23 @@ function paintThemeBtn() {
   btn.title = '当前主题：' + THEME_LABELS[mode] + '，点击切换';
 }
 
-/* 色带下拉里的预览条：端点颜色由引擎给一份，界面里不抄第二遍，
-   引擎改了配色这里跟着变，不会出现"预览是一个色、画出来是另一个色" */
+/* 色带下拉：整张清单由引擎给（20 条，含连续与分类），界面不维护第二份。
+   每条都带一条真实渐变，选中哪条，画出来就是哪条 */
 function paintRampSwatches(ramps) {
   const sel = $('cfgRamp');
-  if (!sel) return;
-  const by = {};
-  (ramps || []).forEach((r) => { if (r && r.value) by[r.value] = (r.colors || []).join(','); });
-  Array.prototype.forEach.call(sel.options, (o) => {
-    if (by[o.value]) o.setAttribute('data-grad', by[o.value]);
+  if (!sel || !ramps || !ramps.length) return;
+  const keep = sel.value || config.ramp;
+  sel.textContent = '';
+  ramps.forEach((r) => {
+    if (!r || !r.value) return;
+    const o = document.createElement('option');
+    o.value = r.value;
+    o.textContent = r.label || r.value;
+    o.setAttribute('data-grad', (r.colors || []).join(','));
+    sel.appendChild(o);
   });
+  sel.value = keep;
+  if (!sel.value) sel.value = ramps[0].value;
   if (window.syncSelect) window.syncSelect(sel);
 }
 
@@ -2478,6 +2576,9 @@ async function loadConfig() {
   applyLook();
   fillSettings();
   syncControls();
+  /* 最近打开必须在配置读回来之后画一次：初始化那时 config 还是空的，
+     早画一次的结果是空列表，之后没人再画，点开路径框就是一片空白 */
+  renderRecent();
   configLoaded = true;
   trySyncHotkey();
 }
@@ -2495,11 +2596,14 @@ function fillSettings() {
   $('cfgVectorColor').value = config.vector_color;
   $('cfgMaxFeatures').value = String(config.max_features || 500);
   $('cfgRestore').checked = !!config.restore_last;
+  $('cfgOpenDir').value = ['desktop', 'last', 'documents'].indexOf(config.open_dir) >= 0
+    ? config.open_dir : 'desktop';
   $('cfgRecentMax').value = String(recentMax());
   $('cfgCache').value = config.cache_dir || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
+  $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
   $('cfgCloseAct').value = config.close_act === 'exit' ? 'exit' : 'min';
   // 早先存过 "boot"（开机就查），这一版改成打开后延迟查，读到老值直接换算过去
@@ -2509,6 +2613,9 @@ function fillSettings() {
   paintHotkey2();
   $('cfgAutoStart').checked = host.autoStart === true;
   $('cfgDeskLnk').checked = host.deskLnk === true;
+  // 文件框的起始位置由壳执行，这里把当前设置同步过去（含首次加载）
+  toShell('opendir:' + (['desktop', 'last', 'documents'].indexOf(config.open_dir) >= 0
+    ? config.open_dir : 'desktop'));
   // 快捷键两行提示平时留空，只在改键过程中显示操作反馈
   $('hkHint').textContent = '';
   $('hk2Hint').textContent = '';
@@ -2536,12 +2643,14 @@ let cacheDirShown = '';
 
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
-  // 缓存目录补在"数据缓存"提示气泡的末尾，页面上不再单占一行小字
+  // 缓存目录补在"数据缓存"提示气泡的末尾，同时页面下方直接写一行真实路径
   if (cacheLab && cacheDirShown) {
     cacheLab.setAttribute('data-tip', SETTING_LABEL_TIPS['数据缓存'] +
       '当前缓存位置：' + cacheDirShown +
       '（想换位置，把整个软件的数据目录挪走即可，暂不在设置里开放）。');
   }
+  const where = $('cachePathHint');
+  if (where) where.textContent = cacheDirShown ? '缓存文件夹：' + cacheDirShown : '';
   const hint = $('cacheSizeHint');
   if (!hint) return;
   if (!info) { hint.textContent = '统计不了缓存占用'; return; }
@@ -2554,7 +2663,7 @@ function refreshCacheSize() {
   const hint = $('cacheSizeHint');
   if (hint) hint.textContent = '正在统计…';
   fetch('/api/cache').then((r) => r.json()).then((d) => {
-    if (d && d.ok) paintCacheSize(d.cache, d.data_dir);
+    if (d && d.ok) paintCacheSize(d.cache, d.cache_dir || d.data_dir);
     else paintCacheSize(null);
   }).catch(() => paintCacheSize(null));
 }
@@ -2918,7 +3027,11 @@ async function applySettings() {
   toShell('closeact:' + config.close_act);   // 关按钮的行为由壳执行，改完就告诉它
   config.upd_freq = $('cfgUpdFreq').value;
   config.restore_last = $('cfgRestore').checked;
+  config.open_dir = ['desktop', 'last', 'documents'].indexOf($('cfgOpenDir').value) >= 0
+    ? $('cfgOpenDir').value : 'desktop';
+  toShell('opendir:' + config.open_dir);     // 起始目录由壳执行，改完就告诉它
   config.recent_max = Number($('cfgRecentMax').value) || 5;
+  config.toast_sec = Number($('cfgToastSec').value) || 5;
   config.cache_dir = $('cfgCache').value.trim();
   config.keep_hours = Number($('cfgKeepHours').value);
   applyDataColor();
