@@ -3231,6 +3231,9 @@ function showSettingPane(sec) {
   document.querySelectorAll('#setBody .set-pane').forEach((p) => {
     p.hidden = p.getAttribute('data-sec') !== sec;
   });
+  // 换一屏就回到顶部：上一屏滚到一半的位置不该带到下一屏
+  const body = $('setBody');
+  if (body) body.scrollTop = 0;
 }
 
 function wireSettingNav() {
