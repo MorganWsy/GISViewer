@@ -1297,3 +1297,62 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 runtime 可跑，启动到界面出来约 0.7 s，无边框自绘标题栏。
 剩下两件：在没装过 Python/GDAL 的机器上验一次全流程、发布到仓库的 Releases。
 版本变更记录见 `CHANGELOG.md`。
+
+---
+
+## 11. 工程约定（2026-10-18 建立）
+
+0.12 打包之后补的一轮工程加固，不改任何功能行为。
+
+### 11.1 源码、样例、产物分三处
+
+| 位置 | 内容 | 进版本库 |
+|---|---|---|
+| `D:\GISViewer\` | 引擎 `gisviewer\`、前端 `web\`、原生壳 `src\` `shell\` `lib\`、脚本 `tools\`、测试 `tests\`、`build.ps1`、`PLAN.md`、`CHANGELOG.md` | 是 |
+| `D:\GISViewer\dist\` | 可运行产物 384 MB：`Tulan.exe` + `runtime\` + `web\` + `gisviewer\` | 否 |
+| `D:\GISViewer-data\samples\` | 用户提供的原始样例 9 项 351 MB | 否 |
+| `D:\GISViewer-build\archive\` | 各版本发布 zip（0.9~0.12）500 MB | 否 |
+
+`dist` 留在源码树里是有意的：桌面快捷方式「图览」和开机自启都指向 `D:\GISViewer\dist\Tulan.exe`，挪走等于让每天用的入口失效，收益抵不过代价。它靠 `.gitignore` 排除——ripgrep 认 ignore 文件，检索和 `git status` 都不会再碰上那 4253 个文件。真正该搬出去的是样例与存档，已经搬走。
+
+换盘符或换机器时设两个环境变量即可，脚本里没有第二份硬编码路径：`TULAN_DATA` 指向样例的上级目录，`TULAN_OUT` 指向存档的上级目录。
+
+### 11.2 版本控制
+
+- `git init -b main`，首次提交 `5da6ce9`「0.12 基线：源码定格，产物与样例数据移出源码树」，70 个文件 1.9 MB
+- 提交身份是仓库级的 `吴博士 <wenwen99@users.noreply.github.com>`，不动全局配置，可随时改
+- 被忽略的：`dist/`、`build/`、`archive/`、`samples/`、`tests/fixtures/`、`__pycache__/`、编辑器目录
+- `tests/fixtures/` 88 MB 是 `tests/make_fixtures.py` 生成得出来的，所以不入库；换机器先跑一次生成脚本
+
+### 11.3 回归：一条命令
+
+```powershell
+pwsh -File tools\regress.ps1
+```
+
+四节，全过 18 s 上下：
+
+| 节 | 做什么 | 失败意味着 |
+|---|---|---|
+| syntax | 22 个 Python 文件过 `compile()`，3 个前端 js 过 `node --check` | 语法改坏了 |
+| shell | `csc.exe` 把 `Shell.cs` + `Host.cs` 编到临时目录（不覆盖 `dist`） | 原生壳改坏了，打包必失败 |
+| sweep | `tests\sweep.py` 23 条用例：8 个真实样例、12 个固件、3 条应当友好失败 | 引擎读错、崩溃，或错误提示不友好 |
+| api | `tests\api_smoke.py` 14 项：起真服务、打 `/api/*`、看返回约定 | 接口层坏了 |
+
+- `-Only sweep` 只跑一节，`-Offline` 只做静态检查，`-SkipShell` 跳过 C# 编译
+- sweep 与 api 都在临时数据目录里跑，不碰用户设置与缓存，跑完自动删
+- 固件缺失时 sweep 直接提示先跑 `tests\make_fixtures.py`；样例缺失时提示设 `TULAN_DATA`
+- **不覆盖**：真窗口行为（托盘、全局热键、拖放、单实例、原生对话框）仍要人工验，`tools\*.mjs` 那套 CDP 脚本是给人用的，不进自动回归
+
+### 11.4 编码：`.ps1` 和 `.cs` 一律 UTF-8 带 BOM
+
+PowerShell 5.1 与 `csc.exe` 对无 BOM 的文件按系统 ANSI 代码页解释，中文全变乱码。本轮给 18 个脚本和 2 个 C# 源文件补齐了 BOM（`build.ps1` 原来就有）。Python 3 默认 UTF-8，不需要。新增脚本时务必带 BOM，否则只能在 PowerShell 7 下正常。
+
+### 11.5 构建
+
+```powershell
+pwsh -File build.ps1              # 只出 exe 与资源
+pwsh -File build.ps1 -Pack -Zip   # 一次出完整发布包
+```
+
+`-Pack` 现在真能跑：调 `tools\pack_runtime.ps1` 整份复制 conda 环境到 `dist\runtime`，再用包内解释器跑 `tools\check_runtime.py` 体检，不过就中止。此前它指向不存在的 `pack_env.ps1`（conda-pack 那条路早已废弃），属于死代码，本轮删掉。

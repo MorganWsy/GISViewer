@@ -1,4 +1,4 @@
-# 抓某个进程的窗口位图（PrintWindow + PW_RENDERFULLCONTENT，WebView2 的内容也抓得到）。
+﻿# 抓某个进程的窗口位图（PrintWindow + PW_RENDERFULLCONTENT，WebView2 的内容也抓得到）。
 # 用法：pwsh -File tools/grabwin.ps1 -Proc Tulan -Tag native
 # 探针图是排查用的临时产物，默认写到 %TEMP%，不往仓库里堆
 param(

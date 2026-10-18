@@ -1,4 +1,4 @@
-# 列出当前所有资源管理器窗口（类名 CabinetWClass）的标题与位置；可选先 /select 一个文件
+﻿# 列出当前所有资源管理器窗口（类名 CabinetWClass）的标题与位置；可选先 /select 一个文件
 # -Close：把标题含 -Title 的资源管理器窗口全关掉（堆积的旧窗口会让自动化点到错的地方）
 param([string]$Select = '', [string]$Close = '')
 if ($Close) {

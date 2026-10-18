@@ -1,4 +1,4 @@
-# 打印某个进程主窗口的位置与状态
+﻿# 打印某个进程主窗口的位置与状态
 param([string]$Proc = 'Tulan')
 Add-Type -TypeDefinition @"
 using System;

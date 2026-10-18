@@ -1,4 +1,4 @@
-# 列一下任务栏上现在有哪些按钮（走 UI 自动化，绕开 Win32 那套枚举不到的坑）。
+﻿# 列一下任务栏上现在有哪些按钮（走 UI 自动化，绕开 Win32 那套枚举不到的坑）。
 # 用 -Has 图览 判定某个窗口在不在任务栏上，收进托盘这类改动就有的可验。
 param([string]$Has = '')
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

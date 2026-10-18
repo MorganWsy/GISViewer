@@ -1,4 +1,4 @@
-// 图览 原生壳：WinForms 无边框窗口 + WebView2 内容 + Python 引擎子进程。
+﻿// 图览 原生壳：WinForms 无边框窗口 + WebView2 内容 + Python 引擎子进程。
 // 只有原生壳能拿到拖放文件和文件对话框的真实路径，网页版只能走上传，这是它存在的第一个理由。
 using System;
 using System.Collections.Generic;

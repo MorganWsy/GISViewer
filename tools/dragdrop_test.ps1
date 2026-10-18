@@ -1,4 +1,4 @@
-# 自动化拖放测试：把 tools\dropsrc.cs 编译出的源窗口作为拖放发起方，
+﻿# 自动化拖放测试：把 tools\dropsrc.cs 编译出的源窗口作为拖放发起方，
 # 用真实鼠标输入按下去、移过去、松开，验证目标窗口能不能收到文件拖放。
 # 用法：pwsh -File tools/dragdrop_test.ps1 -SrcPid 1234 -DstPid 5678
 param(

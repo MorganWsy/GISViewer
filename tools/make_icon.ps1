@@ -1,4 +1,4 @@
-# 从 logo.png 出一个四角透明的 tulan.ico。
+﻿# 从 logo.png 出一个四角透明的 tulan.ico。
 # 桌面快捷方式上显白角是原图的白色底：这里从四角往里灌水，只把外圈白底变透明，
 # 图形内部的白色（地球、放大镜的高光）不动。
 # 用法：pwsh -File tools/make_icon.ps1

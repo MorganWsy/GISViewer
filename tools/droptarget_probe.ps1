@@ -1,4 +1,4 @@
-# 拖放注册探针：把一个进程的窗口树列出来，并逐个查 OLE 拖放注册留下的窗口属性。
+﻿# 拖放注册探针：把一个进程的窗口树列出来，并逐个查 OLE 拖放注册留下的窗口属性。
 # RegisterDragDrop 会在目标窗口上留 "OleDropTargetInterface" 和 "OleDropTargetMarshaller"
 # 两个窗口属性，属性在不在就说明这块窗口上有没有接收器。
 # 用法：pwsh -File tools/droptarget_probe.ps1 -Proc Tulan

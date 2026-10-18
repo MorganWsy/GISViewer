@@ -1,4 +1,4 @@
-# 裸鼠标序列：在 A 点按下、移到 B 点停住、再移回 A 点松开。用来测接收层的轮询触发。
+﻿# 裸鼠标序列：在 A 点按下、移到 B 点停住、再移回 A 点松开。用来测接收层的轮询触发。
 # 用法：pwsh -File tools/rawmouse.ps1 -DownX 100 -DownY 100 -ToX 960 -ToY 471 [-HoldMs 1500]
 param(
   [int]$DownX = 100, [int]$DownY = 100,

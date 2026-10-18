@@ -1,4 +1,4 @@
-# 把开发用的 conda 环境做成免安装包里的 runtime。
+﻿# 把开发用的 conda 环境做成免安装包里的 runtime。
 # 直接整目录复制就能跑（python.exe 按自己所在位置找 prefix，GDAL/PROJ 路径由
 # gisviewer/bootstrap.py 从 sys.prefix 推），conda-pack 反而不是必需的。
 # 只把运行时用不上的东西剔掉：头文件、静态库、Perl/Tk 运行时、conda 元数据。

@@ -1,4 +1,4 @@
-# 把主窗口挪到副屏再最大化，看看它停在哪块屏、有没有滑出去
+﻿# 把主窗口挪到副屏再最大化，看看它停在哪块屏、有没有滑出去
 param([string]$Proc = 'Tulan', [int]$SecondaryX = 1920)
 Add-Type -TypeDefinition @"
 using System;

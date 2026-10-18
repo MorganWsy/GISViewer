@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Proc = "Tulan",
   [int]$Notches = 20,
   [double]$FracX = 0.5,
