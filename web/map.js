@@ -1082,6 +1082,8 @@
     let busy = false;
     measure.onclick = () => {
       if (busy) return;
+      /* 结果已经钉在弹窗里时再点一下就是收掉，不是重新算一遍 */
+      if (measureBox) { dropMeasure(); measureOn = false; syncMeasure(); return; }
       const p = onMeasure(getFeat() || {});
       if (!p || typeof p.then !== 'function') return;
       busy = true;
@@ -1097,10 +1099,12 @@
       const ok = fidOf(f) !== null && canMeasure(f.geometry);
       measure.disabled = busy || !ok;
       measure.classList.toggle('busy', busy);
-      measure.title = busy ? '正在计算…' : (!ok
-        ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
-        : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
-          ? '计算面积和周长' : '计算长度'));
+      measure.title = busy ? '正在计算…'
+        : (measureBox ? '收起量算结果'
+          : (!ok
+            ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
+            : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
+              ? '计算面积和周长' : '计算长度')));
     };
     if (total > 1) {
       let idx = 0;

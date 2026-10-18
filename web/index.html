@@ -13,6 +13,7 @@
   <img class="brand-logo logo-dark" src="/web/img/logo-dark.png" alt="">
   <div class="brand">
     <div class="brand-cn">图览</div>
+    <div class="brand-en">TULAN</div>
   </div>
   <!-- 这块空白就是窗口的标题栏：按住拖得动，双击最大化/还原，别放任何控件上去 -->
   <div class="bar-gap"></div>
@@ -375,10 +376,18 @@
       </section>
 
       <section class="set-pane" data-sec="sys" hidden>
+      <div class="field inline">
+        <label for="cfgAutoStart">开机自启动</label>
+        <input id="cfgAutoStart" type="checkbox">
+      </div>
+      <div class="field inline">
+        <label for="cfgDeskLnk">桌面快捷方式</label>
+        <input id="cfgDeskLnk" type="checkbox">
+      </div>
       <div class="field">
         <label for="cfgCloseAct">关闭按钮行为</label>
         <select id="cfgCloseAct">
-          <option value="min">收进托盘（任务栏不再留按钮）</option>
+          <option value="min">收进托盘</option>
           <option value="exit">直接退出软件</option>
         </select>
       </div>
@@ -389,48 +398,45 @@
             <tr>
               <td>唤出或收起窗口</td>
               <td class="k"><button id="hkBtn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+Alt+G</button></td>
-              <td class="act"><button id="hkReset" class="link-btn" type="button">恢复默认</button></td>
+              <td class="act"><button id="hkReset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>打开资源管理器中选中的文件</td>
               <td class="k"><button id="hk2Btn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+空格</button></td>
-              <td class="act"><button id="hk2Reset" class="link-btn" type="button">恢复默认</button></td>
+              <td class="act"><button id="hk2Reset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
-            <tr><td>收起提示、识别弹窗与属性表</td><td class="k">Esc</td><td></td></tr>
-            <tr><td>回到全图</td><td class="k">F</td><td></td></tr>
-            <tr><td>定位到属性表查找框</td><td class="k">Ctrl+F</td><td></td></tr>
+            <tr>
+              <td>收起提示、识别弹窗与属性表</td>
+              <td class="k"><button id="pageKeyClose" class="key-chip" type="button" title="点击后按下新的组合键">Esc</button></td>
+              <td class="act"><button id="pageKeyCloseReset" class="mini-btn" type="button">恢复默认</button></td>
+            </tr>
+            <tr>
+              <td>回到全图</td>
+              <td class="k"><button id="pageKeyFit" class="key-chip" type="button" title="点击后按下新的组合键">F</button></td>
+              <td class="act"><button id="pageKeyFitReset" class="mini-btn" type="button">恢复默认</button></td>
+            </tr>
+            <tr>
+              <td>定位到属性表查找框</td>
+              <td class="k"><button id="pageKeyFind" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+F</button></td>
+              <td class="act"><button id="pageKeyFindReset" class="mini-btn" type="button">恢复默认</button></td>
+            </tr>
             <tr><td>路径框回车：打开文件或按坐标定位</td><td class="k">Enter</td><td></td></tr>
           </tbody>
         </table>
         <p class="hint" id="hkHint"></p>
         <p class="hint" id="hk2Hint"></p>
       </div>
-      <div class="field inline">
-        <label for="cfgAutoStart">开机自启动</label>
-        <input id="cfgAutoStart" type="checkbox">
-      </div>
-      <div class="field inline">
-        <label for="cfgDeskLnk">桌面快捷方式</label>
-        <input id="cfgDeskLnk" type="checkbox">
-      </div>
       <p class="hint" id="sysHint"></p>
       </section>
 
       <section class="set-pane" data-sec="about" hidden>
-      <div class="field">
+      <div class="field inline">
         <label>版本</label>
-        <div class="kv-row">
-          <span id="aboutVer">图览</span>
-          <span class="hint" id="aboutNote">本地单文件预览工具，不联网也能用</span>
-        </div>
+        <span class="ver-num" id="aboutVer">v0.12</span>
       </div>
-      <div class="field">
+      <div class="field inline">
         <label>项目仓库</label>
-        <div class="kv-row">
-          <span class="mono">MorganWsy/GISViewer</span>
-          <button id="repoOpen" class="btn ghost" type="button">在浏览器打开</button>
-        </div>
-        <p class="hint">私有仓库：自动检查更新需要下面的访问码</p>
+        <a class="repo-link" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer">github.com/MorganWsy/GISViewer</a>
       </div>
       <div class="field">
         <label for="cfgUpdFreq">检查更新</label>
@@ -442,16 +448,184 @@
             <option value="week">每周</option>
             <option value="month">每月</option>
           </select>
-          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
+          <button id="updBtn" class="icon-btn2" type="button" title="现在检查">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a8 8 0 1 0-2.2 6"/><path d="M20 5v6.5h-6.5"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="about-note">
+        <p>图览是一个本地数据体检工具：把 Shapefile、GeoJSON、GeoTIFF、DWG 这类文件拖进来，快速看清坐标系、字段和几何质量，不做编辑、不做符号化。数据只在本机读取，不联网上传。</p>
+        <p class="copyright">版权所有 © 2026 MorganWsy</p>
+      </div>
+      <p class="hint" id="updHint"></p>
+      <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
+      </section>
+
+      <section class="set-pane" data-sec="render" hidden>
+      <div class="field">
+        <label for="cfgRamp">色带</label>
+        <select id="cfgRamp">
+          <option value="viridis">青绿渐变（默认）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgClassCount">分级级数</label>
+        <select id="cfgClassCount">
+          <option value="3">3 级</option>
+          <option value="4">4 级</option>
+          <option value="5">5 级（默认）</option>
+          <option value="6">6 级</option>
+          <option value="7">7 级</option>
+          <option value="8">8 级</option>
+          <option value="9">9 级</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgNodata">无数据像元</label>
+        <select id="cfgNodata">
+          <option value="transparent">透出底图（默认）</option>
+          <option value="black">涂黑</option>
+          <option value="white">涂白</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgRasterDefault">多波段默认显示</label>
+        <select id="cfgRasterDefault">
+          <option value="composite">前三个波段合成（默认）</option>
+          <option value="single">第一个波段，单色分级</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgVectorColor">要素颜色</label>
+        <div class="color-row">
+          <select id="cfgVectorColor">
+            <option value="#d9781f">橙（默认）</option>
+            <option value="#e6b23a">明黄</option>
+            <option value="#1fb6c9">青</option>
+            <option value="#3fae5a">草绿</option>
+            <option value="#e0479c">品红</option>
+          </select>
+          <i id="cfgColorSwatch" class="swatch"></i>
         </div>
       </div>
       <div class="field">
-        <label for="cfgToken">访问码</label>
-        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false" placeholder="私有仓库的 GitHub 令牌，只存在本机配置里">
+        <label for="cfgMaxFeatures">属性表每批条数</label>
+        <select id="cfgMaxFeatures">
+          <option value="200">200 条</option>
+          <option value="500">500 条（默认）</option>
+          <option value="2000">2000 条</option>
+          <option value="20000">20000 条（大图层会慢）</option>
+        </select>
       </div>
-      <p class="hint" id="updHint">还没有检查过</p>
-      <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
       </section>
+
+      <section class="set-pane" data-sec="look" hidden>
+      <div class="field">
+        <label for="cfgTheme">主题</label>
+        <select id="cfgTheme">
+          <option value="auto">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgFontUi">界面字体</label>
+        <select id="cfgFontUi"></select>
+      </div>
+      <div class="field">
+        <label for="cfgFontNum">数字与英文字体</label>
+        <select id="cfgFontNum"></select>
+      </div>
+      <div class="field">
+        <label for="cfgUnitLang">单位显示</label>
+        <select id="cfgUnitLang">
+          <option value="en">英文（m、km、°）</option>
+          <option value="zh">中文（米、千米、度）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgZoom">界面字号</label>
+        <select id="cfgZoom">
+          <option value="90">90%（紧凑）</option>
+          <option value="100">100%（默认）</option>
+          <option value="110">110%</option>
+          <option value="120">120%</option>
+          <option value="130">130%（费眼）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgAlpha">面板不透明度</label>
+        <div class="range-row">
+          <input id="cfgAlpha" type="range" min="60" max="100" step="1" value="93">
+          <output id="cfgAlphaOut" for="cfgAlpha">93%</output>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgToastSec">浮窗停留时间</label>
+        <select id="cfgToastSec">
+          <option value="3">3 秒</option>
+          <option value="5">5 秒（默认）</option>
+          <option value="8">8 秒</option>
+          <option value="12">12 秒</option>
+          <option value="20">20 秒</option>
+        </select>
+      </div>
+      </section>
+
+      <section class="set-pane" data-sec="file" hidden>
+      <div class="field">
+        <label for="cfgOpenDir">文件框起始目录</label>
+        <div class="icon-row">
+          <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空则用上次打开文件所在的文件夹">
+          <button id="cfgOpenDirPick" class="icon-btn" type="button" title="选择一个固定目录">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="field inline">
+        <label for="cfgRestore">启动时恢复上次文件</label>
+        <input id="cfgRestore" type="checkbox">
+      </div>
+      <div class="field">
+        <label for="cfgRecentMax">最近打开条数</label>
+        <select id="cfgRecentMax">
+          <option value="3">3 条</option>
+          <option value="5">5 条（默认）</option>
+          <option value="8">8 条</option>
+          <option value="12">12 条</option>
+          <option value="20">20 条</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgCache">副本存放位置</label>
+        <input id="cfgCache" type="text" spellcheck="false" placeholder="留空则用系统临时目录">
+        <p class="hint" id="cfgCacheHint"></p>
+      </div>
+      <div class="field">
+        <label for="cfgKeepHours">副本保留时长</label>
+        <select id="cfgKeepHours">
+          <option value="12">12 小时（默认）</option>
+          <option value="24">1 天</option>
+          <option value="72">3 天</option>
+          <option value="168">7 天</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cachePath">缓存位置</label>
+        <div class="icon-row">
+          <input id="cachePath" type="text" readonly value="">
+          <button id="cachePathOpen" class="icon-btn" type="button" title="打开缓存文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          </button>
+        </div>
+        <div class="upd-row">
+          <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
+          <span class="hint" id="cacheSizeHint">正在统计…</span>
+        </div>
+      </div>
+      </section>
+
+
 
       </div>
     </div>

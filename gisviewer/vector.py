@@ -3,7 +3,9 @@
 import functools
 import json
 import os
+import re
 import threading
+from pathlib import Path
 
 from . import bootstrap
 from . import dwg as _dwg
@@ -170,30 +172,32 @@ def _sample_geom_types(lyr, limit=GEOM_SAMPLE):
     }
 
 
-def _layer_info(lyr, index, fallback_epsg=None):
+def _layer_info(lyr, index, fallback_epsg=None, quick=False):
     defn = lyr.GetLayerDefn()
     geom_code = int(lyr.GetGeomType())
     base, dims = _split_geom_code(geom_code)
     name = lyr.GetName()
+    # 个数和范围都要把文件从头读到尾，quick 模式直接跳过（页面上先显示"统计中"）
     count = None
-    try:
-        count = int(lyr.GetFeatureCount())
-        if count < 0:
-            count = None
-    except Exception:
-        count = None
-
     ext = None
-    try:
-        raw = lyr.GetExtent()
-        ext = [round(float(v), 6) for v in raw]
-        if any(abs(v) > 1e12 for v in ext):
-            raise ValueError("extent 未初始化")
-    except Exception:
+    if not quick:
         try:
-            ext = [round(float(v), 6) for v in lyr.GetExtent(force=1)]
+            count = int(lyr.GetFeatureCount())
+            if count < 0:
+                count = None
         except Exception:
-            ext = None
+            count = None
+
+        try:
+            raw = lyr.GetExtent()
+            ext = [round(float(v), 6) for v in raw]
+            if any(abs(v) > 1e12 for v in ext):
+                raise ValueError("extent 未初始化")
+        except Exception:
+            try:
+                ext = [round(float(v), 6) for v in lyr.GetExtent(force=1)]
+            except Exception:
+                ext = None
 
     srs = lyr.GetSpatialRef()
     wkt = srs.ExportToWkt() if srs else ""
@@ -248,7 +252,7 @@ def _layer_info(lyr, index, fallback_epsg=None):
 
     info["fields"] = _field_defs(defn, samples)
 
-    if base == 0 and count:
+    if base == 0 and count and not quick:
         info["geometry_sampling"] = _sample_geom_types(lyr)
 
     for cap, key in (
@@ -267,7 +271,12 @@ def _layer_info(lyr, index, fallback_epsg=None):
 
 
 @_serialized
-def inspect(target):
+def inspect(target, quick=False):
+    """quick=True 时跳过要素个数与范围这两步全文件扫描。
+
+    十万级 GeoJSON 光这两步就要三秒多，而打开文件的第一屏最要紧的是
+    "这是个什么文件、有哪些字段"——个数和范围等取数回来再补（要素个数
+    取数接口本来就带，范围用已绘制要素的）。quick 的结果单独缓存。"""
     if str(target).lower().endswith((".osm", ".osm.pbf", ".pbf")):
         # OSM 提取文件常不按节点编号排序，自定义索引会让 points 等图层直接读不出
         gdal.SetConfigOption("OSM_USE_CUSTOM_INDEXING", "NO")
@@ -284,13 +293,14 @@ def inspect(target):
         if lyr is None:
             continue
         try:
-            layers.append(_layer_info(lyr, i, fallback))
+            layers.append(_layer_info(lyr, i, fallback, quick=quick))
         except Exception as exc:
             layers.append({"index": i, "name": lyr.GetName(),
                            "error": labels.friendly_error(exc)[:200]})
 
     info = {
         "kind": "vector",
+        "quick": bool(quick),
         "driver": driver,
         "driver_label": labels.driver(driver),
         "driver_long": ds.GetDriver().LongName,
@@ -807,3 +817,139 @@ def column_values(target, layer_index, field, limit=200000):
             v = "<二进制>"
         values.append(v)
     return {"field": field, "values": values, "total": len(values), "limit": limit}
+
+# ---------- 大 GeoJSON 的快速元数据：不走 GDAL，只解析文件头部 ----------
+# GDAL 的 GeoJSON 驱动在 ogr.Open 时就把整份文档读完（132 MB 要三秒多），
+# 而"先把元数据亮出来"只需要 type、crs 和第一个要素。头部里没有完整要素时退回完整检查。
+_GEOJSON_HEAD_BYTES = 512 * 1024
+_GEOJSON_MIN_BYTES = 256 * 1024
+_GEOJSON_WKB = {  # GeoJSON 类型名 → OGR 几何类型码（_geom_name/_split_geom_code 吃这个）
+    "Point": 1, "LineString": 2, "Polygon": 3, "MultiPoint": 4,
+    "MultiLineString": 5, "MultiPolygon": 6, "GeometryCollection": 7,
+}
+
+
+def _balanced_json(text, start):
+    """从 start 的 '{' 起截出一个配平的 JSON 对象，截不出来返回 None。"""
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, min(len(text), start + 256 * 1024)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def quick_geojson(target):
+    """大 GeoJSON 的快速检查：只读文件头。
+
+    返回 None 表示"头部看不出来，请走完整检查"——文件太小、结构不是
+    FeatureCollection、头部里截不出一个完整要素，都属于这种情况。
+    """
+    try:
+        size = os.path.getsize(target)
+        if size < _GEOJSON_MIN_BYTES:
+            return None
+        with open(target, "rb") as fh:
+            head = fh.read(_GEOJSON_HEAD_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return None
+    if '"type"' not in head or '"Topology"' in head[:200]:
+        return None
+    m = re.search(r'"type"\s*:\s*"FeatureCollection"', head)
+    if not m:
+        return None
+    # 第一个完整要素：定位 "features": [ 之后的第一个对象
+    fm = re.search(r'"features"\s*:\s*\[\s*\{', head)
+    if not fm:
+        return None
+    raw = _balanced_json(head, fm.end() - 1)
+    if not raw:
+        return None
+    try:
+        feat = json.loads(raw)
+    except ValueError:
+        return None
+    props = feat.get("properties") or {}
+    if not isinstance(props, dict):
+        props = {}
+    geom = feat.get("geometry") or {}
+    gname = str(geom.get("type") or "")
+    code = _GEOJSON_WKB.get(gname)
+    if code is None:
+        return None
+    base, dims = _split_geom_code(code)
+
+    fields = []
+    for i, (name, value) in enumerate(props.items()):
+        if isinstance(value, bool):
+            ftype = "Integer"
+        elif isinstance(value, (int, float)):
+            ftype = "Real" if isinstance(value, float) else "Integer64"
+        else:
+            ftype = "String"
+        fields.append({
+            "index": i, "name": name, "type": ftype,
+            "type_label": labels.field_type(ftype),
+            "subtype": None, "width": 0, "precision": 0, "nullable": True,
+            "samples": [], "guess": True,   # 类型是从首要素的值猜的，完整检查会校正
+        })
+
+    # GeoJSON 规范（RFC 7946）坐标就是 WGS 84 经纬度；老文件可能带 crs 块，
+    # 快速检查不解析它，统一按规范默认值给，完整检查会把准确的带回来
+    crs = describe(_wgs84().ExportToWkt())
+    crs["note"] = "快速读取按 GeoJSON 规范默认 WGS 84 经纬度，完整检查在后头"
+
+    layer = {
+        "index": 0,
+        "name": Path(target).stem,
+        "feature_count": None,
+        "geometry_type_code": code,
+        "geometry_type": _geom_name(base),
+        "geometry_type_label": geom_type_label(code),
+        "geometry_is_mixed": False,
+        "geometry_column": None,
+        "has_geometry": gname != "None",
+        "dimensions": " ".join(dims),
+        "has_z": "含 Z 值" in dims,
+        "has_m": "含 M 值" in dims,
+        "crs": crs,
+        "extent": None,
+        "extent_wgs84": None,
+        "field_count": len(fields),
+        "fields": fields,
+        "fid_column": None,
+        "style": None,
+        "metadata": {},
+        "capabilities": {},
+        "geometry_sampling": None,
+        "quick": True,
+    }
+    return {
+        "kind": "vector",
+        "quick": True,
+        "driver": "GeoJSON",
+        "driver_label": labels.driver("GeoJSON"),
+        "driver_long": "GeoJSON",
+        "layer_count": 1,
+        "layers": [layer],
+        "dataset_metadata": {},
+        "subdatasets": [],
+        "feature_count_total": 0,
+        "multi_layer": False,
+    }

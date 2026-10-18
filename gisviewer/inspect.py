@@ -349,7 +349,7 @@ def _dwg_fallback(path, cause, compute_stats, histograms):
     return info
 
 
-def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True):
+def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=False):
     started = time.perf_counter()
     path = _clean_input(raw)
     if _is_vsi(path):
@@ -365,7 +365,7 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True):
 
     if os.path.isdir(path):
         if ext == ".gdb":
-            result.update(vector.inspect(path))
+            result.update(vector.inspect(path, quick=quick))
         elif ext == ".zarr":
             result.update(_inspect_target(path, compute_stats=compute_stats,
                                           histograms=histograms))
@@ -436,8 +436,16 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True):
         raise InspectError(f"暂不支持 {ext} 压缩包", hint="请先解压成文件夹，再拖入里面的文件。")
 
     if ext in JSON_EXT:
+        # 大 GeoJSON 走头部快查：GDAL 的驱动在 Open 时就读完整份文档，
+        # 而第一屏要的只是"这是什么、有哪些字段"。头部看不出来再走完整检查
+        if quick:
+            fast = vector.quick_geojson(path)
+            if fast:
+                result.update(fast)
+                result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+                return result
         try:
-            result.update(vector.inspect(path))
+            result.update(vector.inspect(path, quick=quick))
         except Exception:
             result.update(_json_sniff(path))
         result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)

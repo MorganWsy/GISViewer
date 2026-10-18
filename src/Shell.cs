@@ -385,6 +385,14 @@ namespace GISViewer
                 // 构造时设是白设（文档里那句 "CoreWebView2 没初始化时返回 false" 说的就是这个）
                 _web.AllowExternalDrop = false;
                 core.NewWindowRequested += (s, ev) => { ev.Handled = true; OpenExternal(ev.Uri); };
+                core.PermissionRequested += (s, ev) =>
+                {
+                    /* 网页复制走异步剪贴板 API 时 WebView2 会弹"允许访问剪贴板吗"，
+                       每次复制都问一次没法接受。界面是我们自己的、也不加载第三方页面，
+                       权限请求一律放行（剪贴板在不同运行时版本里的枚举名还不一样，索性不挑） */
+                    ev.Handled = true;
+                    ev.State = CoreWebView2PermissionState.Allow;
+                };
                 core.WebMessageReceived += (s, ev) =>
                 {
                     string msg;
@@ -1026,10 +1034,10 @@ namespace GISViewer
             string current = UpdateCheck.Current();
             if (string.IsNullOrEmpty(token))
             {
-                /* 仓库是私有的：不带访问码去问 GitHub 只会得到 404，
-                   不如把话说清楚，省得看到一句"连不上"以为是网络问题 */
+                /* 仓库是私有的：不带访问码去问 GitHub 只会得到 404。
+                   发布由仓库主人自己做，这里把话说清楚，不当成网络故障 */
                 BeginInvoke((Action)(() => Push("update",
-                    "{error:" + Json("私有仓库需要访问码：填在下面的输入框里再检查一次") +
+                    "{error:" + Json("现在检查不到更新：仓库还是私有，或还没有发布版本") +
                     ",current:" + Json(current) + "}")));
                 return;
             }

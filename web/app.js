@@ -36,6 +36,7 @@ let config = {
   ramp: 'viridis', class_count: 5, nodata_view: 'transparent', raster_default: 'composite',
   vector_color: '#d9781f', max_features: 500, restore_last: false, cache_dir: '', keep_hours: 12,
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
+  key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F',
   hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32,
   upd_freq: 'open', close_act: 'min', recent: [], recent_max: 5,
 };
@@ -88,6 +89,8 @@ function bytes(size) {
 }
 
 function count(n) {
+  /* null/undefined 是"还没有数字"（快速打开时后台在补），不能当成 0 */
+  if (n === null || n === undefined || n === '') return null;
   const v = Number(n);
   if (!Number.isFinite(v)) return null;
   if (v >= 1e8) return (v / 1e8).toFixed(2) + ' 亿';
@@ -244,24 +247,16 @@ document.addEventListener('mouseout', (e) => {
 });
 window.addEventListener('scroll', hideTipBox, true);
 
-/* host 给了就把提示挂在整个格子上：鼠标放在文字上也能出气泡，
-   只认那枚小图标的话，从图标滑到文字上气泡就没了 */
-function hintIcon(label, host) {
+/* 提示只挂在 i 图标上：别的页面hover到图标才出气泡（属性表表头例外，
+   那里的 data-tip 直接挂在 th 上，整格都能触发）。箭头对准图标中心 */
+function hintIcon(label) {
   const tip = FIELD_TIPS[label];
   if (!tip) return null;
-  const anchor = host || null;
-  if (anchor) anchor.setAttribute('data-tip', tip);
-  if (anchor && label === 'EPSG') {
-    anchor.setAttribute('data-tip-href', 'https://epsg.org/');
-    anchor.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
-  }
   const i = el('i', 'tip-ico');
-  if (!anchor) {
-    i.setAttribute('data-tip', tip);
-    if (label === 'EPSG') {
-      i.setAttribute('data-tip-href', 'https://epsg.org/');
-      i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
-    }
+  i.setAttribute('data-tip', tip);
+  if (label === 'EPSG') {
+    i.setAttribute('data-tip-href', 'https://epsg.org/');
+    i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
   }
   i.innerHTML = HINT_ICO;
   return i;
@@ -330,7 +325,7 @@ function newRail() {
           const tr = el('tr');
           const th = el('th');
           th.appendChild(el('span', 'rail-k', it.k));
-          const ico = hintIcon(it.k, th);
+          const ico = hintIcon(it.k);
           if (ico) th.appendChild(ico);
           tr.appendChild(th);
           if (it.busy) {
@@ -556,7 +551,7 @@ function gridTable(headers, rows, cls) {
   headers.forEach((t) => {
     const th = el('th');
     th.appendChild(el('span', null, t));
-    const ico = hintIcon(t, th);
+    const ico = hintIcon(t);
     if (ico) th.appendChild(ico);
     hr.appendChild(th);
   });
@@ -713,10 +708,12 @@ function railVector(rail, d) {
         (primary.geometry_type ? '（' + primary.geometry_type + '）' : ''));
     }
   }
-  rail.row('要素数', count(primary.feature_count));
+  rail.row('要素数', count(primary.feature_count) ||
+    (primary.quick ? '统计中…（后台补齐）' : null));
   rail.row('Z 值坐标', primary.has_z ? '有' : '无');
   rail.row('M 值坐标', primary.has_m ? '有' : '无');
   rail.many(extentRows(primary.extent, primary.extent_wgs84, (primary.crs || {}).unit_label));
+  if (primary.quick && !primary.extent) rail.row('范围', '统计中…（后台补齐）');
 
   rail.sec('坐标');
   rail.many(crsRows(primary.crs || {}));
@@ -1820,7 +1817,8 @@ function wireQuickKeys() {
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     const typing = !!(t && t.closest && t.closest('input, textarea, select, .combo'));
-    if (e.key === 'Escape') {
+    const combo = comboOf(e);
+    if (combo && combo === keyOf('key_close')) {
       if (!$('recentPop').hidden) { hideRecent(); return; }
       if (!$('pickPop').hidden) { hidePickPop(); return; }
       if (!$('layerPop').hidden) { hideLayerPop(); return; }
@@ -1832,7 +1830,7 @@ function wireQuickKeys() {
       if (attrOpen()) { closeAttr(); return; }
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+    if (combo && combo === keyOf('key_find')) {
       e.preventDefault();
       if (!attrOpen()) { attrAuto = false; toggleAttr(); }
       const box = $('attrFind');
@@ -1840,7 +1838,7 @@ function wireQuickKeys() {
       return;
     }
     if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'f' || e.key === 'F') {
+    if (combo && combo === keyOf('key_fit')) {
       if (window.GisMap && GisMap.hasLayer && GisMap.hasLayer()) GisMap.fullExtent();
     }
   });
@@ -2248,7 +2246,7 @@ async function inspectPath(path) {
     const res = await fetch('/api/path', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
+      body: JSON.stringify({ path, fast: true }),   // 先立界面，个数范围后台补
     });
     data = await res.json();
   } catch (err) {
@@ -2346,13 +2344,10 @@ const SETTING_LABEL_TIPS = {
 function mountSettingTips() {
   const root = $('settings');
   if (!root) return;
-  /* 提示挂在整条标签上，不是只挂在那枚 13 像素的小图标上——
-     鼠标划到标签文字上就能出气泡，不用瞄准图标 */
   const put = (lab, tip) => {
     if (!lab || !tip || lab.querySelector('.tip-ico')) return;
-    lab.setAttribute('data-tip', tip);
-    lab.classList.add('has-tip');
     const i = el('i', 'tip-ico');
+    i.setAttribute('data-tip', tip);
     i.innerHTML = HINT_ICO;
     lab.appendChild(i);
   };
@@ -2674,7 +2669,7 @@ function fillSettings() {
   $('cfgAlpha').value = String(config.panel_alpha || 93);
   $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
   $('cfgTheme').value = ['auto', 'light', 'dark'].indexOf(config.theme) >= 0 ? config.theme : 'auto';
-  $('aboutVer').textContent = (document.title || '图览').replace('图览', '').trim() || '0.1';
+  $('aboutVer').textContent = 'v' + ((document.title || '图览').replace('图览', '').trim() || '0.1');
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
   $('cfgCloseAct').value = config.close_act === 'exit' ? 'exit' : 'min';
@@ -2931,7 +2926,70 @@ function trySyncHotkey() {
   }
 }
 
+/* ---------- 页内快捷键（Esc / F / Ctrl+F 这类不经过系统注册的） ---------- */
+const PAGE_KEY_DEFAULTS = { key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F' };
+let keyArming = null;   // 正在等用户按键的那一行：'Close' | 'Fit' | 'Find'
+
+/* 把键盘事件换算成配置里的写法：Ctrl+F、F、Esc、Space……
+   单个字符一律大写，Shift 只在按键本身带名字时才写出来（Shift+f 就是 F） */
+function comboOf(e) {
+  let key = String(e.key || '');
+  if (key === ' ') key = 'Space';
+  else if (key === 'Escape') key = 'Esc';
+  else if (key.length === 1) key = key.toUpperCase();
+  const parts = [];
+  if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
+  if (e.altKey) parts.push('Alt');
+  if (e.shiftKey && key.length > 1) parts.push('Shift');
+  parts.push(key);
+  return parts.join('+');
+}
+
+/* 空串表示停用这个快捷键 */
+function keyOf(name) {
+  return config[name] == null ? '' : String(config[name]);
+}
+
+function paintPageKeys() {
+  const map = { pageKeyClose: 'key_close', pageKeyFit: 'key_fit', pageKeyFind: 'key_find' };
+  Object.keys(map).forEach((id) => {
+    const btn = $(id);
+    if (!btn || keyArming === id.slice(7)) return;
+    btn.textContent = keyOf(map[id]) || '停用';
+    btn.title = keyOf(map[id]) ? '点击后按下新的组合键' : '当前停用，点击设置';
+  });
+}
+
+function armPageKey(name) {
+  if (keyArming === name) { settlePageKey(); return; }
+  settlePageKey();
+  keyArming = name;
+  const btn = $('pageKey' + name);
+  if (btn) { btn.classList.add('arming'); btn.textContent = '按下组合键…'; }
+}
+
+function settlePageKey() {
+  if (!keyArming) return;
+  keyArming = null;
+  paintPageKeys();
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!keyArming) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === 'Escape') { settlePageKey(); return; }   // Esc 只用来取消，不当成新键
+  const combo = comboOf(e);
+  if (combo === 'Ctrl' || combo === 'Alt' || combo === 'Shift' || combo === 'Ctrl+Alt') return;
+  const map = { Close: 'key_close', Fit: 'key_fit', Find: 'key_find' };
+  config[map[keyArming]] = combo;
+  commitConfig();
+  settlePageKey();
+}, true);
+
 function paintHotkey() {
+
+
   const btn = $('hkBtn');
   if (!btn || arming) return;
   const txt = host.hotkey || hkText(config.hk_mods, config.hk_vk) || 'Ctrl+Alt+G';
@@ -3079,11 +3137,7 @@ function maybeCheckUpdate() {
   const days = { '3d': 3, week: 7, month: 30 }[freq];
   const last = Number(localStorage.getItem('gisviewer.upd_last') || 0);
   if (days && Date.now() - last < days * 86400000) return;
-  // 自动检查只在填了访问码时才发：仓库是私有的，没码必然 404，白发一趟
-  setTimeout(() => {
-    const tk = $('cfgToken') ? $('cfgToken').value.trim() : '';
-    if (tk) toShell('upd:' + tk);
-  }, 14000);
+  setTimeout(() => toShell('upd:'), 14000);
 }
 
 /* 设置改一处生效一处，没有"保存"这一步；落盘跟在每次改动后面 */
@@ -3355,9 +3409,22 @@ function init() {
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => toShell('pickdir'));
   wireSettingNav();
+  // 页内快捷键：点键帽进入捕获状态，恢复默认写回出厂组合
+  ['Close', 'Fit', 'Find'].forEach((name) => {
+    const btn = $('pageKey' + name);
+    if (btn) btn.addEventListener('click', () => armPageKey(name));
+    const rst = $('pageKey' + name + 'Reset');
+    if (rst) rst.addEventListener('click', () => {
+      const map = { Close: 'key_close', Fit: 'key_fit', Find: 'key_find' };
+      config[map[name]] = PAGE_KEY_DEFAULTS[map[name]];
+      commitConfig();
+      paintPageKeys();
+    });
+  });
+  paintPageKeys();
   /* 没有保存按钮：改一下生效一下。令牌那一栏不落盘，所以不参与 */
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
-    if (node.id === 'cfgToken' || node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
+    if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
     node.addEventListener('change', applySettings);
   });
   $('cfgVectorColor').addEventListener('change', () => {
@@ -3373,10 +3440,6 @@ function init() {
     config.panel_alpha = Number($('cfgAlpha').value);
     applyLook();
   });
-  // 关于页：仓库用系统浏览器打开（target=_blank 走壳里的 NewWindowRequested）
-  $('repoOpen').addEventListener('click', () => {
-    window.open('https://github.com/MorganWsy/GISViewer', '_blank');
-  });
   $('hkBtn').addEventListener('click', armHotkey);
   $('hkReset').addEventListener('click', () => { settleHotkey(); applyHotkeyChoice(3, 71); });
   $('hk2Btn').addEventListener('click', armHotkey2);
@@ -3391,7 +3454,7 @@ function init() {
   $('updBtn').addEventListener('click', () => {
     $('updHint').textContent = '正在问发布页…';
     $('updOpen').hidden = true;
-    toShell('upd:' + ($('cfgToken') ? $('cfgToken').value.trim() : ''));
+    toShell('upd:');
   });
   $('keyPeek').addEventListener('click', () => {
     const box = $('cfgKey');
@@ -3460,6 +3523,28 @@ function init() {
       showAttr(true);
       refreshAttr();
     }
+    /* 快速打开的矢量：个数先用取数结果补上；
+       范围和混合类型的明细需要整份扫描，等画完再补一次全量检查 */
+    const qd = current && current.data;
+    if (!qd || !qd.quick || !e.detail) return;
+    const qL = (qd.layers || [])[qd.layerIndex || 0];
+    if (qL && qL.feature_count == null && e.detail.total != null) {
+      qL.feature_count = e.detail.total;
+      if (current.data === qd) renderRail(qd);
+    }
+    if (qd.fullAsked) return;
+    qd.fullAsked = 1;
+    fetch('/api/path', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: (qd.file && qd.file.path) || current.path, fast: false }),
+    }).then((r) => r.json()).then((full) => {
+      // 期间换了文件就别再动右栏
+      if (full && full.ok && current && current.data === qd) {
+        current.data = full;
+        renderRail(full);
+      }
+    }).catch(() => { /* 补不上就留在"统计中" */ });
   });
   $('map').addEventListener('gis:mouse', paintPos);
   $('map').addEventListener('gis:view', (e) => {

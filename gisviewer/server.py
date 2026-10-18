@@ -228,7 +228,8 @@ def write_config(data):
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act",
-               "open_dir", "toast_sec", "set_sec"}
+               "open_dir", "toast_sec", "set_sec",
+               "key_close", "key_fit", "key_find"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:
@@ -596,6 +597,9 @@ class Handler(BaseHTTPRequestHandler):
             payload.setdefault("keep_hours", 12)
             payload.setdefault("open_dir", "")
             payload.setdefault("toast_sec", 5)
+            payload.setdefault("key_close", "Esc")
+            payload.setdefault("key_fit", "F")
+            payload.setdefault("key_find", "Ctrl+F")
             payload["cache_note"] = _cache_note
             return self._send(200, {
                 "ok": True, "config": payload, "version": __version__,
@@ -641,7 +645,8 @@ class Handler(BaseHTTPRequestHandler):
         _need_engine(route)
         if route == "/api/path":
             body = self._json_body()
-            return self._inspect(str(body.get("path", "")).strip())
+            return self._inspect(str(body.get("path", "")).strip(),
+                                 fast=bool(body.get("fast")))
         if route == "/api/upload":
             return self._upload()
         if route == "/api/config":
@@ -656,11 +661,13 @@ class Handler(BaseHTTPRequestHandler):
                                     "cache_dir": str(config_dir() / "cache")})
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})
 
-    def _inspect(self, path):
+    def _inspect(self, path, fast=False):
         if not path:
             return self._send(200, {"ok": False,
                                     "error": {"title": "没有指定文件", "hint": "把文件拖进来，或填写完整路径。"}})
-        result = cached_safe_inspect(path, histograms=False)
+        # fast=True：矢量跳过"数个数、量范围"这两步全文件扫描，先把界面立起来，
+        # 缺的数字由页面在取数完成后回填（见 app.js 里 gis:vector 的处理）
+        result = cached_safe_inspect(path, histograms=False, quick=fast)
         return self._send(200, mark_temp_copy(result))
 
     def _histogram(self, query):

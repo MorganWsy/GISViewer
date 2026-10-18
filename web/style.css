@@ -107,19 +107,27 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 9px;
   white-space: nowrap;
 }
 
-/* 中文主名：全软件最大的字号，顶栏只留这两个字，英文名在窗口标题和任务栏上仍然给全。
-   字体是打包进来的毛笔楷书子集，等宽等高的正文字体排在它后面当兜底 */
+/* 方案 A：中文细黑拉字距，旁边一枚等宽的英文小字。
+   等宽用 Consolas：Windows 自带、字形干净；Cascadia 要装过终端才有，JetBrains 得带字体文件 */
 .brand-cn {
-  font-family: "Tulan Title", var(--font-ui);
-  font-size: 22px;
-  font-weight: 700;
+  font-family: var(--font-ui);
+  font-size: 19px;
+  font-weight: 400;
   line-height: 1.1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.16em;
+}
+
+.brand-en {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.34em;
+  color: var(--accent);
 }
 
 /* 弹性空白：把控件推到右边，自己留出可拖、可双击的面积 */
@@ -1519,7 +1527,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   cursor: pointer;
 }
 .icon-btn:hover { background: var(--accent-soft); color: var(--accent); }
-.icon-btn svg { width: 15px; height: 15px; }
+.icon-btn svg { width: 17px; height: 17px; }
 
 /* 键盘操作：常规软件的快捷键表。左列是动作，中列可以点开改键 */
 .key-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -1546,20 +1554,24 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 .key-chip:hover { border-color: var(--accent); color: var(--accent); }
 
-.link-btn {
-  padding: 0;
+.mini-btn {
+  height: 22px;
+  padding: 0 8px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-dim);
   background: none;
-  border: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
   cursor: pointer;
+  white-space: nowrap;
 }
-.link-btn:hover { color: var(--accent); }
+.mini-btn:hover { color: var(--accent); border-color: var(--accent); }
+.key-chip.arming { border-color: var(--accent); color: var(--accent); border-bottom-width: 1px; }
 
-/* 滑块 + 右侧读数 */
+/* 滑块 + 右侧读数。滑块配色跟按钮激活色走，别用系统默认那套蓝灰 */
 .range-row { display: flex; align-items: center; gap: 10px; }
-.range-row input[type="range"] { flex: 1; min-width: 0; }
+.range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .range-row output { width: 42px; text-align: right; font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 /* 关于页：名称值一行 */
@@ -1568,7 +1580,14 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .inline-row { display: flex; gap: 8px; align-items: center; }
 .inline-row select { flex: 1; min-width: 0; }
 
-.hint { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+#settings .hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding-left: 7px;
+  border-left: 2px solid var(--accent-soft);
+}
 
 .hint.bad { color: #c0392b; }
 :root[data-theme="dark"] .hint.bad { color: #ef8a80; }
@@ -1975,3 +1994,39 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .err-toast .et-hint { margin-top: 3px; font-size: 12.5px; color: var(--text-dim); }
+
+/* 关于页：版本和仓库跟标签同一行；介绍和版权在底部收成一小块 */
+.ver-num { font-family: var(--font-num); font-size: 13px; color: var(--text); }
+.repo-link {
+  font-family: var(--font-num);
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.repo-link:hover { text-decoration: underline; }
+.icon-btn2 {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.icon-btn2:hover { color: var(--accent); border-color: var(--accent); }
+.icon-btn2 svg { width: 16px; height: 16px; }
+.about-note {
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+  border-radius: 6px;
+}
+.about-note p { margin: 0; }
+.about-note .copyright { margin-top: 6px; color: var(--text-dim); opacity: 0.85; }
