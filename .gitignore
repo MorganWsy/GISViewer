@@ -16,6 +16,9 @@ design/backup_*/
 __pycache__/
 *.py[cod]
 
+# 助手的工作记忆（本地笔记，不随源码发布）
+.workbuddy/
+
 # 编辑器与系统
 .vs/
 *.user
