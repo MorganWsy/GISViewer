@@ -908,6 +908,8 @@ async function renderResult(data, path, opts) {
   if (window.GisMap) GisMap.clear();
   if (data.kind === 'raster' && !data.multi_variable) await setupRaster(data);
   else resetRasterView();
+  // 地图聚焦时要把即将弹出的属性表高度让出来（drawVector 里读这个标志）
+  data.reserveAttr = attrAuto;
   if (window.GisMap) GisMap.show(data);
 }
 
@@ -1462,7 +1464,6 @@ function hideLegend() {
 
 let attrLayer = 0;     // 图层下拉里选中的项
 let attrCol = -1;      // 选中的列（0 是行号列），Ctrl+C 复制它
-let pendingHi = null;  // 双击定位过、但还没画出来的要素：画完补高亮
 let localCoords = false;  // 当前图层是不是本地坐标（多为 CAD），底部读数跟着换显示
 let attrShown = null;  // 当前正显示的那份缓存
 let attrCache = {};    // 键：路径+图层序号。收起再打开直接从这份里画，不再问服务端
@@ -1811,8 +1812,9 @@ function locateAttrRow(c, i) {
     if (!res || !res.ok || !res.bbox) { attrToast((res && res.error && res.error.title) || '定位失败'); return; }
     if (window.GisMap) {
       GisMap.zoomToBBox(res.bbox);
-      // 要素还没被画出来（不在当前视野）时先记下，等下一批绘制完再高亮
-      if (!GisMap.highlightFid(fid)) pendingHi = fid;
+      if (!GisMap.highlightFid(fid)) attrToast('该要素不在当前视野，未高亮');
+      else attrToast('已定位并高亮');
+      return;
     }
     attrToast('已定位到该要素');
   }).catch(() => attrToast('定位失败'));
@@ -2444,8 +2446,22 @@ function renderRecent() {
   pop.appendChild(head);
   list.forEach((p) => {
     const item = el('div', 'rp-item');
-    item.appendChild(el('div', 'rp-name', baseName(p)));
-    item.appendChild(el('div', 'rp-path', p));
+    const text = el('div', 'rp-text');
+    text.appendChild(el('div', 'rp-name', baseName(p)));
+    text.appendChild(el('div', 'rp-path', p));
+    item.appendChild(text);
+    const del = el('button', 'rp-del');
+    del.type = 'button';
+    del.title = '删除这条记录';
+    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    del.addEventListener('mousedown', (e) => e.preventDefault());
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      config.recent = (config.recent || []).filter((x) => x !== p);
+      renderRecent();
+      commitConfig();
+    });
+    item.appendChild(del);
     item.title = p;
     // 按下不抢焦点，否则路径框先失焦、下拉被收掉，这一下就点不着
     item.addEventListener('mousedown', (e) => e.preventDefault());
@@ -3568,8 +3584,6 @@ function init() {
     /* 快速打开的矢量：个数先用取数结果补上；
        范围和混合类型的明细需要整份扫描，等画完再补一次全量检查 */
     localCoords = !!(e.detail && e.detail.assumedLocal);
-    // 双击定位过一个还没画出来的要素：这一批画完就补高亮
-    if (pendingHi != null && window.GisMap && GisMap.highlightFid(pendingHi)) pendingHi = null;
   });
   $('map').addEventListener('gis:mouse', paintPos);
   $('map').addEventListener('gis:view', (e) => {
@@ -3595,8 +3609,19 @@ function init() {
     e.preventDefault();
     copyAttrCol(attrShown, attrCol);
   });
+  let baseHintShown = false;
   $('map').addEventListener('gis:drawn', (e) => {
     const kind = (e.detail && e.detail.kind) || 'none';
+    /* 别人拿到软件第一件事常常是"地图怎么是白的"：画出图层但没底图时提醒一次 */
+    if (!baseHintShown && (kind === 'vector' || kind === 'raster')) {
+      const bm = String(config.basemap || '');
+      const noKey = bm.indexOf('tianditu') === 0 && !(config.tianditu_key || '').trim();
+      if (bm === 'none' || noKey) {
+        baseHintShown = true;
+        showErrToast('提示', '还没有可用的底图',
+          '在 设置 → 底图 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。');
+      }
+    }
     /* 清空（none）不算画完：切文件时先清一次旧图层，那一下收遮罩就收早了。
        skip 是"这层画不出来"，这时候遮罩要立刻撤，别让人对着转圈等 */
     if (kind === 'skip') {

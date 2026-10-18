@@ -243,8 +243,20 @@
       geometry: { type: 'Polygon', coordinates: [ring.map((p) => [p[0], p[1]])] } });
   }
 
-  function fitTo(box) {
-    map.fitBounds([[box[0], box[1]], [box[2], box[3]]], { padding: 26, duration: 0, maxZoom: 12 });
+  /* 属性表压着地图下半截（高 260 或用户拖过的 --attr-h）：
+     聚焦时把这块让出来，不然图层范围的下半总被表盖住 */
+  function attrReserve() {
+    const stage = document.querySelector('.map-stage');
+    if (!stage) return 0;
+    const on = stage.classList.contains('attr-on');
+    if (!on) return 0;
+    return parseFloat(getComputedStyle(stage).getPropertyValue('--attr-h')) || 260;
+  }
+
+  function fitTo(box, willReserve) {
+    const bottom = 26 + Math.max(attrReserve(), willReserve ? 260 : 0);
+    map.fitBounds([[box[0], box[1]], [box[2], box[3]]],
+      { padding: { top: 26, left: 26, right: 26, bottom }, duration: 0, maxZoom: 12 });
   }
 
   function cornersOf(t) {
@@ -293,16 +305,25 @@
     if (!data || data.kind !== 'vector' || !live()) return;
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
-    const tol = zoomTolerance(map.getZoom());
+    // 容差按图层规模分档：大图层照旧；两万要素以内给 1/3 容差（0.5 像素级，
+    // 肉眼看不出损失）。完全不抽稀不行——实测 China2019（35 个要素但顶点极密）
+    // 全精度一次视野要 22 秒，1/3 容差 3 秒
+    const cur = targets && targets[activeTarget];
+    const big = !(cur && cur.count != null) || cur.count > 20000;
+    const tol = zoomTolerance(map.getZoom()) * (big ? 1 : 1 / 3);
     const url = '/api/vector?path=' + enc(data.target) +
       '&layer=' + (data.layerIndex || 0) +
       '&limit=' + FEATURE_LIMIT +
-      '&tolerance=' + tol.toExponential(2) +
+      // 别用 toExponential：0 会写成 "0.00e+0"，查询串里的 + 会被当成空格，服务端解析就炸了
+      '&tolerance=' + String(tol) +
       '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',');
     const mine = ++token;
     const wanted = data;
+    const busy = document.getElementById('vecBusy');
+    if (busy) busy.hidden = false;
     fetch(url).then((r) => r.json()).then((res) => {
-      if (mine !== token || data !== wanted) return;
+      if (mine !== token || data !== wanted) return;   // 期间又动过：交给最新那次收提示
+      if (busy) busy.hidden = true;
       if (!res.ok) {
         note(baseNote() + ((res.error || {}).title || '要素读取失败'));
         emit('gis:drawn', { kind: 'vector' });
@@ -321,6 +342,7 @@
         assumedLocal: !!m.assumed_local,
       };
       const parts = [];
+      if (m.simplified) parts.push('几何已抽稀，误差不超过 2 个屏幕像素，量算仍按原始几何');
       if (m.layer_name) parts.push('图层 ' + m.layer_name);
       if (m.field_count != null) parts.push(m.field_count + ' 个字段');
       if (m.layer_total != null) parts.push('共 ' + m.layer_total + ' 个要素');
@@ -330,9 +352,7 @@
       if (res.cached) parts.push('缓存命中');
       if (m.assumed_local) parts.push('这个图层没有坐标系，按原始坐标当作米临时摆放，仅供预览，底图与注记已暂时收起');
       else if (m.reprojected) parts.push('显示坐标已转到经纬度');
-      if (m.simplified) parts.push('显示几何已抽稀');
       note(baseNote() + parts.join(' · ') +
-        (m.simplified ? ' · 抽稀误差不超过 2 个屏幕像素，量算仍按原始几何' : '') +
         (m.truncated ? ' · 到达单次上限，放大后继续加载' : ''));
       const src = map.getSource('gis-data');
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
@@ -342,7 +362,7 @@
       if (!data.wgs && !vecLocalFit[fkey] && feats.length) {
         vecLocalFit[fkey] = 1;
         const b = featsBBox(feats);
-        if (b) fitTo(b);
+        if (b) fitTo(b, data.reserveAttr);
       }
       emit('gis:vector', lastVec);
       emit('gis:drawn', { kind: 'vector' });
@@ -393,7 +413,7 @@
     /* 没有坐标系的图层（多为 CAD 图纸）也能看效果：引擎把原始坐标当作米
        临时摆到地图上，这里正常取数绘制；有经纬度范围就先框到范围
        （keepView：换底图后的补画不动视野，用户看哪儿就还在哪儿） */
-    if (t.wgs && !keepView) fitTo(t.wgs);
+    if (t.wgs && !keepView) fitTo(t.wgs, data.reserveAttr);
     // 有经纬度范围说明坐标系是真的，底图立刻恢复，不用等取数回来
     if (t.wgs) setBaseHidden(false);
     loadVector();
@@ -733,9 +753,10 @@
       if (!live()) return;
       const t = targets && targets[activeTarget];
       const box = t && (t.wgs || (t.ring && t.ring.length >= 4 ? boxFromRing(t.ring) : null));
-      if (box) { fitTo(box); return; }
+      const reserve = data && data.reserveAttr;
+      if (box) { fitTo(box, reserve); return; }
       const b = lastVec && lastVec.features.length ? featsBBox(lastVec.features) : null;
-      if (b) fitTo(b);
+      if (b) fitTo(b, reserve);
     });
     // 指北针：库自己只把方位角转回正北，俯仰角留着不动。这里连俯仰一起压平，
     // 不然刚拖成斜视的地图"回正"之后还是歪的
@@ -1031,7 +1052,7 @@
       const local = localMeasure(f);
       if (local) {
         showMeasure(local, paintToken);
-        return null;
+        return Promise.resolve();   // 交给按钮：结果已显示，再点一下就是收起
       }
       const p = ask(f);
       if (!p) return null;
@@ -1111,11 +1132,10 @@
       measure.disabled = busy || !ok;
       measure.classList.toggle('busy', busy);
       measure.title = busy ? '正在计算…'
-        : (hasResult ? '收起量算结果'
-          : (!ok
-            ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
-            : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
-              ? '计算面积和周长' : '计算长度')));
+        : (!ok
+          ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
+          : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
+            ? '计算面积和周长' : '计算长度'));
     };
     if (total > 1) {
       let idx = 0;
@@ -1349,7 +1369,7 @@
     fullExtent() {
       if (!live() || !data) return;
       const box = data.wgs || (data.ring && data.ring.length >= 4 ? boxFromRing(data.ring) : null);
-      if (box) fitTo(box);
+      if (box) fitTo(box, data.reserveAttr);
     },
   };
 })();

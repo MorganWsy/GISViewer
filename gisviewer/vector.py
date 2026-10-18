@@ -640,7 +640,7 @@ def geom_type_counts(target, layer_index=0):
         g = feat.GetGeometryRef()
         key = "无几何" if g is None else geom_type_label(int(g.GetGeometryType()))
         # CAD 数据一个文件里"线·含 Z 值"和"线"各一大堆，分开列出来一长串没法看。
-        # 按基础类型归并，Z 值单独汇总一句
+        # 按基础类型归并（Z 值信息"Z 值坐标"那一行已经有了，这里不重复）
         if "含 Z 值" in key:
             zcount += 1
             key = key.replace("·含 Z 值", "")
@@ -648,8 +648,6 @@ def geom_type_counts(target, layer_index=0):
     del ds
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     text = " · ".join("%s %s" % (k, count_cn(v)) for k, v in ordered)
-    if zcount:
-        text += "（其中 %s 个含 Z 值）" % count_cn(zcount)
     return {"layer": index, "total": scanned,
             "types": [{"label": k, "count": v} for k, v in ordered],
             "counts_text": text}

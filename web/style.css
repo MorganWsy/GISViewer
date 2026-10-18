@@ -1860,7 +1860,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 }
 
 .recent-pop .rp-clear:hover { color: var(--accent); border-color: var(--accent); }
-.recent-pop .rp-item { padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.recent-pop .rp-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
 .recent-pop .rp-item:hover { background: var(--accent-soft); }
 .recent-pop .rp-name { font-size: 13px; font-weight: 600; color: var(--text); }
 .recent-pop .rp-path {
@@ -2029,4 +2029,57 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 6px;
 }
 .about-note p { margin: 0; }
-.about-note .copyright { margin-top: 6px; color: var(--text-dim); opacity: 0.85; }
+.about-note ul { margin: 6px 0 0; padding-left: 14px; }
+.about-note li { margin: 3px 0; }
+.about-note li b { color: var(--text); font-weight: 600; }
+.about-note .copyright { margin-top: 8px; color: var(--text-dim); opacity: 0.85; }
+
+/* 最近打开：每条右侧一枚删除图标 */
+.rp-text { min-width: 0; flex: 1; }
+.rp-del {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+.rp-item:hover .rp-del { opacity: 1; }
+.rp-del:hover { color: #d64545; background: var(--panel-alt); }
+.rp-del svg { width: 12px; height: 12px; }
+
+/* 地图右上角：移动/缩放后重新取数的小提示，转圈时别让人觉得没反应 */
+#vecBusy {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+}
+#vecBusy[hidden] { display: none; }
+#vecBusy::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: vecspin 0.8s linear infinite;
+}
+@keyframes vecspin { to { transform: rotate(360deg); } }

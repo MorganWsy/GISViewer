@@ -2,7 +2,7 @@
 
 一款 Windows 桌面端的**本地数据体检工具**：把 GIS 数据拖进来，几秒钟看清坐标系、字段结构、要素数量与几何质量。定位是"打开看看、快速判断"，不是轻量 GIS，也不做编辑。
 
-![版本](https://img.shields.io/badge/版本-0.12-blue) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
+![版本](https://img.shields.io/badge/版本-0.12-blue) ![协议](https://img.shields.io/badge/协议-Apache--2.0-green) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
 
 ## 它解决什么问题
 
@@ -72,4 +72,4 @@ tests/       全格式回归 sweep 与接口冒烟
 
 ## 协议
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
