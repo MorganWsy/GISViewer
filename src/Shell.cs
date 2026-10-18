@@ -1472,6 +1472,9 @@ namespace GISViewer
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             // 真正退出的路径才走到这里（关闭按钮默认只最小化；托盘菜单的"退出"或设置里选了直接退出才会关）。这是个"看一眼"的工具，弹一句"要不要留在托盘"只会拖慢下一次
+            // 拖放接收层是块常驻的透明窗（贴在屏幕中心的主窗位置）。进程退出拆窗口时
+            // 分层透明会先失效，它就以不透明底色闪一下——先藏掉再走后面的清理
+            if (_dragPane != null) { _dragPane.Opacity = 0; _dragPane.Hide(); _dragPane.Dispose(); _dragPane = null; }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
             if (_hkRetry != null) { _hkRetry.Stop(); _hkRetry.Dispose(); _hkRetry = null; }
             if (_hkOk) Native.UnregisterHotKey(Handle, Native.HotkeyId);

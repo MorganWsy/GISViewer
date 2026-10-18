@@ -17,7 +17,7 @@ MAX_HIST_BANDS = 8
 # 全图逐像元直方图的像元上限，超过就退回快速抽样
 EXACT_HISTOGRAM_LIMIT = 400_000_000
 # 点选识别最多读几个波段（默认分级数见 formats.CLASS_DEFAULT）
-MAX_IDENTIFY_BANDS = 6
+MAX_IDENTIFY_BANDS = 200   # 一次点识别把所有波段都读出来（每波段只读 1 个像元，代价可忽略）
 
 
 def _number(value, digits=6):

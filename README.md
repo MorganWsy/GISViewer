@@ -21,7 +21,7 @@
 
 | 类别 | 格式 |
 |---|---|
-| 矢量 | Shapefile ✓、GeoJSON/JSONL ✓、KML ✓、GPX ✓、GeoPackage ✓、FlatGeobuf ✓、GDB（文件夹）✓、DXF/DWG ✓、OSM PBF ✓、MapInfo TAB/MIF ✓、CSV（WKT 列）✓、XLSX ✓、GML ✓ |
+| 矢量 | Shapefile ✓、GeoJSON/JSONL ✓、KML ✓、GPX ✓、GeoPackage ✓、FlatGeobuf ✓、GDB（文件夹）✓、DXF/DWG ✓、OSM PBF ✓、MapInfo TAB/MIF ✓、CSV ✓（WKT 列或经纬度列自动识别）、XLSX ✓（经纬度列暂不支持自动识别）、GML ✓ |
 | 栅格 | GeoTIFF ✓、ArcInfo ASCII ✓、ENVI ✓、NITF ✓、VRT ✓、NetCDF ✓、IMG/HDF/GRIB2/JPEG2000 等 GDAL 可读格式（未逐一验证） |
 | 压缩包 | zip ✓（直接拖入，不解压） |
 | 待验证 | TopoJSON、EsriJSON、PMTiles/MBTiles、S-57（暂无样例素材） |

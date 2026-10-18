@@ -23,6 +23,30 @@ gdal = bootstrap.gdal
 _READ_LOCK = threading.Lock()
 
 
+# 表格型数据（CSV/XLSX）的 XY 列猜测：列名像经纬度、WKT 就自动当几何用。
+# 打开选项别的驱动不认识会忽略，对 shp/gpkg 等常规格式没有影响。
+_XY_OPEN_OPTIONS = [
+    "X_POSSIBLE_NAMES=lon,lng,long,longitude,x,经度",
+    "Y_POSSIBLE_NAMES=lat,latitude,y,纬度",
+    "GEOM_POSSIBLE_NAMES=wkt,the_geom,geom,geometry,shape,wkb_geometry",
+]
+
+
+def _open_vector(target):
+    """优先带 XY 猜测打开，失败再按默认方式打开一次。
+
+    OpenEx 在 gdal 模块上（ogr 没有），XY 选项对 CSV/XLSX 生效，
+    其他驱动不认识这些选项会忽略。"""
+    try:
+        ds = gdal.OpenEx(target, gdal.OF_VECTOR | gdal.OF_READONLY,
+                         open_options=_XY_OPEN_OPTIONS)
+        if ds is not None:
+            return ds
+    except Exception:
+        pass
+    return ogr.Open(target)
+
+
 def _serialized(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -49,7 +73,7 @@ def read_target(path):
     if not str(path).lower().endswith(".dwg"):
         return path
     try:
-        ds = ogr.Open(path)
+        ds = _open_vector(path)
         if ds is not None:
             ds = None
             return path
@@ -280,7 +304,7 @@ def inspect(target, quick=False):
     if str(target).lower().endswith((".osm", ".osm.pbf", ".pbf")):
         # OSM 提取文件常不按节点编号排序，自定义索引会让 points 等图层直接读不出
         gdal.SetConfigOption("OSM_USE_CUSTOM_INDEXING", "NO")
-    ds = ogr.Open(target)
+    ds = _open_vector(target)
     if ds is None:
         raise ValueError("没有可识别的矢量图层")
 
@@ -391,7 +415,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     有它就不用再花几秒钟重新数一遍。
     """
     target = read_target(target)
-    ds = ogr.Open(target)
+    ds = _open_vector(target)
     if ds is None:
         raise InspectError("没有可识别的矢量图层", hint="确认文件没损坏，伴生文件都在同一个文件夹里。")
     layers = ds.GetLayerCount()
@@ -618,7 +642,7 @@ def geom_type_counts(target, layer_index=0):
     不能让整个信息栏等它。数完由服务端缓存，重开不再数。
     """
     target = read_target(target)
-    ds = ogr.Open(target)
+    ds = _open_vector(target)
     if ds is None:
         raise InspectError("没有可识别的矢量图层", hint="确认文件没损坏，伴生文件都在同一个文件夹里。")
     total = ds.GetLayerCount()
@@ -678,7 +702,7 @@ def _measure_layer(target, layer_index):
     key = (str(target), int(layer_index or 0)) + _stamp(target)
     if _MEASURE_SRC.get("key") == key:
         return _MEASURE_SRC["lyr"], _MEASURE_SRC["index"], _MEASURE_SRC["assume_local"]
-    ds = ogr.Open(target)
+    ds = _open_vector(target)
     if ds is None:
         raise InspectError("没有可识别的矢量图层", hint="确认文件没损坏，伴生文件都在同一个文件夹里。")
     layers = ds.GetLayerCount()
@@ -817,7 +841,7 @@ def column_values(target, layer_index, field, limit=200000):
     这里只遍历要素、只取一个字段，不构造几何，快一个数量级。
     """
     target = read_target(target)
-    ds = ogr.Open(target)
+    ds = _open_vector(target)
     if ds is None:
         raise ValueError("没有可识别的矢量图层")
     lyr = ds.GetLayerByIndex(int(layer_index))

@@ -4,6 +4,8 @@
 
   const TD_HOSTS = ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7'];
   let drawLimit = 5000;   // 视野内单次绘制的要素数（设置里可改）
+  let vecInFlight = false;   // 上一次取数还没回来
+  let vecPending = false;    // 取数期间视野又变了：回来后补一次
   const TILE_PALETTE = ['#d9781f', '#2f6fed', '#2e9e5b', '#a24bd8', '#c94f4f', '#0f9b8e'];
 
   let map = null;
@@ -303,6 +305,12 @@
 
   function loadVector(fromMove) {
     if (!data || data.kind !== 'vector' || !live()) return;
+    // 初次取数还在路上时，贴合视野触发的 moveend 会跟着要一次——那不是用户在动，
+    // 只是初画的一部分：不并发、不亮胶囊，等这次回来按需补
+    if (vecInFlight) {
+      if (fromMove) vecPending = true;
+      return;
+    }
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
     // 容差按图层规模分档：大图层照旧；两万要素以内给 1/3 容差（0.5 像素级，
@@ -321,9 +329,16 @@
     const wanted = data;
     const busy = document.getElementById('vecBusy');
     if (busy) busy.hidden = !fromMove;   // 初次绘制有遮罩，别再叠一个胶囊
-    fetch(url).then((r) => r.json()).then((res) => {
-      if (mine !== token || data !== wanted) return;   // 期间又动过：交给最新那次收提示
+    vecInFlight = true;
+    const settle = () => {
+      vecInFlight = false;
       if (busy) busy.hidden = true;
+      // 取数期间视野又变了：补一次（走防抖，还是只发一个请求）
+      if (vecPending && data && data.kind === 'vector') { vecPending = false; scheduleVector(); }
+    };
+    fetch(url).then((r) => r.json()).then((res) => {
+      settle();
+      if (mine !== token || data !== wanted) return;
       if (!res.ok) {
         note(baseNote() + ((res.error || {}).title || '要素读取失败'));
         emit('gis:drawn', { kind: 'vector' });
@@ -367,6 +382,7 @@
       emit('gis:vector', lastVec);
       emit('gis:drawn', { kind: 'vector' });
     }).catch((err) => {
+      settle();
       if (mine === token) note(baseNote() + '要素读取失败：' + err.message);
       emit('gis:drawn', { kind: 'vector' });
     });
@@ -644,6 +660,8 @@
     // 作废在途请求：不然它回来会把说明文字又写回去，图层都关了底下还留着上一句
     token++;
     idToken++;
+    vecInFlight = false;
+    vecPending = false;
     data = null;
     pending = null;
     lastVec = null;

@@ -116,6 +116,11 @@ const FIELD_TIPS = {
   '类型': '坐标系的投影方式，常见有高斯-克吕格、横轴墨卡托、兰勃特圆锥等；不同投影对长度、角度、面积的变形规律不一样',
   '中心纬度': '投影原点的纬度（Latitude of Origin）。圆锥类投影以它为基准建立坐标原点，同一投影带内所有要素都参照它换算',
   '中央经线': '投影中央子午线的经度（Central Meridian）。离它越远的点角度变形越大；我国常见 3° 或 6° 分带，每带一条中央经线',
+  '原点纬度': '投影原点的纬度（Latitude of Origin），坐标换算的纬度基准；与"中心纬度"含义相同，不同软件叫法不一',
+  '原点经线': '投影的起始经线（Longitude of Origin），斜轴投影用它确定坐标系的朝向',
+  '比例因子': '中央经线上的长度缩放系数（Scale Factor）。1 表示不缩放；0.9996 是通用横轴墨卡托（UTM）的典型值，用来减小分带边缘的长度变形',
+  '方位角': '斜轴投影中坐标轴相对正北方向偏转的角度（Azimuth）',
+  '改正网格方位角': '斜轴投影里格网线相对正北的旋转角（Rectified Grid Angle），用于把斜轴坐标摆正到常用的图面方向',
   '第一/二标准纬线': '圆锥投影指定的两条无变形纬线（Standard Parallel 1/2），用来控制变形在南北方向的分布：两条之间变形最小，之外逐渐增大；只给一条时按单标准纬线处理',
   '第一标准纬线': '圆锥投影两条无变形纬线中靠北的一条，详见"第一/二标准纬线"',
   '第二标准纬线': '圆锥投影两条无变形纬线中靠南的一条，详见"第一/二标准纬线"',
@@ -141,6 +146,8 @@ const FIELD_TIPS = {
   '压缩算法': '像元数据在文件里的压缩方式，决定体积与读取速度',
   '未压缩大小': '不压缩时这些数据要占多少空间',
   '压缩比': '压缩前后大小的比值，越大说明省得越多',
+  '位深': '每个像元值用多少个二进制位存储（8/16/32/64 位）。位数越高能表达的数值层次越多，文件也越大；同一位深还有有符号与无符号之分，取值范围不同',
+  '颜色解释': '波段在成图时扮演的角色（灰度、红/绿/蓝、Alpha 透明度、调色板索引等）。做彩色合成或按颜色取波段时以它为准；多数科学数据没有指定角色',
   '存储组织': '像元是按波段顺序排，还是按位置交错排；影响按窗口读取的快慢',
   '金字塔': '文件里预先算好的多级缩略图，有几级、用什么重采样方式生成',
   '波段排布': '同一位置上多个波段的排列顺序',
@@ -587,7 +594,8 @@ function bandTable(bands) {
   return gridTable(['波段', '名称', '数据类型', '位深', '颜色解释', 'NoData'],
     bands.map((b) => [b.index, b.description || '', b.type_label || '',
       b.bits === null || b.bits === undefined ? '' : b.bits,
-      b.color_interp ? (b.color_interp_label || '') : '', nodataText(b)]));
+      b.color_interp && b.color_interp !== 'Undefined' ? (b.color_interp_label || '') : '',
+      nodataText(b)]));
 }
 
 function layerTable(layers) {
@@ -892,6 +900,7 @@ function sidecarText(side) {
    在这儿收会把刚弹出来的错误卡片又立刻抹掉 */
 async function renderResult(data, path, opts) {
   renderRail(data);
+  if (window.GisMap) GisMap.closePopup();   // 换文件时上一个识别弹窗别留着
 
   if (!data.ok) {
     const err = data.error || {};
@@ -1281,16 +1290,36 @@ function applyBandStyle(res) {
   loadTip(false);
 }
 
+function paintHistTitle() {
+  // 多波段时标题就是波段切换器：切哪个波段，直方图和图例一起换
+  const box = $('histTitle');
+  box.textContent = '';
+  if (!raster || raster.count < 2) {
+    box.textContent = bandLabel(raster ? raster.band : 1);
+    return;
+  }
+  const sel = document.createElement('select');
+  sel.id = 'histBandSel';
+  if (raster.count >= 3) sel.appendChild(new Option('三波段合成', 'rgb'));
+  for (let i = 1; i <= raster.count; i++) sel.appendChild(new Option(bandLabel(i), String(i)));
+  sel.value = String(raster.band);
+  sel.onchange = () => {
+    const v = sel.value;
+    selectBand(v === 'rgb' ? 'rgb' : Number(v));
+  };
+  box.appendChild(sel);
+  if (window.enhanceAll) window.enhanceAll();
+}
+
 function fillHistogram(res) {
+  paintHistTitle();
   if (!res || !res.histogram) {
     // 三波段合成没有单一值分布：说清楚为什么是空的，别留个空白气泡
-    $('histTitle').textContent = bandLabel(raster ? raster.band : 1);
     $('histBody').textContent = '';
     $('histNote').textContent = '三波段合成没有值分布，切到单个波段可看';
     return;
   }
   const hist = res.histogram || {};
-  $('histTitle').textContent = bandLabel(res.band);
   $('histBody').textContent = '';
   $('histBody').appendChild(drawHistogram(hist));
   $('histNote').textContent = hist.source_label + ' · ' + hist.bins + ' 个分箱';
@@ -2022,7 +2051,7 @@ function closeHist() {
   // 内容等收缩放完再清，不然先空一块再缩下去，看着像闪一下
   setTimeout(() => {
     if (!$('histPop').hidden) return;
-    $('histTitle').textContent = '';
+    paintHistTitle();
     $('histBody').textContent = '';
     $('histNote').textContent = '';
   }, 220);
@@ -2376,6 +2405,7 @@ const SETTING_TIPS = {
   cfgNodata: '数值等于 NoData 的像元按何种方式绘制：透出底图、涂黑或涂白',
   cfgRasterDefault: '打开多波段文件时的默认显示方式：取前三个波段合成彩色，或取第一个波段做单色分级',
   cfgVectorColor: '矢量要素的填充、描边与数据范围框使用的颜色',
+  cfgDrawLimit: '视野里一次最多画多少个要素。调大能看到更多细节，但每次移动、缩放后重画会变慢；被截断时地图会提示"到达单次上限，放大后继续加载"',
   cfgMaxFeatures: '属性表向下滚动时每次续读的行数；数值越大单次读取越多，大图层上滚动会更重',
   cfgFontUi: '界面文字使用的字体，列表中仅包含本机已安装的字体',
   cfgFontNum: '数字、坐标与表格内容使用的字体，可与界面字体分开设置',
