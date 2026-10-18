@@ -228,7 +228,7 @@ def write_config(data):
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act",
-               "open_dir", "toast_sec"}
+               "open_dir", "toast_sec", "set_sec"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:
@@ -537,7 +537,11 @@ class Handler(BaseHTTPRequestHandler):
         types = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                 ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
                 ".svg": "image/svg+xml", ".woff2": "font/woff2", ".png": "image/png"}
-        return self._send(200, target.read_bytes(), types.get(target.suffix, "application/octet-stream"))
+        # 界面文件一律不缓存。WebView2 会按启发式规则把 app.js 存下来，
+        # 换了新版本还拿旧脚本跑——改了半天看不到效果，就是这个原因
+        headers = {"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"}
+        return self._send(200, target.read_bytes(),
+                          types.get(target.suffix, "application/octet-stream"), headers)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -574,7 +578,7 @@ class Handler(BaseHTTPRequestHandler):
             payload.setdefault("restore_last", False)
             payload.setdefault("cache_dir", "")
             payload.setdefault("keep_hours", 12)
-            payload.setdefault("open_dir", "desktop")
+            payload.setdefault("open_dir", "")
             payload.setdefault("toast_sec", 5)
             payload["cache_note"] = _cache_note
             return self._send(200, {

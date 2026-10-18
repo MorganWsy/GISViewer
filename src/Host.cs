@@ -42,6 +42,20 @@ namespace GISViewer
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern int GetWindowText(IntPtr hWnd, StringBuilder s, int max);
 
+        public static string ClassName(IntPtr h)
+        {
+            StringBuilder sb = new StringBuilder(128);
+            try { GetClassName(h, sb, sb.Capacity); } catch { return ""; }
+            return sb.ToString();
+        }
+
+        public static string WindowText(IntPtr h)
+        {
+            StringBuilder sb = new StringBuilder(512);
+            try { GetWindowText(h, sb, sb.Capacity); } catch { return ""; }
+            return sb.ToString();
+        }
+
         /* 壳路径（::{GUID} 这类）转成磁盘路径。在"此电脑"里选中桌面、文档、下载这类
            已知文件夹时，资源管理器给的 Path 是壳路径，直接当文件名用会报"找不到"。
            转得出来就用转出来的，转不出来（此电脑、回收站本身）说明确实不是磁盘上的东西 */
@@ -49,7 +63,9 @@ namespace GISViewer
         static extern int SHParseDisplayName(string name, IntPtr pbc, out IntPtr ppidl, uint sfgao, out uint psfgao);
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         static extern bool SHGetPathFromIDListW(IntPtr pidl, StringBuilder path);
-        [DllImport("shell32.dll")]
+        /* CoTaskMemFree 在 ole32 里，不在 shell32——写错 dll 名会在第一次调用时抛
+           EntryPointNotFoundException，整个"选中即开"直接失效 */
+        [DllImport("ole32.dll")]
         static extern void CoTaskMemFree(IntPtr pv);
 
         public static string RealPath(string shellPath)

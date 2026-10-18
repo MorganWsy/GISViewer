@@ -36,7 +36,12 @@ $refs = @(
   (Join-Path $root 'lib\Microsoft.Web.WebView2.WinForms.dll'),
   'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
   # 读资源管理器的选中项走 Shell.Application 后期绑定，dynamic 需要这个程序集
-  'Microsoft.CSharp.dll'
+  'Microsoft.CSharp.dll',
+  # 标签页/桌面上的选中项 Shell.Application 读不到，改用 UI Automation 直接读窗口。
+  # 这三个在 .NET Framework 的 WPF 子目录里，按名字引用不到，必须给全路径
+  (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationClient.dll'),
+  (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationTypes.dll'),
+  (Join-Path (Split-Path $csc -Parent) 'WPF\WindowsBase.dll')
 ) | ForEach-Object { "/reference:$_" }
 
 $cscArgs = @(
@@ -47,7 +52,11 @@ $cscArgs = @(
 ) + $refs + @("$root\src\Shell.cs", "$root\src\Host.cs")
 
 & $csc @cscArgs
-if ($LASTEXITCODE -ne 0) { throw "csc failed ($LASTEXITCODE)" }
+if ($LASTEXITCODE -ne 0) {
+  # 编译器的报错不能吞掉：直接打出来，否则只看到一行 "csc failed"
+  & $csc @cscArgs 2>&1 | Out-Host
+  throw "csc failed ($LASTEXITCODE)"
+}
 
 foreach ($dll in Get-ChildItem (Join-Path $root 'lib\*.dll')) {
   Copy-Item $dll.FullName $dist -Force

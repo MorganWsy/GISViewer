@@ -163,12 +163,16 @@ const FIELD_TIPS = {
   '读取情况': '解析过程中遇到的问题',
 };
 
-const tipState = { box: null, anchor: null };
+const tipState = { box: null, anchor: null, timer: 0 };
 
 function tipBubble() {
   if (!tipState.box) {
     tipState.box = el('div', 'tip-bubble');
     tipState.box.hidden = true;
+    /* 鼠标可以移进气泡：里面的说明文字要能选中复制，链接要能点。
+       移进来时取消"即将收起"的定时器，移出去再收起 */
+    tipState.box.addEventListener('mouseenter', () => clearTimeout(tipState.timer));
+    tipState.box.addEventListener('mouseleave', hideTipBox);
     document.body.appendChild(tipState.box);
   }
   return tipState.box;
@@ -176,6 +180,7 @@ function tipBubble() {
 
 function showTipBox(anchor, text) {
   const box = tipBubble();
+  clearTimeout(tipState.timer);
   box.textContent = text;
   // 提示气泡里可以带一条外链：锚点给 data-tip-href，链接文案给 data-tip-link。
   // target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走
@@ -196,12 +201,24 @@ function showTipBox(anchor, text) {
   let x = r.left + r.width / 2 - br.width / 2;
   x = Math.max(8, Math.min(window.innerWidth - br.width - 8, x));
   let y = r.top - br.height - 8;
-  if (y < 8) y = r.bottom + 8;
+  let below = false;
+  if (y < 8) { y = r.bottom + 8; below = true; }
+  box.classList.toggle('below', below);
+  // 三角对准锚点中心，但不许贴到气泡的圆角外面
+  const arrow = Math.max(12, Math.min(br.width - 12, r.left + r.width / 2 - x));
+  box.style.setProperty('--tip-arrow-x', Math.round(arrow) + 'px');
   box.style.left = Math.round(x) + 'px';
   box.style.top = Math.round(y) + 'px';
 }
 
+/* 收起前留一点时间：从标签移到气泡上这一小段路不该让气泡先消失 */
+function scheduleHideTip() {
+  clearTimeout(tipState.timer);
+  tipState.timer = setTimeout(hideTipBox, 180);
+}
+
 function hideTipBox() {
+  clearTimeout(tipState.timer);
   if (tipState.box && !tipState.box.hidden) tipState.box.hidden = true;
   tipState.anchor = null;
 }
@@ -213,7 +230,7 @@ document.addEventListener('mouseover', (e) => {
 });
 document.addEventListener('mouseout', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
-  if (t && t === tipState.anchor && !(e.relatedTarget && t.contains(e.relatedTarget))) hideTipBox();
+  if (t && t === tipState.anchor) scheduleHideTip();
 });
 window.addEventListener('scroll', hideTipBox, true);
 
@@ -667,14 +684,10 @@ function railVector(rail, d) {
        Z/M 单独列出（下面两行），几何类型这里不再缀一遍 */
     const geomLabel = primary.geometry_type_label.replace('·含 Z 值', '').replace('·含 M 值', '');
     if (geomLabel.indexOf('混合') >= 0) {
-      /* 混合类型：后台数一遍各有多少个再填进来，别的行不等它。
-         算过的结果挂在图层数据上（切设置重画右栏也复用），数一次缓存一次 */
-      if (primary.geometry_counts_text) {
-        rail.row('几何类型', primary.geometry_counts_text);
-      } else {
-        rail.row('几何类型', '正在统计…');
-        fillGeomTypes(primary);
-      }
+      /* 先把类型本身写出来，"各类型各有多少个"交给后台数——大文件要几秒，
+         不能让人盯着一句"正在统计…"干等。数完把这一格换成明细 */
+      rail.row('几何类型', primary.geometry_counts_text || geomLabel);
+      if (!primary.geometry_counts_text) fillGeomTypes(primary, geomLabel);
     } else {
       rail.row('几何类型', geomLabel +
         (primary.geometry_type ? '（' + primary.geometry_type + '）' : ''));
@@ -691,8 +704,7 @@ function railVector(rail, d) {
   if (layers.length > 1) {
     rail.sec('图层');
     rail.node(layerTable(layers));
-  }
-  /* 字段清单不再单列一张表：类型和宽度直接挂在属性表的表头上，
+  }  /* 字段清单不再单列一张表：类型和宽度直接挂在属性表的表头上，
      示例值那一列属性表里本来就有 */
 }
 
@@ -721,7 +733,7 @@ function geomTypesTarget(d) {
   return layer.read_path || (d.file && d.file.path) || (current && current.path) || '';
 }
 
-function fillGeomTypes(primary) {
+function fillGeomTypes(primary, base) {
   const d = current && current.data;
   const target = d ? geomTypesTarget(d) : '';
   if (!target) return;
@@ -730,6 +742,7 @@ function fillGeomTypes(primary) {
   if (geomTypeAsked[key]) return;
   geomTypeAsked[key] = 1;
   const started = Date.now();
+  const label = base || '几何类型混合';
   /* 结果可能比右栏先到（缓存命中时几十毫秒就回来了），也可能晚到几秒。
      所以两件事都要做：填字时找不到那一格就隔一会儿再试；统计期间每秒报一次秒数 */
   const putText = (text) => {
@@ -744,7 +757,7 @@ function fillGeomTypes(primary) {
   const tick = setInterval(() => {
     const cell = railValueCell('几何类型');
     if (!cell) return;                          // 右栏还没画好，这一拍先跳过，别把钟停了
-    cell.textContent = '正在统计… ' + Math.round((Date.now() - started) / 1000) + ' 秒';
+    cell.textContent = label + '（已统计 ' + Math.round((Date.now() - started) / 1000) + ' 秒）';
   }, 1000);
   fetch('/api/geomtypes?path=' + encodeURIComponent(target) + '&layer=' + layerIndex)
     .then((r) => r.json())
@@ -2061,7 +2074,9 @@ function wireChrome() {
   let barTap = 0;
   bar.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    if (e.target.closest('input, button, label, select, .combo, .no-drag')) return;
+    /* 最近打开和"打开"菜单都挂在顶栏里：点它们时不能去拖窗口，
+       否则这一下被系统拖动循环接走，列表项的 click 永远回不来（点不开就是这个原因） */
+    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop')) return;
     /* 顶栏空白处一按下，窗口就交给系统拖动循环了，这一下之后的 click 再也回不到页面，
        所以浮窗只能在这里主动收掉，不能等外面的 document click */
     hideRecent();
@@ -2225,6 +2240,7 @@ async function inspectPath(path) {
 function rememberLast(path, data) {
   const p = String(path || '');
   if (!p || (data && (data.temp_copy || data.file && data.file.temp_copy))) return;
+  toShell('lastdir:' + p);   // 告诉壳"最近一次打开的是这里"，文件框下次从这儿起步
   rememberRecent(p);
   if ((config.last_paths || [])[0] === p) return;
   config.last_paths = [p];
@@ -2255,7 +2271,8 @@ const SETTING_TIPS = {
   cfgZoom: '仅缩放界面文字与面板，地图画布不参与缩放，因此不影响坐标取点的精度',
   cfgAlpha: '浮在地图上的面板的不透明度；顶栏与右侧信息栏始终保持不透明',
   cfgToastSec: '错误提示卡片与地图上那条"已定位到…"停留多久后自动收起；点一下卡片可以立即关掉',
-  cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。软件不记住系统上一次用过的目录，网络位置或几十万文件的目录会把对话框拖住',
+  cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。留空就用上次打开文件所在的文件夹；也可以点"选择…"固定一个目录',
+  cachePath: '读取结果的缓存文件夹：打开过的文件的元数据、直方图与缩略图都在这里。清空只会让下次读取变慢，不会动源文件',
   cfgCloseAct: '点击窗口右上角关闭按钮时的行为：收进托盘（任务栏不再保留按钮），或直接退出软件。收进托盘后可通过托盘图标或快捷键重新唤出',
   cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
@@ -2596,8 +2613,7 @@ function fillSettings() {
   $('cfgVectorColor').value = config.vector_color;
   $('cfgMaxFeatures').value = String(config.max_features || 500);
   $('cfgRestore').checked = !!config.restore_last;
-  $('cfgOpenDir').value = ['desktop', 'last', 'documents'].indexOf(config.open_dir) >= 0
-    ? config.open_dir : 'desktop';
+  $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
   $('cfgCache').value = config.cache_dir || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
@@ -2613,9 +2629,10 @@ function fillSettings() {
   paintHotkey2();
   $('cfgAutoStart').checked = host.autoStart === true;
   $('cfgDeskLnk').checked = host.deskLnk === true;
-  // 文件框的起始位置由壳执行，这里把当前设置同步过去（含首次加载）
-  toShell('opendir:' + (['desktop', 'last', 'documents'].indexOf(config.open_dir) >= 0
-    ? config.open_dir : 'desktop'));
+  // 上次停在哪个分组
+  showSettingPane(config.set_sec || 'base');
+  // 文件框的起始位置由壳执行，这里把当前设置同步过去（含首次加载；留空＝上次的文件夹）
+  toShell('opendir:' + String(config.open_dir || ''));
   // 快捷键两行提示平时留空，只在改键过程中显示操作反馈
   $('hkHint').textContent = '';
   $('hk2Hint').textContent = '';
@@ -2649,8 +2666,8 @@ function paintCacheSize(info, dir) {
       '当前缓存位置：' + cacheDirShown +
       '（想换位置，把整个软件的数据目录挪走即可，暂不在设置里开放）。');
   }
-  const where = $('cachePathHint');
-  if (where) where.textContent = cacheDirShown ? '缓存文件夹：' + cacheDirShown : '';
+  const where = $('cachePath');
+  if (where) where.value = cacheDirShown || '';
   const hint = $('cacheSizeHint');
   if (!hint) return;
   if (!info) { hint.textContent = '统计不了缓存占用'; return; }
@@ -2722,6 +2739,12 @@ window.GisHost = function (name, value) {
   if (name === 'fonts') {
     host.fonts = String(value || '').split(',').map((s) => s.trim()).filter(Boolean);
     fillFontSelects();
+    return;
+  }
+  if (name === 'dir') {
+    // 壳那边选完文件夹回传的路径：填进"打开文件框从哪开始"并落盘
+    const box = $('cfgOpenDir');
+    if (box) { box.value = String(value || ''); applySettings(); }
     return;
   }
   if (name === 'autoStart') { host.autoStart = value === 'on'; $('cfgAutoStart').checked = host.autoStart; return; }
@@ -3027,8 +3050,7 @@ async function applySettings() {
   toShell('closeact:' + config.close_act);   // 关按钮的行为由壳执行，改完就告诉它
   config.upd_freq = $('cfgUpdFreq').value;
   config.restore_last = $('cfgRestore').checked;
-  config.open_dir = ['desktop', 'last', 'documents'].indexOf($('cfgOpenDir').value) >= 0
-    ? $('cfgOpenDir').value : 'desktop';
+  config.open_dir = $('cfgOpenDir').value.trim();
   toShell('opendir:' + config.open_dir);     // 起始目录由壳执行，改完就告诉它
   config.recent_max = Number($('cfgRecentMax').value) || 5;
   config.toast_sec = Number($('cfgToastSec').value) || 5;
@@ -3186,6 +3208,35 @@ function wireDrop() {
   });
 }
 
+/* 设置页左侧导航：五个分组各占一屏，点哪一屏只显示哪一屏。
+   上次停在哪个分组记在本地，下次打开还在那儿 */
+const SET_PANES = ['base', 'render', 'look', 'file', 'sys'];
+
+function showSettingPane(sec) {
+  if (SET_PANES.indexOf(sec) < 0) sec = 'base';
+  document.querySelectorAll('#setNav button').forEach((b) => {
+    b.classList.toggle('on', b.getAttribute('data-sec') === sec);
+  });
+  document.querySelectorAll('#setBody .set-pane').forEach((p) => {
+    p.hidden = p.getAttribute('data-sec') !== sec;
+  });
+}
+
+function wireSettingNav() {
+  const nav = $('setNav');
+  if (!nav) return;
+  showSettingPane(config.set_sec || 'base');
+  nav.addEventListener('click', (e) => {
+    const btn = e.target.closest ? e.target.closest('button[data-sec]') : null;
+    if (!btn) return;
+    const sec = btn.getAttribute('data-sec');
+    showSettingPane(sec);
+    // 记在配置里（不是 localStorage：调试端口每次启动都变，localStorage 按端口隔离，跨启动就丢了）
+    config.set_sec = sec;
+    commitConfig();
+  });
+}
+
 function init() {
   wireSplitter();
   wireDrop();
@@ -3228,9 +3279,16 @@ function init() {
   $('cacheClearBtn').addEventListener('click', () => {
     $('cacheSizeHint').textContent = '正在清空…';
     fetch('/api/cache', { method: 'POST' }).then((r) => r.json()).then((d) => {
-      paintCacheSize((d && d.cache) || { bytes: 0, count: 0 }, d && d.data_dir);
+      paintCacheSize((d && d.cache) || { bytes: 0, count: 0 }, d && (d.cache_dir || d.data_dir));
     }).catch(() => { $('cacheSizeHint').textContent = '清空失败，稍后再试'; });
   });
+  // 缓存位置：只读显示，旁边一颗"打开"直接把这层目录交给资源管理器
+  $('cachePathOpen').addEventListener('click', () => {
+    if (cacheDirShown) toShell('openpath:' + cacheDirShown);
+  });
+  // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
+  $('cfgOpenDirPick').addEventListener('click', () => toShell('pickdir'));
+  wireSettingNav();
   /* 没有保存按钮：改一下生效一下。令牌那一栏不落盘，所以不参与 */
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
     if (node.id === 'cfgToken' || node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;

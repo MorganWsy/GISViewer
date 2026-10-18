@@ -1262,8 +1262,8 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 .tip-bubble {
   position: fixed;
   z-index: 90;
-  max-width: 268px;
-  padding: 6px 9px;
+  max-width: 300px;
+  padding: 8px 10px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text);
@@ -1271,8 +1271,41 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
-  pointer-events: none;
+  /* 鼠标能进到气泡里：不这样的话里面的文字选不中，链接也点不了 */
+  pointer-events: auto;
 }
+
+/* 指向锚点的小三角：位置由脚本按锚点算，默认在正中 */
+.tip-bubble::after {
+  content: "";
+  position: absolute;
+  left: var(--tip-arrow-x, 50%);
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+/* 气泡翻到锚点下方时，三角朝上 */
+.tip-bubble.below::after {
+  bottom: auto;
+  top: -5px;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+}
+
+.tip-bubble a.tip-link {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.tip-bubble a.tip-link:hover { text-decoration: underline; }
 
 table.rail-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 
@@ -1431,6 +1464,49 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   column-gap: 20px;
 }
 
+/* 设置页：左边一列导航，右边一屏设置项。
+   分组从七个并成五个，靠导航切换，不再靠一路往下滚 */
+.set-card { width: 780px; }
+.set-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 124px minmax(0, 1fr);
+  column-gap: 16px;
+  padding: 6px 14px 6px 12px;
+}
+.set-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 8px;
+  border-right: 1px solid var(--line);
+}
+.set-nav button {
+  height: 34px;
+  padding: 0 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.set-nav button:hover { background: var(--accent-soft); color: var(--text); }
+.set-nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.set-body { min-height: 0; overflow-y: auto; padding-right: 6px; }
+.set-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 18px;
+  align-content: start;
+}
+.set-pane[hidden] { display: none; }
+.set-pane > .field.wide, .set-pane > p.hint.wide { grid-column: 1 / -1; }
+.set-pane > * { min-width: 0; }
+
 .modal-body > .set-sec { grid-column: 1 / -1; }
 /* 一格装不下的（密钥那种）横跨两列，免得旁边空出一块 */
 .modal-body > .field.wide, .modal-body > p.hint.wide { grid-column: 1 / -1; }
@@ -1485,7 +1561,12 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
-.field label { font-size: 14px; font-weight: 600; }
+/* 标签只占文字那么宽：以前是整行宽，鼠标划到这一行右边的空白也会弹出提示气泡 */
+.field label { font-size: 14px; font-weight: 600; align-self: flex-start; }
+
+/* 带"选择…"按钮的那种一行：输入框占满，按钮跟在后面 */
+.dir-row { display: flex; gap: 8px; align-items: stretch; }
+.dir-row input { flex: 1; min-width: 0; }
 
 /* 设置项标签后面的提示图标：沿用右栏那枚圆形叹号，挨着标签排 */
 .field label .tip-ico { margin-left: 5px; vertical-align: -2px; }

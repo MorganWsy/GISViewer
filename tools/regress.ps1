@@ -118,7 +118,10 @@ if ((Want 'shell') -and (-not $SkipShell)) {
         (Join-Path $root 'lib\Microsoft.Web.WebView2.Core.dll'),
         (Join-Path $root 'lib\Microsoft.Web.WebView2.WinForms.dll'),
         'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
-        'Microsoft.CSharp.dll'
+        'Microsoft.CSharp.dll',
+        (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationClient.dll'),
+        (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationTypes.dll'),
+        (Join-Path (Split-Path $csc -Parent) 'WPF\WindowsBase.dll')
       ) | ForEach-Object { "/reference:$_" }
       $cscArgs = @(
         '/nologo', '/target:winexe', '/platform:x64', '/optimize+',

@@ -167,12 +167,21 @@
 </div>
 
 <div id="settings" class="modal" hidden>
-  <div class="modal-card">
+  <div class="modal-card set-card">
     <div class="card-title">设置
       <button id="cfgClose" class="modal-x" title="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
     </div>
-    <div class="modal-body">
-      <div class="set-sec">底图</div>
+    <div class="set-main">
+      <nav class="set-nav" id="setNav">
+        <button type="button" data-sec="base">底图</button>
+        <button type="button" data-sec="render">栅格与矢量</button>
+        <button type="button" data-sec="look">外观</button>
+        <button type="button" data-sec="file">文件</button>
+        <button type="button" data-sec="sys">系统</button>
+      </nav>
+      <div class="set-body" id="setBody">
+
+      <section class="set-pane" data-sec="base">
       <div class="field">
         <label for="cfgBasemap">底图</label>
         <select id="cfgBasemap">
@@ -192,21 +201,19 @@
         <label for="cfgKey">天地图密钥</label>
         <div class="key-row">
           <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
-          <!-- 眼睛图标代替"显示/隐藏"按钮：藏在输入框里，一眼就知道是看密钥的 -->
           <button id="keyPeek" class="key-eye" type="button" title="显示密钥">
             <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/></svg>
             <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/><path d="M4.4 19.6 19.6 4.4"/></svg>
           </button>
         </div>
       </div>
+      </section>
 
-      <div class="set-sec">栅格显示</div>
+      <section class="set-pane" data-sec="render" hidden>
       <div class="field">
         <label for="cfgRamp">色带</label>
         <select id="cfgRamp">
-          <option value="viridis">青绿渐变（默认，明暗连续）</option>
-          <option value="redblue">红蓝对比（低值冷、高值暖）</option>
-          <option value="terrain">高程分层设色（绿到棕到白）</option>
+          <option value="viridis">青绿渐变（默认）</option>
         </select>
       </div>
       <div class="field">
@@ -236,8 +243,6 @@
           <option value="single">第一个波段，单色分级</option>
         </select>
       </div>
-
-      <div class="set-sec">矢量与属性表</div>
       <div class="field">
         <label for="cfgVectorColor">要素与范围线的颜色</label>
         <div class="color-row">
@@ -260,8 +265,9 @@
           <option value="20000">20000 条（大图层会慢）</option>
         </select>
       </div>
+      </section>
 
-      <div class="set-sec">外观</div>
+      <section class="set-pane" data-sec="look" hidden>
       <div class="field">
         <label for="cfgFontUi">界面字体</label>
         <select id="cfgFontUi"></select>
@@ -306,78 +312,15 @@
           <option value="20">20 秒</option>
         </select>
       </div>
+      </section>
 
-      <div class="set-sec">系统</div>
-      <!-- 两列排：高的配高的、矮的配矮的，不然某一列下面会空出一块 -->
-      <div class="field">
-        <label>打开软件的快捷键</label>
-        <div class="hotkey-row">
-          <button id="hkBtn" class="btn ghost hk-btn" type="button">Ctrl+Alt+G</button>
-          <button id="hkReset" class="btn ghost" type="button">恢复默认</button>
-        </div>
-        <!-- 这一行平时是空的，只在"按下组合键…"、改键成功/被占用时出现，属于操作反馈不是说明文字 -->
-        <p class="hint" id="hkHint"></p>
-      </div>
-      <div class="field">
-        <label for="cfgCloseAct">点窗口右上角的关闭按钮时</label>
-        <select id="cfgCloseAct">
-          <option value="min">收进托盘（任务栏不再留按钮）</option>
-          <option value="exit">直接退出软件</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>打开选中文件的快捷键</label>
-        <div class="hotkey-row">
-          <button id="hk2Btn" class="btn ghost hk-btn" type="button">Ctrl+Alt+空格</button>
-          <button id="hk2Reset" class="btn ghost" type="button">恢复默认</button>
-        </div>
-        <!-- 同 hkHint：平时为空，操作反馈时才出现 -->
-        <p class="hint" id="hk2Hint"></p>
-      </div>
-      <!-- 按键说明整体移进标签后的提示气泡，页面上只留这一行标签 -->
-      <div class="field">
-        <label>软件里能用的按键</label>
-      </div>
-      <div class="field inline">
-        <label for="cfgAutoStart">开机自启动</label>
-        <input id="cfgAutoStart" type="checkbox">
-      </div>
-      <div class="field inline">
-        <label for="cfgDeskLnk">在桌面放一个快捷方式</label>
-        <input id="cfgDeskLnk" type="checkbox">
-      </div>
-      <p class="hint wide" id="sysHint"></p>
-
-      <div class="set-sec">更新</div>
-      <div class="field">
-        <label for="cfgUpdFreq">检查更新</label>
-        <select id="cfgUpdFreq">
-          <option value="off">不检查</option>
-          <option value="open">每次打开后（等十几秒）</option>
-          <option value="3d">每 3 天</option>
-          <option value="week">每周</option>
-          <option value="month">每月</option>
-        </select>
-        <div class="upd-row">
-          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
-          <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
-          <span class="hint" id="updHint"></span>
-        </div>
-      </div>
-      <div class="field">
-        <label for="cfgToken">更新检查用的访问码</label>
-        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false"
-               placeholder="软件没公开时才需要填，留空即可">
-      </div>
-
-      <div class="set-sec">文件与副本</div>
-      <div class="field">
+      <section class="set-pane" data-sec="file" hidden>
+      <div class="field wide">
         <label for="cfgOpenDir">打开文件框从哪开始</label>
-        <select id="cfgOpenDir">
-          <option value="desktop">桌面（默认）</option>
-          <option value="last">上次打开文件所在的文件夹</option>
-          <option value="documents">文档</option>
-        </select>
+        <div class="dir-row">
+          <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空就用上次打开文件所在的文件夹">
+          <button id="cfgOpenDirPick" class="btn ghost" type="button">选择…</button>
+        </div>
       </div>
       <div class="field inline">
         <label for="cfgRestore">启动时恢复上次的文件</label>
@@ -396,7 +339,6 @@
       <div class="field">
         <label for="cfgCache">副本存放位置</label>
         <input id="cfgCache" type="text" spellcheck="false" placeholder="留空则用系统临时目录">
-        <!-- 平时为空：只有副本目录用不了、引擎退回临时目录时，这里才会红字报原因 -->
         <p class="hint" id="cfgCacheHint"></p>
       </div>
       <div class="field">
@@ -408,14 +350,76 @@
           <option value="168">7 天</option>
         </select>
       </div>
-      <div class="field">
-        <label>数据缓存</label>
+      <div class="field wide">
+        <label for="cachePath">缓存位置</label>
+        <div class="dir-row">
+          <input id="cachePath" type="text" readonly value="">
+          <button id="cachePathOpen" class="btn ghost" type="button">打开</button>
+        </div>
         <div class="upd-row">
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
         </div>
-        <!-- 缓存到底存在哪：直接写出来，不用悬停去气泡里找 -->
-        <p class="hint wide" id="cachePathHint"></p>
+      </div>
+      </section>
+
+      <section class="set-pane" data-sec="sys" hidden>
+      <div class="field">
+        <label>打开软件的快捷键</label>
+        <div class="hotkey-row">
+          <button id="hkBtn" class="btn ghost hk-btn" type="button">Ctrl+Alt+G</button>
+          <button id="hkReset" class="btn ghost" type="button">恢复默认</button>
+        </div>
+        <p class="hint" id="hkHint"></p>
+      </div>
+      <div class="field">
+        <label>打开选中文件的快捷键</label>
+        <div class="hotkey-row">
+          <button id="hk2Btn" class="btn ghost hk-btn" type="button">Ctrl+空格</button>
+          <button id="hk2Reset" class="btn ghost" type="button">恢复默认</button>
+        </div>
+        <p class="hint" id="hk2Hint"></p>
+      </div>
+      <div class="field">
+        <label for="cfgCloseAct">点窗口右上角的关闭按钮时</label>
+        <select id="cfgCloseAct">
+          <option value="min">收进托盘（任务栏不再留按钮）</option>
+          <option value="exit">直接退出软件</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>软件里能用的按键</label>
+      </div>
+      <div class="field inline">
+        <label for="cfgAutoStart">开机自启动</label>
+        <input id="cfgAutoStart" type="checkbox">
+      </div>
+      <div class="field inline">
+        <label for="cfgDeskLnk">在桌面放一个快捷方式</label>
+        <input id="cfgDeskLnk" type="checkbox">
+      </div>
+      <p class="hint wide" id="sysHint"></p>
+      <div class="field">
+        <label for="cfgUpdFreq">检查更新</label>
+        <select id="cfgUpdFreq">
+          <option value="off">不检查</option>
+          <option value="open">每次打开后（等十几秒）</option>
+          <option value="3d">每 3 天</option>
+          <option value="week">每周</option>
+          <option value="month">每月</option>
+        </select>
+        <div class="upd-row">
+          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
+          <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
+          <span class="hint" id="updHint"></span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgToken">更新检查用的访问码</label>
+        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false" placeholder="软件没公开时才需要填，留空即可">
+      </div>
+      </section>
+
       </div>
     </div>
   </div>
