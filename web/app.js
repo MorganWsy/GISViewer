@@ -214,7 +214,17 @@ function showTipBox(anchor, text) {
 /* 收起前留一点时间：从标签移到气泡上这一小段路不该让气泡先消失 */
 function scheduleHideTip() {
   clearTimeout(tipState.timer);
-  tipState.timer = setTimeout(hideTipBox, 400);
+  tipState.timer = setTimeout(() => {
+    /* 有些情况下会收到一个"假"的 mouseout（元素被重画、气泡盖住光标），
+       所以真正收起前再问一次：鼠标是不是还在锚点或气泡上 */
+    const a = tipState.anchor;
+    const b = tipState.box;
+    try {
+      if (a && a.matches(':hover')) return;
+      if (b && !b.hidden && b.matches(':hover')) return;
+    } catch (err) { /* matches 不支持就算了 */ }
+    hideTipBox();
+  }, 400);
 }
 
 function hideTipBox() {
@@ -234,14 +244,24 @@ document.addEventListener('mouseout', (e) => {
 });
 window.addEventListener('scroll', hideTipBox, true);
 
-function hintIcon(label) {
+/* host 给了就把提示挂在整个格子上：鼠标放在文字上也能出气泡，
+   只认那枚小图标的话，从图标滑到文字上气泡就没了 */
+function hintIcon(label, host) {
   const tip = FIELD_TIPS[label];
   if (!tip) return null;
+  const anchor = host || null;
+  if (anchor) anchor.setAttribute('data-tip', tip);
+  if (anchor && label === 'EPSG') {
+    anchor.setAttribute('data-tip-href', 'https://epsg.org/');
+    anchor.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
+  }
   const i = el('i', 'tip-ico');
-  i.setAttribute('data-tip', tip);
-  if (label === 'EPSG') {
-    i.setAttribute('data-tip-href', 'https://epsg.org/');
-    i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
+  if (!anchor) {
+    i.setAttribute('data-tip', tip);
+    if (label === 'EPSG') {
+      i.setAttribute('data-tip-href', 'https://epsg.org/');
+      i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
+    }
   }
   i.innerHTML = HINT_ICO;
   return i;
@@ -310,7 +330,7 @@ function newRail() {
           const tr = el('tr');
           const th = el('th');
           th.appendChild(el('span', 'rail-k', it.k));
-          const ico = hintIcon(it.k);
+          const ico = hintIcon(it.k, th);
           if (ico) th.appendChild(ico);
           tr.appendChild(th);
           if (it.busy) {
@@ -536,7 +556,7 @@ function gridTable(headers, rows, cls) {
   headers.forEach((t) => {
     const th = el('th');
     th.appendChild(el('span', null, t));
-    const ico = hintIcon(t);
+    const ico = hintIcon(t, th);
     if (ico) th.appendChild(ico);
     hr.appendChild(th);
   });
@@ -1325,13 +1345,13 @@ function drawHistogram(hist) {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      layout: { padding: { top: 2, right: 6, bottom: 0, left: 0 } },
+      layout: { padding: { top: 0, right: 4, bottom: 0, left: 0 } },
       scales: {
         x: {
           grid: { display: false },
           border: { color: grid },
           // 标签再贴近轴线一点，给绘图区多留高度
-          ticks: { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 2 },
+          ticks: { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 0 },
         },
         y: {
           beginAtZero: true,
@@ -1339,7 +1359,7 @@ function drawHistogram(hist) {
           grid: { color: grid, drawTicks: false },
           border: { display: false },
           ticks: {
-            stepSize: top / 4, color: dim, font: { size: 13 }, padding: 4,
+            stepSize: top / 4, color: dim, font: { size: 13 }, padding: 2,
             callback: (v) => shown(v),
           },
           // 轴标题竖着写在轴左侧，不占顶上那条位置
@@ -1508,12 +1528,13 @@ function attrKeyOf(L) {
   return L.target + '\u0000' + L.index;
 }
 
-function attrToast(text) {
+function attrToast(text, sticky) {
   const box = $('attrToast');
   box.textContent = text;
   box.hidden = false;
   clearTimeout(box.__timer);
-  box.__timer = setTimeout(() => { box.hidden = true; }, 1400);
+  // sticky：整列复制这种要跑十几秒的操作，提示得一直挂着，不能 1.4 秒就消失
+  if (!sticky) box.__timer = setTimeout(() => { box.hidden = true; }, 1400);
 }
 
 /* 表头那格：字段名 + 类型宽度；悬停时气泡解释类型和长度的含义 */
@@ -1555,8 +1576,13 @@ function typeExplain(f) {
 
 function copyText(text, note) {
   const done = () => attrToast(note || '已复制');
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  /* 窗口没有焦点时 clipboard.writeText 可能既不成功也不报错（一直挂着），
+     所以 600 毫秒没结果就退回 execCommand，别让"已复制"永远等不到 */
+  if (navigator.clipboard && navigator.clipboard.writeText && document.hasFocus()) {
+    let settled = false;
+    navigator.clipboard.writeText(text).then(() => { settled = true; done(); },
+      () => { settled = true; fallbackCopy(text, done); });
+    setTimeout(() => { if (!settled) fallbackCopy(text, done); }, 600);
     return;
   }
   fallbackCopy(text, done);
@@ -1576,19 +1602,35 @@ function fallbackCopy(text, done) {
 
 const COPY_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="8.6" y="8.6" width="11.4" height="11.4" rx="2"/><path d="M5.2 15.6V6.6a1.6 1.6 0 0 1 1.6-1.6h9"/></svg>';
 
+/* 复制整列：把没加载的那些行也取回来再复制。
+   之前只复制已展示的部分——1000 行只加载了 500 行时，复制出来就只有 500 行。
+   补数据走 /api/column：只取这一列，不碰几何，10 万行几秒就回来 */
 function copyAttrCol(c, colIdx) {
   const keys = c.keys || [];
-  if (colIdx === 0) {
-    const lines = ['行号'];
-    c.rows.forEach((props, i) => lines.push(String(i + 1)));
-    copyText(lines.join('\n'), '已复制行号列');
-    return;
-  }
-  const key = keys[colIdx - 1];
-  if (key === undefined) return;
-  const lines = [key];
-  c.rows.forEach((props) => lines.push(valText(props[key])));
-  copyText(lines.join('\n'), '已复制「' + key + '」列 ' + c.rows.length + ' 行');
+  const loaded = c.rows || [];
+  const total = Number(c.total) || loaded.length;
+  const key = colIdx === 0 ? null : keys[colIdx - 1];
+  if (colIdx !== 0 && key === undefined) return;
+  const emit = (values) => {
+    if (key === null) {
+      const lines = ['行号'];
+      values.forEach((v, i) => lines.push(String(i + 1)));
+      copyText(lines.join('\n'), '已复制行号列 ' + values.length + ' 行');
+      return;
+    }
+    const lines = [key];
+    values.forEach((v) => lines.push(valText(v)));
+    copyText(lines.join('\n'), '已复制「' + key + '」列 ' + values.length + ' 行');
+  };
+  const loadedValues = key === null ? loaded : loaded.map((props) => props[key]);
+  if (loaded.length >= total || !c.target || !key) { emit(loadedValues); return; }
+  attrToast('正在读取整列 ' + total + ' 行，稍等…', true);
+  const url = '/api/column?path=' + encodeURIComponent(c.target) + '&layer=' + c.index +
+    '&field=' + encodeURIComponent(key);
+  fetch(url).then((r) => r.json()).then((res) => {
+    if (!res.ok) { attrToast((res.error && res.error.title) || '整列读取失败'); return; }
+    emit(res.values || []);
+  }).catch(() => attrToast('整列读取失败'));
 }
 
 /* 表头点一下选中整列；再点一下取消。复制走 Ctrl+C 或列上的复制图标 */
@@ -2630,6 +2672,9 @@ function fillSettings() {
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
+  $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
+  $('cfgTheme').value = ['auto', 'light', 'dark'].indexOf(config.theme) >= 0 ? config.theme : 'auto';
+  $('aboutVer').textContent = (document.title || '图览').replace('图览', '').trim() || '0.1';
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
   $('cfgCloseAct').value = config.close_act === 'exit' ? 'exit' : 'min';
@@ -3034,7 +3079,11 @@ function maybeCheckUpdate() {
   const days = { '3d': 3, week: 7, month: 30 }[freq];
   const last = Number(localStorage.getItem('gisviewer.upd_last') || 0);
   if (days && Date.now() - last < days * 86400000) return;
-  setTimeout(() => toShell('upd:'), 14000);
+  // 自动检查只在填了访问码时才发：仓库是私有的，没码必然 404，白发一趟
+  setTimeout(() => {
+    const tk = $('cfgToken') ? $('cfgToken').value.trim() : '';
+    if (tk) toShell('upd:' + tk);
+  }, 14000);
 }
 
 /* 设置改一处生效一处，没有"保存"这一步；落盘跟在每次改动后面 */
@@ -3056,6 +3105,7 @@ async function applySettings() {
   config.num_font = $('cfgFontNum').value;
   config.ui_zoom = Number($('cfgZoom').value);
   config.panel_alpha = Number($('cfgAlpha').value);
+  config.theme = $('cfgTheme').value;   // 主题也在设置里能选，和顶栏那颗按钮同一份配置
   config.unit_lang = $('cfgUnitLang').value === 'zh' ? 'zh' : 'en';
   config.close_act = $('cfgCloseAct').value === 'exit' ? 'exit' : 'min';
   toShell('closeact:' + config.close_act);   // 关按钮的行为由壳执行，改完就告诉它
@@ -3221,7 +3271,7 @@ function wireDrop() {
 
 /* 设置页左侧导航：五个分组各占一屏，点哪一屏只显示哪一屏。
    上次停在哪个分组记在本地，下次打开还在那儿 */
-const SET_PANES = ['base', 'render', 'look', 'file', 'sys'];
+const SET_PANES = ['base', 'render', 'look', 'file', 'sys', 'about'];
 
 function showSettingPane(sec) {
   if (SET_PANES.indexOf(sec) < 0) sec = 'base';
@@ -3288,7 +3338,9 @@ function init() {
   $('cfgClose').addEventListener('click', () => { settleHotkey(); $('settings').hidden = true; });
   // 浮层卡片没有关闭按钮：点卡片任意处即关（自动到点收走的逻辑在 showErrToast 里）
   $('errToast').addEventListener('click', hideErrToast);
-  /* 设置页每项标签挂提示图标：只挂一次，图标里说的话见 SETTING_TIPS */
+  
+/* 设置页每项标签挂提示图标：只挂一次，图标里说的话见 SETTING_TIPS */
+
   mountSettingTips();
   $('cacheClearBtn').addEventListener('click', () => {
     $('cacheSizeHint').textContent = '正在清空…';
@@ -3305,11 +3357,25 @@ function init() {
   wireSettingNav();
   /* 没有保存按钮：改一下生效一下。令牌那一栏不落盘，所以不参与 */
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
-    if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
+    if (node.id === 'cfgToken' || node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
     node.addEventListener('change', applySettings);
   });
   $('cfgVectorColor').addEventListener('change', () => {
     $('cfgColorSwatch').style.background = $('cfgVectorColor').value;
+  });
+  // 主题直接切，不用关掉设置页再看效果
+  $('cfgTheme').addEventListener('change', () => {
+    applyTheme($('cfgTheme').value);
+  });
+  /* 不透明度拖动时实时预览，松手（change）才落盘——每次 input 都 POST 配置太浪费 */
+  $('cfgAlpha').addEventListener('input', () => {
+    $('cfgAlphaOut').textContent = $('cfgAlpha').value + '%';
+    config.panel_alpha = Number($('cfgAlpha').value);
+    applyLook();
+  });
+  // 关于页：仓库用系统浏览器打开（target=_blank 走壳里的 NewWindowRequested）
+  $('repoOpen').addEventListener('click', () => {
+    window.open('https://github.com/MorganWsy/GISViewer', '_blank');
   });
   $('hkBtn').addEventListener('click', armHotkey);
   $('hkReset').addEventListener('click', () => { settleHotkey(); applyHotkeyChoice(3, 71); });
@@ -3325,7 +3391,7 @@ function init() {
   $('updBtn').addEventListener('click', () => {
     $('updHint').textContent = '正在问发布页…';
     $('updOpen').hidden = true;
-    toShell('upd:');   // 公开仓库不需要访问码
+    toShell('upd:' + ($('cfgToken') ? $('cfgToken').value.trim() : ''));
   });
   $('keyPeek').addEventListener('click', () => {
     const box = $('cfgKey');

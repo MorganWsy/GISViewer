@@ -1,5 +1,6 @@
 """矢量元数据。字段宽度、几何类型分布这些都要从 OGR 直接取。"""
 
+import functools
 import json
 import os
 import threading
@@ -13,6 +14,19 @@ from .crs import bounds_to_wgs84, describe, extent_warning
 ogr = bootstrap.ogr
 osr = bootstrap.osr
 gdal = bootstrap.gdal
+
+# GDAL 的同一个数据源不保证多线程安全：属性表、地图取数、整列复制同时进来时，
+# 实测会让引擎进程直接崩掉（服务端只能重启它，页面那边就断了）。
+# 这里把几个重读取函数串起来，代价是并发请求排队，换来的是不会莫名断线。
+_READ_LOCK = threading.Lock()
+
+
+def _serialized(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _READ_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
 
 MAX_LAYERS = 60
 GEOM_SAMPLE = 2000
@@ -252,6 +266,7 @@ def _layer_info(lyr, index, fallback_epsg=None):
     return info
 
 
+@_serialized
 def inspect(target):
     if str(target).lower().endswith((".osm", ".osm.pbf", ".pbf")):
         # OSM 提取文件常不按节点编号排序，自定义索引会让 points 等图层直接读不出
@@ -354,6 +369,7 @@ def _wgs_metrics(geom):
     return area, length
 
 
+@_serialized
 def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUEST,
                   tolerance=0.0, offset=0, with_geometry=True, layer_total_hint=None):
     """按视野取要素，统一转成经纬度 GeoJSON，供地图绘制。
@@ -574,6 +590,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     return {"type": "FeatureCollection", "features": features, "gisviewer": meta}
 
 
+@_serialized
 def geom_type_counts(target, layer_index=0):
     """逐个数每个几何类型各有多少个要素。
 
@@ -760,3 +777,33 @@ def measure_feature(target, layer_index=0, fid=0):
                 pass
         _MEASURE_HITS[hit_key] = result
         return dict(result)
+
+@_serialized
+def column_values(target, layer_index, field, limit=200000):
+    """只取一列的取值，给"复制整列"用。
+
+    属性表按页加载，复制整列时不能只复制已经加载的那几百行；
+    走 read_features 会把几何和所有属性都序列化一遍，10 万级要素要一分钟。
+    这里只遍历要素、只取一个字段，不构造几何，快一个数量级。
+    """
+    target = read_target(target)
+    ds = ogr.Open(target)
+    if ds is None:
+        raise ValueError("没有可识别的矢量图层")
+    lyr = ds.GetLayerByIndex(int(layer_index))
+    if lyr is None:
+        raise ValueError("这个图层读不出来")
+    lyr.ResetReading()
+    values = []
+    for feat in lyr:
+        if len(values) >= limit:
+            break
+        try:
+            v = feat.GetField(field)
+        except Exception:
+            v = None
+        # JSON 里放不下 bytes，转成可读的占位
+        if isinstance(v, (bytes, bytearray)):
+            v = "<二进制>"
+        values.append(v)
+    return {"field": field, "values": values, "total": len(values), "limit": limit}

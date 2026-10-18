@@ -68,6 +68,19 @@
       if (wasOpen) return;
       wrap.classList.add('open');
       btn.setAttribute('aria-expanded', 'true');
+      /* 列表改成按视口定位的浮层：用绝对定位时它会被设置页弹窗裁掉，
+         长列表还会把弹窗顶出一条纵向滚动条（展开"浮窗停留时间"就能看到）。
+         固定定位不参与祖先的滚动高度，天然脱离弹窗 */
+      const r = btn.getBoundingClientRect();
+      list.style.position = 'fixed';
+      list.style.left = Math.round(r.left) + 'px';
+      list.style.width = Math.round(r.width) + 'px';
+      list.style.right = 'auto';
+      list.style.top = Math.round(r.bottom + 4) + 'px';
+      const lh = list.getBoundingClientRect().height;
+      if (r.bottom + 4 + lh > window.innerHeight - 8) {
+        list.style.top = Math.round(Math.max(8, r.top - lh - 4)) + 'px';
+      }
       const picked = list.querySelector('.combo-opt.selected') || list.querySelector('.combo-opt');
       list.querySelectorAll('.combo-opt').forEach((o) => o.classList.remove('active'));
       if (picked) picked.classList.add('active');
@@ -129,6 +142,14 @@
 
   document.addEventListener('click', closeAll);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+  // 列表是视口定位的，页面一滚或窗口一变就得收起来，不然会飘在别处。
+  // 列表自己内部滚动（选项多）不算，否则滚一下选项菜单就没了
+  document.addEventListener('scroll', (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('.combo-list')) return;
+    closeAll();
+  }, true);
+  window.addEventListener('resize', closeAll);
 
   window.enhanceAll = enhanceAll;
   window.syncSelect = syncSelect;

@@ -1024,6 +1024,15 @@ namespace GISViewer
         void CheckUpdate(string token)
         {
             string current = UpdateCheck.Current();
+            if (string.IsNullOrEmpty(token))
+            {
+                /* 仓库是私有的：不带访问码去问 GitHub 只会得到 404，
+                   不如把话说清楚，省得看到一句"连不上"以为是网络问题 */
+                BeginInvoke((Action)(() => Push("update",
+                    "{error:" + Json("私有仓库需要访问码：填在下面的输入框里再检查一次") +
+                    ",current:" + Json(current) + "}")));
+                return;
+            }
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 UpdateCheck.Result r = UpdateCheck.Query(Repo, token);

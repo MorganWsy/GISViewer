@@ -626,6 +626,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._identify(query)
         if route == "/api/geomtypes":
             return self._geomtypes(query)
+        if route == "/api/column":
+            return self._column(query)
         if route == "/api/cache":
             return self._send(200, {"ok": True, "cache": cache.stats(),
                                     "data_dir": str(config_dir()),
@@ -674,6 +676,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, info)
         target = (info.get("file") or {}).get("path") or path
         return self._send(200, cached_band_stats(target, info, band_index))
+
+    def _column(self, query):
+        """整列复制用：只返回某一列的全部取值，不碰几何、不碰别的字段。"""
+        path = (query.get("path") or [""])[0].strip()
+        field = (query.get("field") or [""])[0].strip()
+        try:
+            layer = int((query.get("layer") or ["0"])[0])
+        except ValueError:
+            layer = 0
+        if not path or not field:
+            return self._send(400, {"ok": False, "error": {"title": "参数不对"}})
+        if not _readable(path):
+            return self._send(404, {"ok": False, "error": {"title": "找不到这个文件"}})
+        try:
+            data = vector.column_values(path, layer, field)
+        except Exception as exc:
+            return self._send(200, engine.error_block(exc, path))
+        data["ok"] = True
+        return self._send(200, data)
 
     def _geomtypes(self, query):
         """信息栏"几何类型"那一行的补充数据：混合类型的图层各有多少个，慢就慢点，界面异步来问。"""

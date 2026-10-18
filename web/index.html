@@ -178,6 +178,7 @@
         <button type="button" data-sec="look">外观</button>
         <button type="button" data-sec="file">文件</button>
         <button type="button" data-sec="sys">系统</button>
+        <button type="button" data-sec="about">关于</button>
       </nav>
       <div class="set-body" id="setBody">
 
@@ -269,6 +270,14 @@
 
       <section class="set-pane" data-sec="look" hidden>
       <div class="field">
+        <label for="cfgTheme">主题</label>
+        <select id="cfgTheme">
+          <option value="auto">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="cfgFontUi">界面字体</label>
         <select id="cfgFontUi"></select>
       </div>
@@ -295,12 +304,10 @@
       </div>
       <div class="field">
         <label for="cfgAlpha">面板不透明度</label>
-        <select id="cfgAlpha">
-          <option value="100">完全不透</option>
-          <option value="93">93%（默认）</option>
-          <option value="82">82%（能透出底图）</option>
-          <option value="70">70%（很透）</option>
-        </select>
+        <div class="range-row">
+          <input id="cfgAlpha" type="range" min="60" max="100" step="1" value="93">
+          <output id="cfgAlphaOut" for="cfgAlpha">93%</output>
+        </div>
       </div>
       <div class="field">
         <label for="cfgToastSec">浮窗停留时间</label>
@@ -369,22 +376,6 @@
 
       <section class="set-pane" data-sec="sys" hidden>
       <div class="field">
-        <label>唤出快捷键</label>
-        <div class="hotkey-row">
-          <button id="hkBtn" class="btn ghost hk-btn" type="button">Ctrl+Alt+G</button>
-          <button id="hkReset" class="btn ghost" type="button">恢复默认</button>
-        </div>
-        <p class="hint" id="hkHint"></p>
-      </div>
-      <div class="field">
-        <label>选中即开快捷键</label>
-        <div class="hotkey-row">
-          <button id="hk2Btn" class="btn ghost hk-btn" type="button">Ctrl+空格</button>
-          <button id="hk2Reset" class="btn ghost" type="button">恢复默认</button>
-        </div>
-        <p class="hint" id="hk2Hint"></p>
-      </div>
-      <div class="field">
         <label for="cfgCloseAct">关闭按钮行为</label>
         <select id="cfgCloseAct">
           <option value="min">收进托盘（任务栏不再留按钮）</option>
@@ -395,14 +386,24 @@
         <label>键盘操作</label>
         <table class="key-table">
           <tbody>
-            <tr><td class="k"><span id="keyGlobal">Ctrl+Alt+G</span></td><td>唤出或收起窗口</td></tr>
-            <tr><td class="k"><span id="keyOpenSel">Ctrl+空格</span></td><td>打开资源管理器里选中的文件</td></tr>
-            <tr><td class="k">Esc</td><td>依次收起提示、识别弹窗与属性表</td></tr>
-            <tr><td class="k">F</td><td>回到全图</td></tr>
-            <tr><td class="k">Ctrl+F</td><td>定位到属性表的查找框</td></tr>
-            <tr><td class="k">Enter</td><td>路径框里回车：打开文件或按坐标定位</td></tr>
+            <tr>
+              <td>唤出或收起窗口</td>
+              <td class="k"><button id="hkBtn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+Alt+G</button></td>
+              <td class="act"><button id="hkReset" class="link-btn" type="button">恢复默认</button></td>
+            </tr>
+            <tr>
+              <td>打开资源管理器中选中的文件</td>
+              <td class="k"><button id="hk2Btn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+空格</button></td>
+              <td class="act"><button id="hk2Reset" class="link-btn" type="button">恢复默认</button></td>
+            </tr>
+            <tr><td>收起提示、识别弹窗与属性表</td><td class="k">Esc</td><td></td></tr>
+            <tr><td>回到全图</td><td class="k">F</td><td></td></tr>
+            <tr><td>定位到属性表查找框</td><td class="k">Ctrl+F</td><td></td></tr>
+            <tr><td>路径框回车：打开文件或按坐标定位</td><td class="k">Enter</td><td></td></tr>
           </tbody>
         </table>
+        <p class="hint" id="hkHint"></p>
+        <p class="hint" id="hk2Hint"></p>
       </div>
       <div class="field inline">
         <label for="cfgAutoStart">开机自启动</label>
@@ -413,21 +414,43 @@
         <input id="cfgDeskLnk" type="checkbox">
       </div>
       <p class="hint" id="sysHint"></p>
+      </section>
+
+      <section class="set-pane" data-sec="about" hidden>
       <div class="field">
-        <label for="cfgUpdFreq">检查更新</label>
-        <select id="cfgUpdFreq">
-          <option value="off">不检查</option>
-          <option value="open">每次打开后（等十几秒）</option>
-          <option value="3d">每 3 天</option>
-          <option value="week">每周</option>
-          <option value="month">每月</option>
-        </select>
-        <div class="upd-row">
-          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
-          <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
-          <span class="hint" id="updHint"></span>
+        <label>版本</label>
+        <div class="kv-row">
+          <span id="aboutVer">图览</span>
+          <span class="hint" id="aboutNote">本地单文件预览工具，不联网也能用</span>
         </div>
       </div>
+      <div class="field">
+        <label>项目仓库</label>
+        <div class="kv-row">
+          <span class="mono">MorganWsy/GISViewer</span>
+          <button id="repoOpen" class="btn ghost" type="button">在浏览器打开</button>
+        </div>
+        <p class="hint">私有仓库：自动检查更新需要下面的访问码</p>
+      </div>
+      <div class="field">
+        <label for="cfgUpdFreq">检查更新</label>
+        <div class="inline-row">
+          <select id="cfgUpdFreq">
+            <option value="off">不检查</option>
+            <option value="open">每次打开后（等十几秒）</option>
+            <option value="3d">每 3 天</option>
+            <option value="week">每周</option>
+            <option value="month">每月</option>
+          </select>
+          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgToken">访问码</label>
+        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false" placeholder="私有仓库的 GitHub 令牌，只存在本机配置里">
+      </div>
+      <p class="hint" id="updHint">还没有检查过</p>
+      <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
       </section>
 
       </div>
