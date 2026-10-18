@@ -214,7 +214,7 @@ function showTipBox(anchor, text) {
 /* 收起前留一点时间：从标签移到气泡上这一小段路不该让气泡先消失 */
 function scheduleHideTip() {
   clearTimeout(tipState.timer);
-  tipState.timer = setTimeout(hideTipBox, 180);
+  tipState.timer = setTimeout(hideTipBox, 400);
 }
 
 function hideTipBox() {
@@ -712,6 +712,10 @@ function railVector(rail, d) {
    数完只改这一格文字，地图和别的行都不动。
    统计期间每秒把秒数写出来——一直挂着"正在统计…"看不出它是在干活还是卡死了 */
 const geomTypeAsked = {};
+/* 已经数出来的结果按"路径|图层"存一份：同一个文件第二次打开时直接拿来用。
+   只靠 geomTypeAsked 不够——它只记"问过"，重新打开后新的数据对象上没有结果文字，
+   于是永远停在"类型混合"（这一版自检时发现的） */
+const geomTypeText = {};
 
 /* 右栏里按字段名找值那一格；找不到（已经重画或换了文件）返回 null */
 function railValueCell(key) {
@@ -739,13 +743,20 @@ function fillGeomTypes(primary, base) {
   if (!target) return;
   const layerIndex = d.layerIndex || 0;
   const key = target + '|' + layerIndex;
-  if (geomTypeAsked[key]) return;
+  if (geomTypeText[key]) {
+    // 这个文件本会话已经数过：直接填回去，不再问引擎
+    primary.geometry_counts_text = geomTypeText[key];
+    putText(geomTypeText[key]);
+    return;
+  }
+  if (geomTypeAsked[key]) return;   // 请求还在路上，别重复发
   geomTypeAsked[key] = 1;
   const started = Date.now();
   const label = base || '几何类型混合';
   /* 结果可能比右栏先到（缓存命中时几十毫秒就回来了），也可能晚到几秒。
-     所以两件事都要做：填字时找不到那一格就隔一会儿再试；统计期间每秒报一次秒数 */
-  const putText = (text) => {
+     所以两件事都要做：填字时找不到那一格就隔一会儿再试；统计期间每秒报一次秒数。
+     写成函数声明（而不是 const 箭头函数），上面"本会话已数过"那条分支才能提前调用 */
+  function putText(text) {
     let tries = 0;
     const put = () => {
       const cell = railValueCell('几何类型');
@@ -753,7 +764,7 @@ function fillGeomTypes(primary, base) {
       if (tries++ < 30) setTimeout(put, 100);   // 最多等 3 秒，等右栏画出来
     };
     put();
-  };
+  }
   const tick = setInterval(() => {
     const cell = railValueCell('几何类型');
     if (!cell) return;                          // 右栏还没画好，这一拍先跳过，别把钟停了
@@ -772,7 +783,8 @@ function fillGeomTypes(primary, base) {
       const text = types.length
         ? types.map((t) => t.label + ' ' + num(t.count)).join(' · ')
         : '类型混合';
-      primary.geometry_counts_text = text;   // 重画右栏时直接复用，不再问一遍
+      geomTypeText[key] = text;              // 本会话再打开同一个文件直接用
+      primary.geometry_counts_text = text;   // 重画右栏时也直接复用
       putText(text);
     })
     .catch(() => {
@@ -1313,13 +1325,13 @@ function drawHistogram(hist) {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      layout: { padding: { top: 2, right: 4 } },
+      layout: { padding: { top: 2, right: 6, bottom: 0, left: 0 } },
       scales: {
         x: {
           grid: { display: false },
           border: { color: grid },
           // 标签再贴近轴线一点，给绘图区多留高度
-          ticks: { maxTicksLimit: 6, color: dim, font: { size: 11 }, autoSkip: true, padding: 1 },
+          ticks: { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 2 },
         },
         y: {
           beginAtZero: true,
@@ -1327,7 +1339,7 @@ function drawHistogram(hist) {
           grid: { color: grid, drawTicks: false },
           border: { display: false },
           ticks: {
-            stepSize: top / 4, color: dim, font: { size: 11 }, padding: 6,
+            stepSize: top / 4, color: dim, font: { size: 13 }, padding: 4,
             callback: (v) => shown(v),
           },
           // 轴标题竖着写在轴左侧，不占顶上那条位置
@@ -1335,7 +1347,7 @@ function drawHistogram(hist) {
             display: true,
             text: '像元数' + (unit[1] ? '（' + unit[1] + '）' : ''),
             color: dim,
-            font: { size: 11 },
+            font: { size: 13 },
             padding: { top: 0, bottom: 0 },
           },
         },
@@ -2277,31 +2289,28 @@ const SETTING_TIPS = {
   cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
   cfgUpdFreq: '检查新版本的频率。检查时仅访问发布页一次，其余时间不联网',
-  cfgToken: '仅在检查更新时用于访问发布接口，不写入任何文件；软件未公开时无需填写',
   cfgRestore: '启动时自动打开上次查看的文件',
   cfgRecentMax: '顶栏路径框点开时，下拉列表里"最近打开"最多显示的条数',
-  cfgCache: '从别处拖进来的文件会先复制一份到此目录供读取，软件退出后自动删除；读取结果的缓存不在这个目录，固定存放于系统的数据目录（设置页"数据缓存"气泡里写着真实路径）',
+  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取，软件退出后自动删除。读取结果的缓存不在这个目录，见下方"缓存位置"',
   cfgKeepHours: '软件异常退出时，临时副本保留的时长，超过后自动清理',
 };
 
-/* 标签上没有 for 的几处（快捷键、按键说明、数据缓存），按标签文字挂 */
+/* 标签上没有 for 的两处快捷键，按标签文字挂提示 */
 const SETTING_LABEL_TIPS = {
-  '打开软件的快捷键': '在任何软件中按下该组合键，即可将图览窗口唤到前台；点击按钮后按下新的组合键即可修改',
-  '打开选中文件的快捷键': '在资源管理器中选中文件或文件夹后按下该组合键，可直接在图览中打开。空格键单独按下由系统占用（快速预览），因此需要配合修饰键',
-  '软件里能用的按键': '窗口内可用的键盘操作：Esc 依次收起提示、识别弹窗与属性表；F 回到全图；Ctrl+F 定位到属性表的查找框；顶栏输入框支持输入经纬度后回车定位',
-  '数据缓存': '打开过的文件按"路径 + 修改时间"记住读取结果，文件未变时再次打开会快得多；清空缓存只是让下次读取变慢，不会动源文件。',
+  '唤出快捷键': '在任何程序中按下都可将窗口唤到前台；点按钮后按下新的组合键即可修改',
+  '选中即开快捷键': '在资源管理器或桌面上选中文件后按下，直接在图览中打开；空格单独按下被系统占用，需要搭配修饰键',
 };
-
-/* "数据缓存"的标签要在运行时补一句缓存目录（拿到引擎回报后，见 paintCacheSize） */
-let cacheLab = null;
 
 function mountSettingTips() {
   const root = $('settings');
   if (!root) return;
+  /* 提示挂在整条标签上，不是只挂在那枚 13 像素的小图标上——
+     鼠标划到标签文字上就能出气泡，不用瞄准图标 */
   const put = (lab, tip) => {
     if (!lab || !tip || lab.querySelector('.tip-ico')) return;
+    lab.setAttribute('data-tip', tip);
+    lab.classList.add('has-tip');
     const i = el('i', 'tip-ico');
-    i.setAttribute('data-tip', tip);
     i.innerHTML = HINT_ICO;
     lab.appendChild(i);
   };
@@ -2310,7 +2319,6 @@ function mountSettingTips() {
   });
   root.querySelectorAll('.field > label, .field.inline > label').forEach((lab) => {
     put(lab, SETTING_LABEL_TIPS[lab.textContent.trim()]);
-    if (lab.textContent.trim() === '数据缓存') cacheLab = lab;
   });
 }
 
@@ -2326,7 +2334,9 @@ function recentMax() {
 }
 
 function rememberRecent(p) {
-  const list = (config.recent || []).filter((x) => x && x !== p);
+  /* 同一条路径换个写法（斜杠、大小写）不该重复出现：按归一化后的形式去重 */
+  const key = (x) => String(x).replace(/[\\/]+/g, '/').toLowerCase();
+  const list = (config.recent || []).filter((x) => x && key(x) !== key(p));
   list.unshift(p);
   config.recent = list.slice(0, RECENT_KEEP);
   renderRecent();
@@ -2363,6 +2373,7 @@ function renderRecent() {
     item.addEventListener('click', () => {
       hideRecent();
       $('pathInput').value = p;
+      $('pathInput').blur();   // 选完就交还焦点，输入框不该一直亮着
       inspectPath(p);
     });
     pop.appendChild(item);
@@ -2660,12 +2671,6 @@ let cacheDirShown = '';
 
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
-  // 缓存目录补在"数据缓存"提示气泡的末尾，同时页面下方直接写一行真实路径
-  if (cacheLab && cacheDirShown) {
-    cacheLab.setAttribute('data-tip', SETTING_LABEL_TIPS['数据缓存'] +
-      '当前缓存位置：' + cacheDirShown +
-      '（想换位置，把整个软件的数据目录挪走即可，暂不在设置里开放）。');
-  }
   const where = $('cachePath');
   if (where) where.value = cacheDirShown || '';
   const hint = $('cacheSizeHint');
@@ -2884,13 +2889,19 @@ function trySyncHotkey() {
 function paintHotkey() {
   const btn = $('hkBtn');
   if (!btn || arming) return;
-  btn.textContent = host.hotkey || hkText(config.hk_mods, config.hk_vk) || 'Ctrl+Alt+G';
+  const txt = host.hotkey || hkText(config.hk_mods, config.hk_vk) || 'Ctrl+Alt+G';
+  btn.textContent = txt;
+  const cell = $('keyGlobal');
+  if (cell) cell.textContent = txt;
 }
 
 function paintHotkey2() {
   const btn = $('hk2Btn');
   if (!btn || arming2) return;
-  btn.textContent = host.hotkey2 || hkText(config.hk2_mods, config.hk2_vk) || 'Ctrl+Alt+空格';
+  const txt = host.hotkey2 || hkText(config.hk2_mods, config.hk2_vk) || 'Ctrl+Alt+空格';
+  btn.textContent = txt;
+  const cell = $('keyOpenSel');
+  if (cell) cell.textContent = txt;
 }
 
 let arming = false;
@@ -3291,7 +3302,7 @@ function init() {
   wireSettingNav();
   /* 没有保存按钮：改一下生效一下。令牌那一栏不落盘，所以不参与 */
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
-    if (node.id === 'cfgToken' || node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
+    if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
     node.addEventListener('change', applySettings);
   });
   $('cfgVectorColor').addEventListener('change', () => {
@@ -3311,7 +3322,7 @@ function init() {
   $('updBtn').addEventListener('click', () => {
     $('updHint').textContent = '正在问发布页…';
     $('updOpen').hidden = true;
-    toShell('upd:' + $('cfgToken').value.trim());
+    toShell('upd:');   // 公开仓库不需要访问码
   });
   $('keyPeek').addEventListener('click', () => {
     const box = $('cfgKey');
@@ -3346,7 +3357,15 @@ function init() {
   wireAttrBody();
   wireQuickKeys();
   renderRecent();
-  $('pathInput').addEventListener('focus', showRecent);
+  /* 只有用户真的点进来、或用键盘切进来才弹"最近打开"：快捷键把窗口唤到前台时，
+     WebView 也会把焦点还给输入框，那种被动聚焦不该弹出一块列表 */
+  let lastUserAct = 0;
+  ['pointerdown', 'keydown'].forEach((ev) => {
+    document.addEventListener(ev, () => { lastUserAct = Date.now(); }, true);
+  });
+  $('pathInput').addEventListener('focus', () => {
+    if (Date.now() - lastUserAct < 1200) showRecent();
+  });
   document.addEventListener('click', (e) => {
     const pop = $('recentPop');
     if (!pop || pop.hidden) return;

@@ -194,10 +194,10 @@
         </select>
       </div>
       <div class="field inline">
-        <label for="cfgAnnotation">叠加天地图注记</label>
+        <label for="cfgAnnotation">天地图注记</label>
         <input id="cfgAnnotation" type="checkbox" checked>
       </div>
-      <div class="field wide">
+      <div class="field">
         <label for="cfgKey">天地图密钥</label>
         <div class="key-row">
           <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
@@ -229,7 +229,7 @@
         </select>
       </div>
       <div class="field">
-        <label for="cfgNodata">没有数据的地方</label>
+        <label for="cfgNodata">无数据像元</label>
         <select id="cfgNodata">
           <option value="transparent">透出底图（默认）</option>
           <option value="black">涂黑</option>
@@ -237,14 +237,14 @@
         </select>
       </div>
       <div class="field">
-        <label for="cfgRasterDefault">多波段文件默认画</label>
+        <label for="cfgRasterDefault">多波段默认显示</label>
         <select id="cfgRasterDefault">
           <option value="composite">前三个波段合成（默认）</option>
           <option value="single">第一个波段，单色分级</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgVectorColor">要素与范围线的颜色</label>
+        <label for="cfgVectorColor">要素颜色</label>
         <div class="color-row">
           <select id="cfgVectorColor">
             <option value="#d9781f">橙（默认）</option>
@@ -257,7 +257,7 @@
         </div>
       </div>
       <div class="field">
-        <label for="cfgMaxFeatures">属性表每次加载的条数</label>
+        <label for="cfgMaxFeatures">属性表每批条数</label>
         <select id="cfgMaxFeatures">
           <option value="200">200 条</option>
           <option value="500">500 条（默认）</option>
@@ -303,7 +303,7 @@
         </select>
       </div>
       <div class="field">
-        <label for="cfgToastSec">消息浮窗停留</label>
+        <label for="cfgToastSec">浮窗停留时间</label>
         <select id="cfgToastSec">
           <option value="3">3 秒</option>
           <option value="5">5 秒（默认）</option>
@@ -315,19 +315,21 @@
       </section>
 
       <section class="set-pane" data-sec="file" hidden>
-      <div class="field wide">
-        <label for="cfgOpenDir">打开文件框从哪开始</label>
-        <div class="dir-row">
-          <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空就用上次打开文件所在的文件夹">
-          <button id="cfgOpenDirPick" class="btn ghost" type="button">选择…</button>
+      <div class="field">
+        <label for="cfgOpenDir">文件框起始目录</label>
+        <div class="icon-row">
+          <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空则用上次打开文件所在的文件夹">
+          <button id="cfgOpenDirPick" class="icon-btn" type="button" title="选择一个固定目录">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          </button>
         </div>
       </div>
       <div class="field inline">
-        <label for="cfgRestore">启动时恢复上次的文件</label>
+        <label for="cfgRestore">启动时恢复上次文件</label>
         <input id="cfgRestore" type="checkbox">
       </div>
       <div class="field">
-        <label for="cfgRecentMax">最近打开显示条数</label>
+        <label for="cfgRecentMax">最近打开条数</label>
         <select id="cfgRecentMax">
           <option value="3">3 条</option>
           <option value="5">5 条（默认）</option>
@@ -342,7 +344,7 @@
         <p class="hint" id="cfgCacheHint"></p>
       </div>
       <div class="field">
-        <label for="cfgKeepHours">异常退出后副本保留</label>
+        <label for="cfgKeepHours">副本保留时长</label>
         <select id="cfgKeepHours">
           <option value="12">12 小时（默认）</option>
           <option value="24">1 天</option>
@@ -350,11 +352,13 @@
           <option value="168">7 天</option>
         </select>
       </div>
-      <div class="field wide">
+      <div class="field">
         <label for="cachePath">缓存位置</label>
-        <div class="dir-row">
+        <div class="icon-row">
           <input id="cachePath" type="text" readonly value="">
-          <button id="cachePathOpen" class="btn ghost" type="button">打开</button>
+          <button id="cachePathOpen" class="icon-btn" type="button" title="打开缓存文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          </button>
         </div>
         <div class="upd-row">
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
@@ -365,7 +369,7 @@
 
       <section class="set-pane" data-sec="sys" hidden>
       <div class="field">
-        <label>打开软件的快捷键</label>
+        <label>唤出快捷键</label>
         <div class="hotkey-row">
           <button id="hkBtn" class="btn ghost hk-btn" type="button">Ctrl+Alt+G</button>
           <button id="hkReset" class="btn ghost" type="button">恢复默认</button>
@@ -373,7 +377,7 @@
         <p class="hint" id="hkHint"></p>
       </div>
       <div class="field">
-        <label>打开选中文件的快捷键</label>
+        <label>选中即开快捷键</label>
         <div class="hotkey-row">
           <button id="hk2Btn" class="btn ghost hk-btn" type="button">Ctrl+空格</button>
           <button id="hk2Reset" class="btn ghost" type="button">恢复默认</button>
@@ -381,24 +385,34 @@
         <p class="hint" id="hk2Hint"></p>
       </div>
       <div class="field">
-        <label for="cfgCloseAct">点窗口右上角的关闭按钮时</label>
+        <label for="cfgCloseAct">关闭按钮行为</label>
         <select id="cfgCloseAct">
           <option value="min">收进托盘（任务栏不再留按钮）</option>
           <option value="exit">直接退出软件</option>
         </select>
       </div>
       <div class="field">
-        <label>软件里能用的按键</label>
+        <label>键盘操作</label>
+        <table class="key-table">
+          <tbody>
+            <tr><td class="k"><span id="keyGlobal">Ctrl+Alt+G</span></td><td>唤出或收起窗口</td></tr>
+            <tr><td class="k"><span id="keyOpenSel">Ctrl+空格</span></td><td>打开资源管理器里选中的文件</td></tr>
+            <tr><td class="k">Esc</td><td>依次收起提示、识别弹窗与属性表</td></tr>
+            <tr><td class="k">F</td><td>回到全图</td></tr>
+            <tr><td class="k">Ctrl+F</td><td>定位到属性表的查找框</td></tr>
+            <tr><td class="k">Enter</td><td>路径框里回车：打开文件或按坐标定位</td></tr>
+          </tbody>
+        </table>
       </div>
       <div class="field inline">
         <label for="cfgAutoStart">开机自启动</label>
         <input id="cfgAutoStart" type="checkbox">
       </div>
       <div class="field inline">
-        <label for="cfgDeskLnk">在桌面放一个快捷方式</label>
+        <label for="cfgDeskLnk">桌面快捷方式</label>
         <input id="cfgDeskLnk" type="checkbox">
       </div>
-      <p class="hint wide" id="sysHint"></p>
+      <p class="hint" id="sysHint"></p>
       <div class="field">
         <label for="cfgUpdFreq">检查更新</label>
         <select id="cfgUpdFreq">
@@ -413,10 +427,6 @@
           <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
           <span class="hint" id="updHint"></span>
         </div>
-      </div>
-      <div class="field">
-        <label for="cfgToken">更新检查用的访问码</label>
-        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false" placeholder="软件没公开时才需要填，留空即可">
       </div>
       </section>
 

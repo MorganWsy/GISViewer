@@ -715,7 +715,9 @@
     // 值分布、属性表、复位三个按钮并进缩放那一组，右上角只留一块控件
     const group = map.getContainer().querySelector('.maplibregl-ctrl-top-right .maplibregl-ctrl-group');
     if (group) {
-      ['histBtn', 'attrBtn', 'homeBtn'].forEach((id) => {
+      /* 顺序有讲究：缩放、指北、复位这三个是固定控件，永远在；直方图和属性表跟着图层走，
+         放在最下面。这样切换图层时上面的控件不会跟着上下跳 */
+      ['homeBtn', 'histBtn', 'attrBtn'].forEach((id) => {
         const btn = document.getElementById(id);
         if (!btn) return;
         btn.className = 'maplibregl-ctrl-icon';

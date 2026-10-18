@@ -233,6 +233,22 @@ def write_config(data):
     for key, value in data.items():
         if key in allowed:
             payload[key] = value
+    # 路径统一成 Windows 的规范写法：界面偶尔会送来正斜杠或重复分隔符
+    # （D:////GISViewer-data////x 这种），存进去以后"最近打开"里显示得一塌糊涂
+    for key in ("recent", "last_paths"):
+        items = payload.get(key)
+        if not isinstance(items, list):
+            continue
+        fixed, seen = [], set()
+        for item in items:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            clean = os.path.normpath(item)
+            if clean in seen:
+                continue
+            seen.add(clean)
+            fixed.append(clean)
+        payload[key] = fixed
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     # 本轮的副本目录已经建好，中途换会把已复制的文件丢在原处，所以只能下次启动生效
     if _upload_root and str(payload.get("cache_dir") or "").strip() != _cache_dir_used:
