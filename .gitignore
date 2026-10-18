@@ -1,0 +1,23 @@
+# 构建产物与免安装包
+dist/
+build/
+archive/
+
+# 本地样例数据与测试夹具（几百 MB 的二进制，不进仓库）
+samples/
+tests/fixtures/
+
+# 调研用的截图、渲染对比图和打包中间产物
+design/arc/
+design/probe/
+design/backup_*/
+
+# Python 运行时缓存
+__pycache__/
+*.py[cod]
+
+# 编辑器与系统
+.vs/
+*.user
+Thumbs.db
+Desktop.ini

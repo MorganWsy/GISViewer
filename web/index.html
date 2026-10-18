@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>图览 Tulan</title>
+<link rel="stylesheet" href="/web/vendor/maplibre-gl.css">
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<header class="bar" id="bar">
+  <img class="brand-logo logo-light" src="/web/img/logo-light.png" alt="">
+  <img class="brand-logo logo-dark" src="/web/img/logo-dark.png" alt="">
+  <div class="brand">
+    <div class="brand-cn">图览</div>
+  </div>
+  <!-- 这块空白就是窗口的标题栏：按住拖得动，双击最大化/还原，别放任何控件上去 -->
+  <div class="bar-gap"></div>
+  <form id="pathForm" class="path-form no-drag" autocomplete="off">
+    <!-- 占位符给出两类例子：文件路径长什么样、坐标认哪几种写法（逗号分隔、先经后纬、带 N/E） -->
+    <input id="pathInput" type="text" placeholder="粘贴路径（如 D:\data\省界.shp），或坐标定位（如 116.4,39.9 或 39.9N 116.4E）" spellcheck="false">
+    <button type="submit" class="btn">查看</button>
+  </form>
+  <!-- 最近打开：点一下路径框就出来，选一条直接重开 -->
+  <div id="recentPop" class="recent-pop" hidden></div>
+  <!-- "打开"菜单：.gdb 这类数据在资源管理器里是文件夹，系统文件框选不了，
+       所以按钮点开先分岔：打开文件…/打开文件夹… -->
+  <div id="pickPop" class="pick-pop" hidden></div>
+  <div class="tools no-drag">
+    <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
+    <button id="filePickBtn" class="ibtn" type="button" title="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
+      <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+    </button>
+    <button id="themeBtn" class="ibtn" type="button"></button>
+    <button id="settingsBtn" class="ibtn" type="button" title="设置：底图、密钥、显示与快捷键">
+      <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M656 576a144.064 144.064 0 0 1 140.448 112H864a32 32 0 0 1 3.744 63.776L864 752l-67.584 0.032a144.064 144.064 0 0 1-280.832 0L160 752a32 32 0 0 1-3.744-63.776L160 688h355.552A144.064 144.064 0 0 1 656 576z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z m-288-480c69.12 0 126.816 48.64 140.8 113.6H864a32 32 0 0 1 3.744 63.776L864 337.6l-355.936 0.032a144.064 144.064 0 0 1-280.128 0L160 337.6a32 32 0 0 1-3.744-63.776L160 273.6h67.2A144.064 144.064 0 0 1 368 160z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z"/></svg>
+    </button>
+    <input id="filePick" type="file" multiple hidden>
+  </div>
+  <div class="bar-sep"></div>
+  <div class="winbtns no-drag" id="winBtns" hidden>
+    <button id="winMin" class="win-btn" title="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
+    <button id="winMax" class="win-btn" title="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
+    <button id="winClose" class="win-btn close" title="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
+  </div>
+</header>
+
+<main id="drop" class="layout">
+  <section id="empty" class="empty">
+    <p class="empty-title">把文件拖到这里</p>
+    <p class="empty-hint">支持 Shapefile（含压缩包）、GeoJSON 与其他 JSON、GeoTIFF、Erdas IMG、
+      netCDF、HDF、GeoPackage、KML/KMZ、GDB、DXF、DWG、本地瓦片金字塔</p>
+  </section>
+
+  <!-- 拖放悬停时盖在主体上的一层提示：虚线框和起始页投放框那一圈重合，
+       中间是动画图标（箭头落进托盘），文字缩成小注释跟在下面 -->
+  <div id="dropVeil" class="drop-veil" hidden>
+    <div class="drop-art">
+      <svg class="drop-ico" viewBox="0 0 64 64" aria-hidden="true">
+        <path class="drop-tray" d="M16 34v12a6 6 0 0 0 6 6h20a6 6 0 0 0 6-6V34"/>
+        <g class="drop-arrow">
+          <path d="M32 10v20"/>
+          <path d="M22 22l10 10 10-10"/>
+        </g>
+      </svg>
+      <span class="drop-cap">松开即可打开</span>
+    </div>
+  </div>
+
+  <section id="panels" class="stage" hidden>
+    <div class="map-pane">
+      <div class="map-stage">
+      <div id="map" class="map-fill"></div>
+      <div id="loadTip" class="map-load" hidden><i class="load-spin"></i><span id="loadText">正在读取…</span></div>
+      <!-- 一句就说完的小提示：定位到某个坐标这类操作用它，不弹窗口 -->
+      <div id="mapToast" class="map-toast" hidden></div>
+      <div id="fileChip" class="map-chip" hidden>
+        <button id="chipTab" class="fold-tab" title="展开文件信息"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>文件信息</span></button>
+        <div class="fold-wrap" id="chipFoldWrap"><div class="fold-in">
+          <div class="chip-head">
+            <!-- 标题两张脸：大字是正在看的图层名（单文件时是文件名），
+                 小字补出处（文件 · 第几层）——只有多图层文件才亮出第二行 -->
+            <button id="chipLayerBtn" class="chip-layer" type="button">
+              <span class="cl-col">
+                <span id="chipName"></span>
+                <span id="chipSub" hidden></span>
+              </span>
+              <svg class="chip-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
+            </button>
+            <button id="chipFold" class="fold-btn" title="收起文件信息"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+            <button id="chipClose" class="fold-btn close" title="关闭图层，回到初始界面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+          </div>
+          <div id="chipBody"></div>
+        </div></div>
+      </div>
+      <!-- 图层切换：挂在文件信息标题上，点开是一张自绘的列表 -->
+      <div id="layerPop" class="layer-pop" hidden></div>
+      <div class="map-tools">
+        <button id="histBtn" class="map-fab" hidden title="波段值分布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19.2h16"/><rect x="5.4" y="11" width="3.1" height="6.2" rx="1"/><rect x="10.5" y="6.4" width="3.1" height="10.8" rx="1"/><rect x="15.6" y="13.6" width="3.1" height="3.6" rx="1"/></svg></button>
+        <button id="attrBtn" class="map-fab" hidden title="属性表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg></button>
+        <button id="homeBtn" class="map-fab" title="复位：回到初始视野（中国全图）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.4 12 3.8l8 6.6"/><path d="M5.9 9.2V19a1.2 1.2 0 0 0 1.2 1.2h9.8a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M10 20.2v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8"/></svg></button>
+      </div>
+      <div id="histPop" class="map-pop" hidden>
+        <div class="pop-title" id="histTitle"></div>
+        <div id="histBody" class="hist-body"></div>
+        <div class="card-note" id="histNote"></div>
+      </div>
+      <div class="map-bar">
+        <div id="legend" class="map-legend" hidden>
+          <button id="legendTab" class="fold-tab" title="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>图例</span></button>
+          <div class="fold-wrap" id="legendFoldWrap"><div class="fold-in">
+            <div class="legend-head">
+              <select id="legendBand" class="legend-band"></select>
+              <button id="legendFold" class="fold-btn" title="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+            </div>
+            <div id="legendBody" class="legend-body"></div>
+          </div></div>
+        </div>
+        <div id="statusBox" class="map-status" hidden>
+          <span class="scale"><i id="scaleBar"></i><b id="scaleText"></b></span>
+          <span class="status-sep"></span>
+          <span class="pos-item pos-ll pos-lng">经度 <b id="posLng">—</b></span>
+          <span class="pos-item pos-ll pos-lat">纬度 <b id="posLat">—</b></span>
+          <span class="pos-item pos-zoom">层级 <b id="posZoom">—</b></span>
+          <span class="pos-item">坐标系 <b id="posCrs">—</b></span>
+        </div>
+      </div>
+      <!-- 属性表浮在地图里面：切文件时地图不用重排，也就不会抖 -->
+      <div id="attrPanel" class="map-attr" hidden>
+        <div class="attr-grip" id="attrGrip" title="拖动调整高度"><i></i></div>
+        <div class="attr-head">
+          <svg class="attr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg>
+          <span class="attr-title">属性表</span>
+          <span class="attr-toast" id="attrToast" hidden></span>
+          <!-- 查找框整体贴在这一行的最右边：计数在输入框左边，
+               结果数变来变去时输入框的位置也不动 -->
+          <div class="attr-find-box">
+            <span class="attr-find-count" id="attrFindCount" hidden></span>
+            <input id="attrFind" class="attr-find" type="text" spellcheck="false" autocomplete="off"
+                   placeholder="在已加载的行里查找">
+          </div>
+        </div>
+        <!-- 读取提示盖在表体正中间：首屏和往下续读共用这一个，不要再往表格里塞第二份 -->
+        <div class="attr-body-wrap">
+          <div class="attr-body" id="attrBody"></div>
+          <div class="attr-load" id="attrLoad" hidden><i class="load-spin"></i><span>正在读取…</span></div>
+        </div>
+      </div>
+      </div>
+      <div class="map-note" id="mapNote"></div>
+    </div>
+    <div id="splitter" class="splitter" title="拖动调整地图与信息栏的宽度"></div>
+    <aside id="rail" class="rail"></aside>
+  </section>
+</main>
+
+<!-- 错误/警告浮层卡片：加载失败这类提示浮在页面上方，带阴影，
+     不占版面、不打断已经打开的图层。没有关闭按钮：点卡片任意处马上关，
+     不点的话过一阵自己消失（Esc 也能关） -->
+<div id="errToast" class="err-toast" hidden>
+  <svg class="et-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23l-9.2-15.94zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg>
+  <div class="et-main">
+    <div class="et-title" id="errTitle"></div>
+    <div class="et-detail" id="errDetail"></div>
+    <div class="et-hint" id="errHint"></div>
+  </div>
+</div>
+
+<div id="settings" class="modal" hidden>
+  <div class="modal-card">
+    <div class="card-title">设置
+      <button id="cfgClose" class="modal-x" title="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="set-sec">底图</div>
+      <div class="field">
+        <label for="cfgBasemap">底图</label>
+        <select id="cfgBasemap">
+          <option value="none">无底图</option>
+          <option value="tianditu_img">天地图影像</option>
+          <option value="tianditu_vec">天地图矢量</option>
+          <option value="esri">Esri 卫星影像</option>
+          <option value="osm">OpenStreetMap</option>
+          <option value="amap">高德影像</option>
+        </select>
+      </div>
+      <div class="field inline">
+        <label for="cfgAnnotation">叠加天地图注记</label>
+        <input id="cfgAnnotation" type="checkbox" checked>
+      </div>
+      <div class="field wide">
+        <label for="cfgKey">天地图密钥</label>
+        <div class="key-row">
+          <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
+          <!-- 眼睛图标代替"显示/隐藏"按钮：藏在输入框里，一眼就知道是看密钥的 -->
+          <button id="keyPeek" class="key-eye" type="button" title="显示密钥">
+            <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/></svg>
+            <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/><path d="M4.4 19.6 19.6 4.4"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="set-sec">栅格显示</div>
+      <div class="field">
+        <label for="cfgRamp">色带</label>
+        <select id="cfgRamp">
+          <option value="viridis">青绿渐变（默认，明暗连续）</option>
+          <option value="redblue">红蓝对比（低值冷、高值暖）</option>
+          <option value="terrain">高程分层设色（绿到棕到白）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgClassCount">分级级数</label>
+        <select id="cfgClassCount">
+          <option value="3">3 级</option>
+          <option value="4">4 级</option>
+          <option value="5">5 级（默认）</option>
+          <option value="6">6 级</option>
+          <option value="7">7 级</option>
+          <option value="8">8 级</option>
+          <option value="9">9 级</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgNodata">没有数据的地方</label>
+        <select id="cfgNodata">
+          <option value="transparent">透出底图（默认）</option>
+          <option value="black">涂黑</option>
+          <option value="white">涂白</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgRasterDefault">多波段文件默认画</label>
+        <select id="cfgRasterDefault">
+          <option value="composite">前三个波段合成（默认）</option>
+          <option value="single">第一个波段，单色分级</option>
+        </select>
+      </div>
+
+      <div class="set-sec">矢量与属性表</div>
+      <div class="field">
+        <label for="cfgVectorColor">要素与范围线的颜色</label>
+        <div class="color-row">
+          <select id="cfgVectorColor">
+            <option value="#d9781f">橙（默认）</option>
+            <option value="#e6b23a">明黄</option>
+            <option value="#1fb6c9">青</option>
+            <option value="#3fae5a">草绿</option>
+            <option value="#e0479c">品红</option>
+          </select>
+          <i id="cfgColorSwatch" class="swatch"></i>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgMaxFeatures">属性表每次加载的条数</label>
+        <select id="cfgMaxFeatures">
+          <option value="200">200 条</option>
+          <option value="500">500 条（默认）</option>
+          <option value="2000">2000 条</option>
+          <option value="20000">20000 条（大图层会慢）</option>
+        </select>
+      </div>
+
+      <div class="set-sec">外观</div>
+      <div class="field">
+        <label for="cfgFontUi">界面字体</label>
+        <select id="cfgFontUi"></select>
+      </div>
+      <div class="field">
+        <label for="cfgFontNum">数字与英文字体</label>
+        <select id="cfgFontNum"></select>
+      </div>
+      <div class="field">
+        <label for="cfgUnitLang">单位显示</label>
+        <select id="cfgUnitLang">
+          <option value="en">英文（m、km、°）</option>
+          <option value="zh">中文（米、千米、度）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgZoom">界面字号</label>
+        <select id="cfgZoom">
+          <option value="90">90%（紧凑）</option>
+          <option value="100">100%（默认）</option>
+          <option value="110">110%</option>
+          <option value="120">120%</option>
+          <option value="130">130%（费眼）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgAlpha">面板不透明度</label>
+        <select id="cfgAlpha">
+          <option value="100">完全不透</option>
+          <option value="93">93%（默认）</option>
+          <option value="82">82%（能透出底图）</option>
+          <option value="70">70%（很透）</option>
+        </select>
+      </div>
+
+      <div class="set-sec">系统</div>
+      <!-- 两列排：高的配高的、矮的配矮的，不然某一列下面会空出一块 -->
+      <div class="field">
+        <label>打开软件的快捷键</label>
+        <div class="hotkey-row">
+          <button id="hkBtn" class="btn ghost hk-btn" type="button">Ctrl+Alt+G</button>
+          <button id="hkReset" class="btn ghost" type="button">恢复默认</button>
+        </div>
+        <!-- 这一行平时是空的，只在"按下组合键…"、改键成功/被占用时出现，属于操作反馈不是说明文字 -->
+        <p class="hint" id="hkHint"></p>
+      </div>
+      <div class="field">
+        <label for="cfgCloseAct">点窗口右上角的关闭按钮时</label>
+        <select id="cfgCloseAct">
+          <option value="min">收进托盘（任务栏不再留按钮）</option>
+          <option value="exit">直接退出软件</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>打开选中文件的快捷键</label>
+        <div class="hotkey-row">
+          <button id="hk2Btn" class="btn ghost hk-btn" type="button">Ctrl+Alt+空格</button>
+          <button id="hk2Reset" class="btn ghost" type="button">恢复默认</button>
+        </div>
+        <!-- 同 hkHint：平时为空，操作反馈时才出现 -->
+        <p class="hint" id="hk2Hint"></p>
+      </div>
+      <!-- 按键说明整体移进标签后的提示气泡，页面上只留这一行标签 -->
+      <div class="field">
+        <label>软件里能用的按键</label>
+      </div>
+      <div class="field inline">
+        <label for="cfgAutoStart">开机自启动</label>
+        <input id="cfgAutoStart" type="checkbox">
+      </div>
+      <div class="field inline">
+        <label for="cfgDeskLnk">在桌面放一个快捷方式</label>
+        <input id="cfgDeskLnk" type="checkbox">
+      </div>
+      <p class="hint wide" id="sysHint"></p>
+
+      <div class="set-sec">更新</div>
+      <div class="field">
+        <label for="cfgUpdFreq">检查更新</label>
+        <select id="cfgUpdFreq">
+          <option value="off">不检查</option>
+          <option value="open">每次打开后（等十几秒）</option>
+          <option value="3d">每 3 天</option>
+          <option value="week">每周</option>
+          <option value="month">每月</option>
+        </select>
+        <div class="upd-row">
+          <button id="updBtn" class="btn ghost" type="button">现在检查</button>
+          <button id="updOpen" class="btn ghost" type="button" hidden>去下载</button>
+          <span class="hint" id="updHint"></span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cfgToken">更新检查用的访问码</label>
+        <input id="cfgToken" type="password" autocomplete="off" spellcheck="false"
+               placeholder="软件没公开时才需要填，留空即可">
+      </div>
+
+      <div class="set-sec">文件与副本</div>
+      <div class="field inline">
+        <label for="cfgRestore">启动时恢复上次的文件</label>
+        <input id="cfgRestore" type="checkbox">
+      </div>
+      <div class="field">
+        <label for="cfgRecentMax">最近打开显示条数</label>
+        <select id="cfgRecentMax">
+          <option value="3">3 条</option>
+          <option value="5">5 条（默认）</option>
+          <option value="8">8 条</option>
+          <option value="12">12 条</option>
+          <option value="20">20 条</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgCache">副本存放位置</label>
+        <input id="cfgCache" type="text" spellcheck="false" placeholder="留空则用系统临时目录">
+        <!-- 平时为空：只有副本目录用不了、引擎退回临时目录时，这里才会红字报原因 -->
+        <p class="hint" id="cfgCacheHint"></p>
+      </div>
+      <div class="field">
+        <label for="cfgKeepHours">异常退出后副本保留</label>
+        <select id="cfgKeepHours">
+          <option value="12">12 小时（默认）</option>
+          <option value="24">1 天</option>
+          <option value="72">3 天</option>
+          <option value="168">7 天</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>数据缓存</label>
+        <div class="upd-row">
+          <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
+          <span class="hint" id="cacheSizeHint">正在统计…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/web/vendor/maplibre-gl.js"></script>
+<script src="/web/vendor/chart.umd.min.js"></script>
+<script src="/web/controls.js"></script>
+<script src="/web/map.js"></script>
+<script src="/web/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1857 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --panel-alt: #f2f4f7;
+  --line: #dfe3e8;
+  --text: #1b1f24;
+  --text-dim: #5b6672;
+  --accent: #1a6fb0;
+  --accent-soft: #e6f0f8;
+  --warn-bg: #fdf3e4;
+  --warn-line: #e6c58a;
+  --warn-ico: #c98a2e;
+  --err-bg: #fbeceb;
+  --err-line: #e3a9a3;
+  --bar: #4b8ec4;
+  --map-bg: #eef1f5;
+  --map-data: #d9781f;
+  --map-fill: rgba(217, 120, 31, 0.18);
+  --map-extent: #1a6fb0;
+  --overlay-rgb: 255, 255, 255;
+  /* 面板不透明度与界面字号由设置写入，透明度只影响浮在地图上的那层底 */
+  --panel-alpha: .93;
+  --ui-zoom: 1;
+  --overlay: rgba(var(--overlay-rgb), var(--panel-alpha));
+  --font-ui: "Noto Sans SC", "Source Han Sans SC", "Source Han Sans CN", "LXGW WenKai",
+    "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-num: Arial, "Noto Sans SC", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  --bg: #1b1e23;
+  --panel: #23272e;
+  --panel-alt: #2b3038;
+  --line: #383f48;
+  --text: #e8ebef;
+  --text-dim: #9aa5b1;
+  --accent: #64b5f6;
+  --accent-soft: #24344a;
+  --warn-bg: #3a3226;
+  --warn-line: #6b5636;
+  --warn-ico: #e6b45f;
+  --err-bg: #3a2929;
+  --err-line: #6d4441;
+  --bar: #64a9e0;
+  --map-bg: #16191e;
+  --map-data: #f0a84c;
+  --map-fill: rgba(240, 168, 76, 0.22);
+  --map-extent: #64b5f6;
+  --overlay-rgb: 30, 34, 40;
+}
+
+* { box-sizing: border-box; }
+
+/* hidden 属性必须能盖住带 display 的类规则，否则设置弹窗关不上 */
+[hidden] { display: none !important; }
+
+/* 界面字号只放大面板和控件，地图画布不参与，否则点选取点会跟着偏。
+   缩放控件和版权条是地图里的 DOM，跟着放大；比例尺的条长在脚本里除回去。 */
+.bar, .empty, .rail, .modal-card, .err-toast,
+.map-chip, .map-pop, .map-bar, .map-tools, .map-load, .map-note, .map-attr,
+.maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right,
+.maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right {
+  zoom: var(--ui-zoom);
+}
+
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* 标题"图览"专用字体：马善政毛笔楷书（Ma Shan Zheng，OFL 开源可商用）。
+   打包时只取了这两个字的子集（约 1.5 KB），不依赖机器上装没装这个字体 */
+@font-face {
+  font-family: "Tulan Title";
+  src: url("fonts/title.woff2") format("woff2");
+  font-display: swap;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  /* 最大化时 body 会加一圈内边距，不改成 border-box 就会顶出屏幕冒出滚动条 */
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 var(--font-ui);
+}
+
+body { display: flex; flex-direction: column; overflow: hidden; }
+
+/* 顶栏兼任窗口标题栏：整条都能拖着走，标了 .no-drag 的地方留给控件。
+   方案 C：矮、图标化，中间那截空白专门留着拖窗口和双击最大化 */
+.bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 44px;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+}
+
+.brand-logo { flex: none; width: 28px; height: 28px; border-radius: 7px; }
+.logo-dark { display: none; }
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 中文主名：全软件最大的字号，顶栏只留这两个字，英文名在窗口标题和任务栏上仍然给全。
+   字体是打包进来的毛笔楷书子集，等宽等高的正文字体排在它后面当兜底 */
+.brand-cn {
+  font-family: "Tulan Title", var(--font-ui);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+
+/* 弹性空白：把控件推到右边，自己留出可拖、可双击的面积 */
+.bar-gap { flex: 1 1 24px; min-width: 24px; height: 100%; }
+
+.path-form {
+  display: flex;
+  /* 路径往往很长，输入框占顶栏的比例给宽些：46% 时稍长的路径就看不全 */
+  flex: 0 1 54%;
+  min-width: 240px;
+  max-width: 660px;
+  gap: 6px;
+}
+
+#pathInput {
+  flex: 1;
+  min-width: 100px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.path-form .btn { height: 30px; padding: 0 13px; font-size: 13px; border-radius: 5px; }
+
+.btn {
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn.ghost {
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+}
+
+.btn:hover { filter: brightness(1.06); }
+
+.tools { display: flex; align-items: center; gap: 2px; }
+
+/* 顶栏上的图标按钮：一枚图标，说明放悬停提示里 */
+.ibtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ibtn svg { width: 19px; height: 19px; display: block; }
+.ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+.ibtn:active { filter: brightness(.96); }
+
+/* 图标区和窗口三键之间的一道细线，把"软件的事"和"窗口的事"分开 */
+.bar-sep { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
+
+/* 窗口三键：无边框之后由界面自己画，只在原生壳里出现 */
+.winbtns { display: flex; align-items: center; gap: 2px; }
+.win-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.win-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.win-btn:hover { color: var(--text); background: var(--panel-alt); }
+.win-btn.close:hover { color: #fff; background: #e05c4b; }
+.win-btn .ico-max-b { display: none; }
+body.maxed .win-btn .ico-max-a { display: none; }
+body.maxed .win-btn .ico-max-b { display: block; }
+/* 无边框窗口最大化后客户区是贴着屏幕边的，按系统边框的宽度让内容缩回去，
+   才和还原状态下看到的边距一致（这个宽度由壳报过来） */
+body.maxed { padding: var(--max-inset, 7px); }
+
+.layout {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 虚线框就是投放区，铺满整块工作区，别在底下留一片空白 */
+.empty {
+  flex: 1;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  padding: 24px;
+  text-align: center;
+  background: var(--panel);
+  border: 2px dashed var(--line);
+  border-radius: 8px;
+}
+
+.empty.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.empty-title { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
+.empty-hint { margin: 0; color: var(--text-dim); }
+/* 拖放悬停时起始页的指引让位给提示层 */
+.empty.dragging .empty-title, .empty.dragging .empty-hint,
+body.native-drop .empty-title, body.native-drop .empty-hint { visibility: hidden; }
+/* 壳里悬停时整块投放框让给遮罩自己的虚线框，免得两条虚线叠在一起 */
+body.native-drop .empty { border-color: transparent; background: transparent; }
+
+/* 拖放悬停时盖在主体上的提示层：绝对定位在 .layout 里、同 8px 内边距，
+   虚线框和起始页投放框那一圈正好重合；顶栏不在里面 */
+.drop-veil {
+  position: absolute;
+  inset: 8px;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), .5);
+  pointer-events: none;
+}
+
+.drop-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 箭头落进托盘：走到底就淡掉、从上面回来，一个循环 1.5 秒 */
+.drop-ico {
+  width: 60px;
+  height: 60px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.drop-tray { opacity: .8; }
+.drop-arrow { animation: dropArrow 1.5s ease-in-out infinite; }
+@keyframes dropArrow {
+  0%, 18% { transform: translateY(-3px); opacity: 1; }
+  58%     { transform: translateY(11px); opacity: .12; }
+  59%     { transform: translateY(-3px); opacity: 0; }
+  72%, 100% { transform: translateY(-3px); opacity: 1; }
+}
+
+.drop-cap {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: .04em;
+}
+
+/* 拖动窗口那阵把上一帧拉伸到新尺寸，停手后 map.resize() 再摆正：
+   中间帧既不留白也不反复重绘 */
+#map.resizing canvas { width: 100% !important; height: 100% !important; }
+
+/* 地图占主区，右栏宽度可拖，拖完记在本地 */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5px var(--rail-w, 440px);
+  gap: 5px;
+  height: 100%;
+  min-height: 460px;
+}
+
+.splitter {
+  align-self: stretch;
+  border-radius: 3px;
+  background: var(--line);
+  cursor: col-resize;
+  transition: background 0.15s;
+}
+
+.splitter:hover, .splitter.dragging { background: var(--accent); }
+
+@media (max-width: 1120px) {
+  .stage { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .splitter { display: none; }
+  .rail { max-height: 60vh; }
+  .map-pane { height: 62vh; }
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* 标题栏通条分隔线：卡片左右不再有内边距，这条线自然拉满整个宽度 */
+  margin: 0 0 10px;
+  padding: 0 16px 9px;
+  font-size: 16px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 关闭挪到标题栏右侧，弹窗底部就不需要再摆一排按钮了 */
+.modal-x {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.modal-x svg { width: 15px; height: 15px; }
+.modal-x:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+
+.card-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+table.kv {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+table.kv th, table.kv td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+table.kv th {
+  width: 34%;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+}
+
+table.kv tr:last-child th, table.kv tr:last-child td { border-bottom: none; }
+table.kv td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.grid th, table.grid td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+table.grid thead th {
+  background: var(--panel-alt);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-num); }
+
+/* 信息栏的图层表：列宽固定（按内容分配，四个列各自不同），长图层名、长坐标系
+   在格子里自动换行，不再把某一列撑开、挤没别的列 */
+table.grid.layer-table { table-layout: fixed; }
+table.grid.layer-table thead th { white-space: normal; }
+table.grid.layer-table th:nth-child(1), table.grid.layer-table td:nth-child(1) { width: 34%; }
+table.grid.layer-table th:nth-child(2), table.grid.layer-table td:nth-child(2) { width: 18%; }
+table.grid.layer-table th:nth-child(3), table.grid.layer-table td:nth-child(3) { width: 20%; }
+table.grid.layer-table th:nth-child(4), table.grid.layer-table td:nth-child(4) { width: 28%; }
+table.grid.layer-table td { overflow-wrap: anywhere; }
+
+.tag {
+  display: inline-block;
+  padding: 1px 8px;
+  margin-right: 4px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.warn, .err {
+  padding: 10px 12px;
+  margin-top: 10px;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  background: var(--warn-bg);
+  font-size: 13px;
+}
+
+.err { border-color: var(--err-line); background: var(--err-bg); }
+.warn b, .err b { display: block; margin-bottom: 4px; font-size: 14px; }
+.warn span, .err span { color: var(--text-dim); }
+
+.map-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* 浮在地图上的东西都以这一块为基准，属性表在它外面，不会互相盖 */
+.map-stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* 浮层一律不许探出地图：探出去就会把整页顶出一条滚动条，
+     地图宽度少一条滚动条的宽度，收放图例时看着像地图抖了一下 */
+  overflow: hidden;
+}
+
+.map-fill {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--map-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.map-note { flex: none; min-height: 18px; font-size: 12px; color: var(--text-dim); }
+
+.map-chip {
+  position: absolute;
+  z-index: 5;
+  top: 6px;
+  left: 6px;
+  width: 300px;
+  max-width: calc(100% - 240px);
+  padding: 6px 9px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  transition: width 0.2s ease;
+}
+
+/* 收起后只贴左边：上下留一点，左边贴齐，整条边的两个角都别圆 */
+.map-chip.folded {
+  top: 4px;
+  left: 0;
+  width: 104px;
+  max-width: 60%;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.chip-head { display: flex; align-items: center; gap: 8px; }
+
+/* 文件信息标题兼图层切换：只有一层时没有箭头、也不弹出列表 */
+.chip-layer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+/* 标题两行叠着放：上面大字、下面小字；两行各自省略，互不挤 */
+.chip-layer > .cl-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chip-layer #chipName,
+.chip-layer #chipSub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 第二行只写给多图层文件：文件从哪来、正在看第几层 */
+.chip-layer #chipSub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.chip-chev {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+}
+.chip-layer[aria-expanded="true"] .chip-chev { transform: rotate(180deg); }
+.chip-layer.no-switch { cursor: default; }
+.chip-layer.no-switch .chip-chev { display: none; }
+
+/* 图层列表：跟着标题左端往下展开，盖在地图上，不挤动其他浮层 */
+.layer-pop {
+  position: absolute;
+  z-index: 30;
+  min-width: 190px;
+  max-width: 360px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+}
+.layer-pop button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.layer-pop button:hover { background: var(--panel-alt); }
+.layer-pop button.on { color: var(--accent); }
+.layer-pop .lp-check { flex: none; width: 12px; height: 12px; visibility: hidden; }
+.layer-pop button.on .lp-check { visibility: visible; }
+
+table.chip-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+table.chip-table th {
+  width: 84px;
+  padding: 2px 6px 2px 0;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+table.chip-table td {
+  padding: 2px 0;
+  font-size: 13px;
+  word-break: break-all;
+  font-family: var(--font-num);
+}
+
+.chip-path {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-family: var(--font-num);
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
+/* 收起/展开：grid-template-rows 从 1fr 到 0fr，内容自身 overflow 藏住。
+   收起之后整块只剩一枚胶囊：加号 + 名字，点它展开 */
+.fold-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
+}
+
+/* 平时别裁掉溢出：波段下拉列表要往上方探出去，一裁就看不见。
+   min-width 必须归零：网格项的默认最小值是内容宽度，长文件名会把整张卡片撑开，
+   把右上角的收起/关闭按钮挤出卡片 */
+.fold-in { min-height: 0; min-width: 0; overflow: visible; }
+/* 收着的时候必须裁：0fr 那一行只是高度归零，内容还留着会把整页顶出滚动条，
+   地图宽度跟着少掉一条滚动条的宽度，看起来就是收图例时地图抖一下 */
+.folded .fold-in { overflow: hidden; }
+.folded .fold-wrap { grid-template-rows: 0fr; opacity: 0; }
+
+.fold-tab {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 700 14px/1 var(--font-ui);
+  letter-spacing: .5px;
+  cursor: pointer;
+}
+
+.fold-tab svg { width: 15px; height: 15px; flex: none; }
+.folded .fold-tab { display: flex; }
+.fold-tab:hover { color: var(--accent); }
+.fold-tab:hover svg { stroke: var(--accent); }
+
+.fold-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.fold-btn svg { width: 14px; height: 14px; }
+.fold-btn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+
+.map-legend {
+  display: flex;
+  flex-direction: column;
+  width: 204px;
+  max-height: 42vh;
+  padding: 6px 8px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  transition: width 0.2s ease, margin 0.2s ease;
+  margin: 0 0 6px 6px;
+}
+
+/* 收起后是小胶囊：宽度写死才能跟着高度一起平滑收。只贴左边，上下留一点 */
+.map-legend.folded {
+  width: 78px;
+  margin: 0 0 4px 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.legend-head { display: flex; align-items: center; gap: 4px; }
+.legend-head .fold-btn { margin-left: auto; }
+.legend-head .combo { flex: none; width: 96px; min-width: 0; }
+.legend-head .combo-btn { padding: 3px 22px 3px 8px; font-size: 13px; background: none; }
+.legend-head .combo-list { top: auto; bottom: calc(100% + 4px); }
+.legend-body { margin-top: 6px; max-height: 34vh; overflow-y: auto; }
+.legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
+.legend-val { font-size: 13px; font-family: var(--font-num); white-space: nowrap; }
+.legend-blank { font-size: 12.5px; color: var(--text-dim); }
+
+/* 地图底部一行：图例靠左，比例尺和读数合成一条靠右。
+   这一整条铺满地图的宽和底边，离边多少写在各自的 margin 上——
+   收起时用负外边距挪到角上会让这一排探出地图边界，
+   整页冒出一条竖向滚动条，地图宽度少 11 像素，看起来就是图例一收地图就抖 */
+.map-bar {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  transition: bottom 0.2s ease;
+}
+
+/* 属性表浮窗打开时，图例和读数让开它，别被压住 */
+.map-stage.attr-on .map-bar { bottom: calc(var(--attr-h, 260px) + 2px); }
+
+.map-bar > * { pointer-events: auto; }
+
+.map-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 4px 6px auto;   /* 图例在左，这一条永远贴右，两边不抢地方 */
+  padding: 3px 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 8px;    /* 和图例、信息窗这些浮板一致，不再是胶囊 */
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-status b { color: var(--text); font-family: var(--font-num); font-weight: 600; }
+.status-sep { flex: none; width: 1px; height: 13px; background: var(--line); margin: 0 3px; }
+/* 数值一律等宽数字（ordinal tabular），位数固定；项与项之间只靠这一个 5px 间距，
+   不再给数值列预留宽度——预留宽度会随小数位数变多变少，间隔看着就不齐了 */
+
+/* 比例尺画成一个开口向下的方括号，条长就是那一段的实地距离 */
+.scale { display: flex; align-items: center; gap: 4px; color: var(--text); }
+.scale i {
+  display: block;
+  height: 5px;
+  min-width: 16px;
+  border-left: 1px solid var(--text-dim);
+  border-right: 1px solid var(--text-dim);
+  border-bottom: 1px solid var(--text-dim);
+}
+.scale b { font-family: var(--font-num); font-weight: 600; }
+
+.map-tools {
+  position: absolute;
+  z-index: 6;
+  top: 8px;
+  right: 58px; /* 让开右上角的缩放按钮那一列 */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.map-fab {
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.map-fab:hover { border-color: var(--accent); }
+
+/* 打开状态：按钮自己发亮，一眼看出气泡/属性表是谁开的 */
+.map-fab.on, #map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on:hover { background: var(--accent); }
+
+.map-pop {
+  position: absolute;
+  z-index: 7;
+  top: 10px;
+  right: 48px; /* 紧贴右上角那组控件，气泡和开它的按钮挨在一起 */
+  width: 440px;
+  max-width: calc(100% - 70px);
+  padding: 10px 12px;
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+  /* 展开、收起都从按钮那一侧滑进滑出，不是突然出现突然消失 */
+  transition: opacity 0.17s ease, transform 0.17s ease;
+}
+
+.map-pop.shrunk { opacity: 0; transform: translateY(-8px); }
+
+/* 影像配色没算完之前不出图，避免灰一下又变彩色 */
+.map-load {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, -50%);
+}
+
+/* 读文件期间给地图蒙一层，一眼看出这块暂时是空的、不是没数据 */
+.map-stage.busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  background: rgba(6, 8, 12, .62);
+  pointer-events: none;
+}
+
+.load-spin {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 遮罩蒙上时给一句呼吸的字，右栏那边已经是骨架微光 */
+@keyframes loadPulse { 0%, 100% { opacity: 1; } 50% { opacity: .58; } }
+
+.map-load span { animation: loadPulse 1.5s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .load-spin, .map-load span { animation-duration: 2.4s; }
+  .fold-wrap { transition: none; }
+}
+
+/* 属性表：贴住地图左、右、下三边的浮板，高度可拖，字段多时横向滚动。
+   做成浮窗是为了切文件时地图不用重排——地图不重排就不会抖 */
+.map-attr {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  height: var(--attr-h, 260px);
+  max-height: calc(100% - 96px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  background: var(--overlay);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+/* 开合动画的收拢态：往下沉一点再淡出，等动画走完由 JS 藏掉 */
+.map-attr.shrunk { transform: translateY(14px); opacity: 0; pointer-events: none; }
+
+/* 只有中间那截抓手能拖：整条先不响应鼠标，颜色块自己开命中区；
+   色块用深一点的灰，悬停/拖动时亮成强调色 */
+.attr-grip {
+  flex: none;
+  height: 5px;
+  position: relative;
+  pointer-events: none;
+}
+
+.attr-grip i {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 64px;
+  height: 5px;
+  margin-left: -32px;
+  cursor: row-resize;
+  pointer-events: auto;
+}
+
+.attr-grip i::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-dim);
+  opacity: 0.55;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.attr-grip i:hover::after, .attr-grip.dragging i::after {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.attr-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+.attr-ico { flex: none; width: 19px; height: 19px; color: var(--accent); }
+.attr-title { flex: none; font-size: 14px; font-weight: 700; }
+
+/* 复制成功的提示：一闪而过，不占位置 */
+.attr-toast {
+  flex: none;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+/* 图层选择：永远显示，只有一个图层也在 */
+/* 查找框占了自动外边距，图层下拉紧跟在它右边 */
+.attr-head .combo { margin-left: 8px; min-width: 170px; max-width: 340px; }
+.attr-head .combo-btn {
+  padding: 4px 26px 4px 9px;
+  font-size: 13px;
+  background: var(--overlay);
+}
+.attr-head .combo-btn::after { right: 9px; }
+.attr-head .combo-list { max-height: 240px; }
+
+/* 表体和读取提示叠在一层里：首屏读取和往下续读共用这一个提示，
+   提示始终停在表体正中间，不跟着表格滚走 */
+.attr-body-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+.attr-body { flex: 1; min-height: 0; overflow: auto; }
+
+.attr-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+table.attr-table { border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+/* 第一页排完量下默认列宽后就锁死，之后拖把手改的就是这份 */
+table.attr-table.fixed { table-layout: fixed; }
+table.attr-table col.col-idx { width: 52px; }
+
+table.attr-table th, table.attr-table td {
+  max-width: 260px;
+  padding: 4px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+table.attr-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel-alt);
+}
+
+/* 表头第二行是字段的类型和宽度：信息栏里不再单列一张字段表 */
+table.attr-table .attr-kind {
+  font: 400 11px/1.35 var(--font-num);
+  font-weight: 400;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+table.attr-table td { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+table.attr-table tbody tr:hover td { background: var(--accent-soft); }
+table.attr-table .attr-idx { color: var(--text-dim); text-align: right; }
+
+/* 表头右缘的列宽把手：拖它改列宽 */
+.attr-rsz {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.attr-rsz::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+table.attr-table th:hover .attr-rsz::after { background: var(--line); }
+table.attr-table th.resizing .attr-rsz::after, .attr-rsz:hover::after { background: var(--accent); }
+
+/* 点表头选中整列：整列浅浅打底，表头里冒出复制按钮 */
+table.attr-table th.col-sel, table.attr-table td.col-sel { background: var(--accent-soft); }
+table.attr-table thead th.col-sel { padding-right: 30px; }
+
+table.attr-table .attr-copy {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+table.attr-table th.col-sel .attr-copy { opacity: 1; pointer-events: auto; }
+table.attr-table .attr-copy:hover { color: var(--text); border-color: var(--accent); }
+table.attr-table .attr-copy svg { width: 13px; height: 13px; }
+
+/* 读取提示：浮在表体正中间一枚小胶囊，读的时候才出现。
+   之前它是表格的最后一行，新读到的行一插进来就把它顶出可视区，等于永远看不见 */
+.attr-load {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+}
+
+.attr-load .load-spin { width: 15px; height: 15px; border-width: 2px; }
+
+/* 左键是点选，不显示抓手；只有按住中键拖动时才变抓手 */
+#map canvas { cursor: default !important; }
+#map canvas.mid-pan { cursor: grabbing !important; }
+
+/* 识别弹窗挂在 #map 里面，而 #map 自己不占层级：不给它一个比浮层高的数，
+   弹窗下半截就会被属性表、图例这些半透明面板盖住，看着像字淡掉了 */
+#map .maplibregl-popup { z-index: 12; }
+
+/* 只给当前锚点方向那条边上色，四条边全上就成方块了 */
+.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: var(--overlay); }
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--overlay); }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--overlay); }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--overlay); }
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip { border-bottom-color: var(--overlay); }
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--overlay); }
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip { border-top-color: var(--overlay); }
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--overlay); }
+
+.maplibregl-popup-content {
+  /* 左右一样宽：右边不再为关闭按钮单独留 32px，按钮就落在内容右边界上 */
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+/* 关闭按钮和图例、信息窗上的收起按钮一套样式，只是图标不同；
+   垂直位置由脚本按标题那行文字实测后写 top（下面这个值只是量之前的兜底），
+   界面字号一改也不会歪 */
+/* 关闭按钮和图例、信息窗上的收起按钮同一套尺寸（22×22、padding 0、1px 透明边、5px 圆角），
+   只是图标不同。标题那行的行高写死成 20px，按钮就落在内容顶边距 7 + 半行高 10 - 半个按钮 11 = 6px，
+   界面缩放走的是 html 的 zoom、所有像素等比，所以这个值在任何缩放档位下都成立 */
+.maplibregl-popup-close-button {
+  top: 6px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+
+.maplibregl-popup-close-button:hover {
+  color: var(--text);
+  background: var(--panel-alt);
+  border-color: var(--line);
+}
+
+.idp { min-width: 186px; max-width: 320px; }
+.idp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+  /* 右上角留着关闭按钮的宽度，长标题不钻到按钮底下 */
+  padding-right: 26px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--line);
+}
+.idp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 底部工具行：聚焦、量算在左，翻页在右；上面一条分隔线收住主体。
+   上下间距收小了一档：图标离弹窗主体太远会显得整块断开 */
+.idp-foot {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.idp-pager { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
+.idp-page {
+  min-width: 34px;
+  font-family: var(--font-num);
+  font-weight: 400;
+  /* 和弹窗主体同一字号，数字不再比正文小一号 */
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.idp-tbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.idp-tbtn svg { display: block; width: 15px; height: 15px; }
+/* 翻页和关闭按钮一样大（22×22），图标再用瘦一点的比例，看着才不抢眼 */
+.idp-tbtn.idp-chev { width: 22px; height: 22px; }
+.idp-tbtn.idp-chev svg { width: 7px; height: 12px; }
+.idp-tbtn.idp-chev.flip svg { transform: rotate(180deg); }
+/* 计算中：图标位置换成小转圈，按钮本身不跳尺寸 */
+.idp-tbtn.busy { color: var(--text-dim); }
+.idp-tbtn.busy svg { display: none; }
+.idp-tbtn.busy::after {
+  content: "";
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.idp-tbtn:hover:not(:disabled) { background: var(--panel-alt); border-color: var(--line); }
+.idp-tbtn:disabled { color: var(--text-dim); opacity: 0.4; cursor: default; }
+/* 量算结果：钉在主体与工具行之间——不跟着主体滚动，
+   点完尺子就在眼前，翻页时新要素的数原地替换（JS 把块插在工具行前面） */
+.idp-measure { padding-top: 4px; margin-top: 3px; border-top: 1px solid var(--line); }
+.idp-body {
+  max-height: min(46vh, 380px);
+  /* 自绘滚动条本身占 11px，不再额外加右侧留白，没有滚动条时值和关闭按钮右对齐 */
+  overflow-y: auto;
+}
+/* 字段一多，一列拉得老长，超过六行就两列并排 */
+.idp-body.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+/* 字段名一列定宽、值一列占余，两边都对齐；名字放不下就换行，不再挤得忽左忽右 */
+.idp-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; padding: 1px 0; min-width: 0; }
+.idp-k { color: var(--text-dim); overflow-wrap: break-word; word-break: break-word; }
+.idp-v { font-family: var(--font-num); text-align: right; overflow-wrap: break-word; word-break: break-all; }
+
+.rail {
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.rail-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 11px 13px 9px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.rail-name { font-size: 15px; font-weight: 700; word-break: break-all; }
+.rail-sub { margin-top: 2px; font-size: 12px; color: var(--text-dim); font-family: var(--font-num); }
+
+/* ---------- 字段说明：名字后一枚 ⓘ，悬停弹出气泡 ---------- */
+
+.tip-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  color: var(--text-dim);
+  opacity: 0.75;
+  cursor: help;
+}
+
+.tip-ico svg { width: 12px; height: 12px; display: block; fill: currentColor; }
+.tip-ico:hover { color: var(--accent); opacity: 1; }
+
+/* 气泡跟着 JS 定位，位置写的是页面绝对坐标 */
+.tip-bubble {
+  position: fixed;
+  z-index: 90;
+  max-width: 268px;
+  padding: 6px 9px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+table.rail-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+
+/* 列宽只能用 colgroup 定：fixed 布局只看第一行，而第一行是跨两列的分节标题 */
+table.rail-table col.col-k { width: 35%; }
+
+/* 分节标题点一下收起或展开（手风琴），箭头跟着方向转 */
+table.rail-table tr.sec { cursor: pointer; user-select: none; }
+table.rail-table tr.sec th::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 8px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 0.15s;
+  vertical-align: 2px;
+  opacity: 0.7;
+}
+table.rail-table tr.sec.folded th::after { transform: rotate(-45deg) translateY(-1px); }
+table.rail-table tr.sec-off { display: none; }
+
+table.rail-table tr.sec th {
+  padding: 12px 13px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: left;
+  color: var(--accent);
+}
+
+table.rail-table tr:not(.sec):not(.wide) th {
+  padding: 6px 6px 6px 13px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: top;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+table.rail-table tr:not(.sec):not(.wide) td {
+  padding: 6px 13px 6px 6px;
+  font-size: 13px;
+  vertical-align: top;
+  word-break: break-word;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 一行里好几行值（范围是四个边）时，每行各占一行，行距收一点 */
+table.rail-table td.v-lines > div { line-height: 1.5; }
+
+table.rail-table tr:not(.sec) th, table.rail-table tr:not(.sec) td {
+  border-bottom: 1px solid var(--line);
+}
+
+table.rail-table tr.wide > td { padding: 4px 13px 10px; }
+table.rail-table tr.wide .grid { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+table.rail-table tr.wide .grid th, table.rail-table tr.wide .grid td {
+  padding: 5px 6px;
+  font-size: 12px;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
+
+.sk {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--panel-alt) 0%, var(--line) 50%, var(--panel-alt) 100%);
+  background-size: 220% 100%;
+  animation: sk-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes sk-slide { from { background-position: 220% 0; } to { background-position: -220% 0; } }
+
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+
+:root[data-theme="dark"] .maplibregl-ctrl-group { background: var(--panel); }
+:root[data-theme="dark"] .maplibregl-ctrl-group button + button { border-top: 1px solid var(--line); }
+:root[data-theme="dark"] .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
+
+/* 控件组的圆角要裁住按钮自己的悬停底色：组本身没有溢出裁剪，
+   最下面（复位）那个按钮悬停时，方角会从组的圆角里冒出来 */
+#map .maplibregl-ctrl-group { overflow: hidden; }
+
+/* 指北针库默认给"抓起"光标（表盘可以拖着转），悬停时看着突兀，改成普通指针；
+   真按住拖动时仍给"抓取中"的反馈 */
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass { cursor: pointer; }
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
+
+.pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+
+/* 直方图交给图表组件画，这里只给它一个固定高度——不然 canvas 会一直长高 */
+.hist-canvas { position: relative; height: 182px; }
+.hist-body .hist-canvas canvas { display: block; }
+
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+}
+
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon svg { width: 17px; height: 17px; }
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon[hidden] { display: none; }
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon:hover { background: var(--accent-soft); }
+
+/* 弹窗必须盖住地图上那些带 z-index 的浮层（它们最高到 8），
+   不给层级的定位元素会排在带层级的前面，这就是之前盖不住的原因 */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .35);
+  padding: 18px;
+}
+
+/* 卡片自己不占左右内边距，全交给里面三块自己缩：
+   这样滚动容器一直铺到卡片内缘，滚动条贴边，右边不再空一条灰带
+   （上一版只删了内容层的内边距，那一条其实是卡片的 16 像素） */
+.modal-card {
+  position: relative;
+  z-index: 1;
+  width: 720px;
+  max-width: 100%;
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+
+
+/* 选项多了就内部滚，标题和按钮钉住。
+   设置项两列排下来，弹窗不至于高得要滚半天；分节标题横跨两列 */
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 2px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  column-gap: 20px;
+}
+
+.modal-body > .set-sec { grid-column: 1 / -1; }
+/* 一格装不下的（密钥那种）横跨两列，免得旁边空出一块 */
+.modal-body > .field.wide, .modal-body > p.hint.wide { grid-column: 1 / -1; }
+.modal-body > * { min-width: 0; }
+
+@media (max-width: 900px) {
+  .modal-body { grid-template-columns: 1fr; }
+}
+
+.set-sec {
+  margin: 16px 0 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.set-sec:first-child { margin-top: 2px; }
+
+.hint { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+
+.hint.bad { color: #c0392b; }
+:root[data-theme="dark"] .hint.bad { color: #ef8a80; }
+
+.color-row { display: flex; align-items: center; gap: 8px; }
+.color-row .combo { flex: 1; }
+.swatch {
+  flex: none;
+  width: 34px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.hotkey-row { display: flex; gap: 8px; }
+.hk-btn {
+  flex: 1;
+  font-family: var(--font-num);
+  letter-spacing: .4px;
+  text-align: center;
+}
+/* 正在录入时给一圈主色，让人知道现在按键是录进设置而不是打字 */
+.hk-btn.arming {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.upd-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.upd-row .hint { margin: 0; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
+.field label { font-size: 14px; font-weight: 600; }
+
+/* 设置项标签后面的提示图标：沿用右栏那枚圆形叹号，挨着标签排 */
+.field label .tip-ico { margin-left: 5px; vertical-align: -2px; }
+.field label .tip-ico svg { width: 13px; height: 13px; }
+
+/* 设置页里所有控件同高同圆角：下拉、输入框、按钮排在一起时边线才对得上 */
+.field select, .field input[type="text"], .field input[type="password"] {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.field .btn { height: 36px; display: inline-flex; align-items: center; border-radius: 6px; }
+
+/* 天地图密钥那一行：输入框里嵌一颗眼睛，代替原来的"显示/隐藏"按钮 */
+.key-row { position: relative; display: flex; align-items: stretch; }
+.key-row input { flex: 1; min-width: 0; padding-right: 38px; }
+.key-eye {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.key-eye:hover { color: var(--text); background: var(--panel-alt); }
+.key-eye svg { width: 17px; height: 17px; }
+/* 默认睁眼（点了就显示）；正显示密钥时换成划掉的眼，示意"再点就藏回去" */
+.key-eye .eye-hide { display: none; }
+.key-eye.peeking .eye-show { display: none; }
+.key-eye.peeking .eye-hide { display: block; }
+
+.loading { color: var(--text-dim); padding: 12px 0; }
+.side-note { font-size: 12px; color: var(--text-dim); }
+
+/* ---------- 自定义控件 ---------- */
+
+.combo { position: relative; display: inline-block; min-width: 150px; }
+.combo[hidden] { display: none; }
+.combo-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  /* 焦点环画在真正那颗按钮上；这个 1 像素的原控件再画一圈会糊在标签上 */
+  outline: none;
+}
+
+.combo-btn {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 30px 7px 11px;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.combo-btn::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  transform: translateY(-70%) rotate(45deg);
+}
+
+.combo-label { display: block; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* 色带预览条：有 data-grad 的下拉才出现，列表里每一项和按钮上都画一条 */
+.combo-bar {
+  display: block;
+  height: 9px;
+  margin-top: 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.combo-bar[hidden] { display: none; }
+.combo.has-bar .combo-btn { padding-bottom: 7px; }
+
+.combo-btn:hover:not(:disabled) { border-color: var(--accent); }
+.combo-btn:disabled { opacity: 0.5; cursor: default; }
+.combo-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.combo.open .combo-btn { border-color: var(--accent); }
+
+.combo-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  display: none;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.combo.open .combo-list { display: block; }
+
+.combo-opt {
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo-opt:hover, .combo-opt.active { background: var(--accent-soft); }
+.combo-opt.selected { color: var(--accent); font-weight: 600; }
+
+.field .combo { display: block; width: 100%; min-width: 0; }
+
+.map-tools .combo { min-width: 130px; max-width: 280px; }
+.map-tools .combo-btn {
+  padding: 4px 26px 4px 9px;
+  font-size: 13px;
+  background: var(--overlay);
+}
+.map-tools .combo-btn::after { right: 9px; }
+
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 42px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.16s, border-color 0.16s;
+}
+
+input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition: transform 0.16s, background 0.16s;
+}
+
+input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+input[type="checkbox"]:checked::after { transform: translateX(20px); background: var(--panel); }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--panel);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* 主题按钮：图标沿用历书那三枚，跟着 currentColor 换色；只留图标，模式写在悬停提示里 */
+#themeBtn .btn-ico { display: inline-flex; width: 19px; height: 19px; }
+#themeBtn .btn-ico svg { width: 100%; height: 100%; }
+
+/* ---------- 本轮新增：最近打开、坐标定位、属性表查找 ---------- */
+
+/* 最近打开：挂在路径框下面一块，位置由脚本按路径框的实际矩形算。
+   层级压在弹窗（60）下面：弹窗开着时不该有一块列表浮在它上头 */
+.recent-pop {
+  position: fixed;
+  z-index: 55;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.recent-pop .rp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.recent-pop .rp-clear {
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.recent-pop .rp-clear:hover { color: var(--accent); border-color: var(--accent); }
+.recent-pop .rp-item { padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.recent-pop .rp-item:hover { background: var(--accent-soft); }
+.recent-pop .rp-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.recent-pop .rp-path {
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 坐标定位的十字标记 */
+.map-pin { width: 26px; height: 26px; color: var(--accent); pointer-events: none; }
+.map-pin svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45)); }
+
+/* 顶栏"打开"菜单：文件和文件夹两条路，跟最近打开一个视觉系（fixed 卡片） */
+.pick-pop {
+  position: fixed;
+  z-index: 55;
+  min-width: 236px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+}
+.pick-pop button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.pick-pop button:hover { background: var(--panel-alt); }
+.pick-pop .pp-label { font-weight: 600; }
+.pick-pop .pp-note { font-size: 11.5px; color: var(--text-dim); }
+
+/* 属性表标题栏里的查找框 */
+.attr-find {
+  width: 200px;
+  height: 26px;
+  padding: 0 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+/* 查找框那一组整体靠最右：auto 外边距把整组推到行尾 */
+.attr-find-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.attr-find:focus { outline: none; border-color: var(--accent); }
+.attr-find-count { font: 400 12px/1 var(--font-num); color: var(--text-dim); white-space: nowrap; flex: none; }
+table.attr-table tr.find-off { display: none; }
+table.attr-table td b { color: var(--accent); font-weight: 700; }
+
+/* 地图上一闪而过的一句提示：坐标定位这类操作用它报结果 */
+.map-toast {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 9;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  /* 阴影加重了一点：原来的太淡，浮在花花绿绿的地图上根本立不起来 */
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24), 0 1px 4px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 错误/警告浮层卡片：顶栏下沿往下一点浮着，带阴影。
+   加载失败这类事在这里说清楚——不占版面，也不把正开着的图层清掉。
+   没有关闭按钮：点卡片本身马上关，不点的话自己到点消失 */
+.err-toast {
+  position: fixed;
+  left: 50%;
+  top: 84px;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  /* 图标和整块文字垂直居中：标题、说明、建议三段高矮不一也不会偏 */
+  align-items: center;
+  gap: 12px;
+  width: max-content;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 13px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+/* 每次重新弹出来轻轻跳一下，让人注意到是新的一条 */
+.err-toast.pop { animation: et-pop 0.18s ease-out; }
+@keyframes et-pop {
+  from { opacity: 0.35; transform: translateX(-50%) translateY(-7px); }
+}
+
+/* 填充的感叹号三角：比原来大一号，颜色单独给，浅色深色两套都看得清 */
+.err-toast .et-ico { flex: none; width: 26px; height: 26px; color: var(--warn-ico); }
+.err-toast .et-main { min-width: 0; }
+.err-toast .et-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.err-toast .et-detail {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  /* 长路径、长报错信息按需折行，不许把卡片撑破 */
+  overflow-wrap: anywhere;
+}
+.err-toast .et-hint { margin-top: 3px; font-size: 12.5px; color: var(--text-dim); }

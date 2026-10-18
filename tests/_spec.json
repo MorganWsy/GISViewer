@@ -1,0 +1,8 @@
+[
+  {
+    "out": "D:\\GISViewer\\design\\probe\\z_albers.png",
+    "url": "http://127.0.0.1:8820/?path=D:\\GISViewer\\samples\\pre_2000_01.tif",
+    "w": 1440, "h": 900, "wait": 14000,
+    "scrollSel": "body"
+  }
+]
