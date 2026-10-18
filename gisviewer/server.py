@@ -229,7 +229,7 @@ def write_config(data):
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act",
                "open_dir", "toast_sec", "set_sec",
-               "key_close", "key_fit", "key_find"}
+               "key_close", "key_fit", "key_find", "draw_limit"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:
@@ -597,6 +597,7 @@ class Handler(BaseHTTPRequestHandler):
             payload.setdefault("keep_hours", 12)
             payload.setdefault("open_dir", "")
             payload.setdefault("toast_sec", 5)
+            payload.setdefault("draw_limit", 5000)
             payload.setdefault("key_close", "Esc")
             payload.setdefault("key_fit", "F")
             payload.setdefault("key_find", "Ctrl+F")
@@ -712,7 +713,7 @@ class Handler(BaseHTTPRequestHandler):
             layer = int((query.get("layer") or ["0"])[0])
         except ValueError:
             return self._send(400, {"ok": False, "error": {"title": "参数不对"}})
-        k = cache.key("gtypes2", path, "layer=%d" % layer) if _cacheable(path) else None
+        k = cache.key("gtypes3", path, "layer=%d" % layer) if _cacheable(path) else None
         if k:
             started = time.perf_counter()
             hit = cache.load_json("gtypes", k)

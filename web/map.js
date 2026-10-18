@@ -3,7 +3,7 @@
   'use strict';
 
   const TD_HOSTS = ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7'];
-  const FEATURE_LIMIT = 5000;
+  let drawLimit = 5000;   // 视野内单次绘制的要素数（设置里可改）
   const TILE_PALETTE = ['#d9781f', '#2f6fed', '#2e9e5b', '#a24bd8', '#c94f4f', '#0f9b8e'];
 
   let map = null;
@@ -301,7 +301,7 @@
     return isFinite(minX) ? [minX, minY, maxX, maxY] : null;
   }
 
-  function loadVector() {
+  function loadVector(fromMove) {
     if (!data || data.kind !== 'vector' || !live()) return;
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
@@ -313,14 +313,14 @@
     const tol = zoomTolerance(map.getZoom()) * (big ? 1 : 1 / 3);
     const url = '/api/vector?path=' + enc(data.target) +
       '&layer=' + (data.layerIndex || 0) +
-      '&limit=' + FEATURE_LIMIT +
+      '&limit=' + drawLimit +
       // 别用 toExponential：0 会写成 "0.00e+0"，查询串里的 + 会被当成空格，服务端解析就炸了
       '&tolerance=' + String(tol) +
       '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',');
     const mine = ++token;
     const wanted = data;
     const busy = document.getElementById('vecBusy');
-    if (busy) busy.hidden = false;
+    if (busy) busy.hidden = !fromMove;   // 初次绘制有遮罩，别再叠一个胶囊
     fetch(url).then((r) => r.json()).then((res) => {
       if (mine !== token || data !== wanted) return;   // 期间又动过：交给最新那次收提示
       if (busy) busy.hidden = true;
@@ -374,7 +374,7 @@
 
   function scheduleVector() {
     if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(loadVector, 260);
+    debounce = setTimeout(() => loadVector(true), 260);
   }
 
   function rasterUrl(t) {
@@ -556,6 +556,7 @@
           layerName: p.L.name || ('图层 ' + (p.index + 1)),
           layerIndex: p.index,
           target: path, count: p.L.feature_count, wgs: p.L.extent_wgs84, warning: p.L.warning,
+          reserveAttr: !!d.reserveAttr,
         }));
     }
     if (d.kind === 'archive') {
@@ -567,7 +568,7 @@
             kind: 'vector', label: name + ' · ' + (L.name || '图层 ' + (i + 1)),
             layerName: L.name || ('图层 ' + (i + 1)),
             layerIndex: i, target: payload.read_path, count: L.feature_count,
-            wgs: L.extent_wgs84, warning: L.warning,
+            wgs: L.extent_wgs84, warning: L.warning, reserveAttr: !!d.reserveAttr,
           }));
         } else if (payload.kind === 'raster') {
           out.push({ kind: 'raster', label: name, target: payload.read_path,
@@ -1132,10 +1133,11 @@
       measure.disabled = busy || !ok;
       measure.classList.toggle('busy', busy);
       measure.title = busy ? '正在计算…'
-        : (!ok
-          ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
-          : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
-            ? '计算面积和周长' : '计算长度'));
+        : (hasResult ? '收起量算结果'
+          : (!ok
+            ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
+            : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
+              ? '计算面积和周长' : '计算长度')));
     };
     if (total > 1) {
       let idx = 0;
@@ -1358,6 +1360,11 @@
     hasLayer() { return live() && !!data; },
     /* 调试与自动化测试用的地图句柄：CDP 里能直接查渲染状态 */
     __map() { return map; },
+    /* 设置页改"视野内单次绘制要素数"时调用 */
+    setDrawLimit(n) {
+      const v = Number(n);
+      if (Number.isFinite(v) && v >= 500) drawLimit = Math.min(v, 200000);
+    },
     /* 属性表双击过来的高亮：按 fid 找已绘制的要素描一圈；找到返回 true */
     highlightFid(fid) {
       if (!live() || fid === null || fid === undefined) return false;

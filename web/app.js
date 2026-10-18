@@ -36,7 +36,7 @@ let config = {
   ramp: 'viridis', class_count: 5, nodata_view: 'transparent', raster_default: 'composite',
   vector_color: '#d9781f', max_features: 500, restore_last: false, cache_dir: '', keep_hours: 12,
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
-  key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F',
+  key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000,
   hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32,
   upd_freq: 'open', close_act: 'min', recent: [], recent_max: 5,
 };
@@ -785,6 +785,15 @@ function fillGeomTypes(primary, base) {
     };
     put();
   }
+  function putZText(text) {
+    let tries = 0;
+    const put = () => {
+      const cell = railValueCell('Z 值坐标');
+      if (cell) { cell.textContent = text; return; }
+      if (tries++ < 30) setTimeout(put, 100);
+    };
+    put();
+  }
   const tick = setInterval(() => {
     const cell = railValueCell('几何类型');
     if (!cell) return;                          // 右栏还没画好，这一拍先跳过，别把钟停了
@@ -805,6 +814,12 @@ function fillGeomTypes(primary, base) {
         '类型混合';
       geomTypeText[key] = text;              // 本会话再打开同一个文件直接用
       primary.geometry_counts_text = text;   // 重画右栏时也直接复用
+      if (res.has_z !== undefined && primary.has_z !== res.has_z) {
+        // 图层声明报不出 Z 的情况（CAD 混合类型常报 Unknown）：
+        // 逐要素数出来有就是有，顺手把"Z 值坐标"那行改过来
+        primary.has_z = res.has_z;
+        putZText(res.has_z ? '有' : '无');
+      }
       putText(text);
     })
     .catch(() => {
@@ -910,6 +925,7 @@ async function renderResult(data, path, opts) {
   else resetRasterView();
   // 地图聚焦时要把即将弹出的属性表高度让出来（drawVector 里读这个标志）
   data.reserveAttr = attrAuto;
+  if (window.GisMap) GisMap.setDrawLimit(config.draw_limit || 5000);
   if (window.GisMap) GisMap.show(data);
 }
 
@@ -2718,6 +2734,7 @@ function fillSettings() {
   if (!/^#[0-9a-fA-F]{6}$/.test(config.vector_color)) config.vector_color = '#d9781f';
   $('cfgVectorColor').value = config.vector_color;
   $('cfgMaxFeatures').value = String(config.max_features || 500);
+  $('cfgDrawLimit').value = String(config.draw_limit || 5000);
   $('cfgRestore').checked = !!config.restore_last;
   $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
@@ -3213,6 +3230,8 @@ async function applySettings() {
   config.raster_default = $('cfgRasterDefault').value;
   config.vector_color = $('cfgVectorColor').value;
   config.max_features = Number($('cfgMaxFeatures').value);
+  config.draw_limit = Number($('cfgDrawLimit').value);
+  if (window.GisMap) GisMap.setDrawLimit(config.draw_limit);
   config.ui_font = $('cfgFontUi').value;
   config.num_font = $('cfgFontNum').value;
   config.ui_zoom = Number($('cfgZoom').value);
@@ -3466,6 +3485,7 @@ function init() {
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => toShell('pickdir'));
+  if (window.GisMap && config.draw_limit) GisMap.setDrawLimit(config.draw_limit);
   wireSettingNav();
   // 页内快捷键：点键帽进入捕获状态，恢复默认写回出厂组合
   ['Close', 'Fit', 'Find'].forEach((name) => {

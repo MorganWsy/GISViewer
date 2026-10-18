@@ -17,11 +17,14 @@
 
 ## 支持的格式
 
+带 ✓ 的已在 `samples/formats` 用真实样例验证过（`tests/verify_formats.py` 可随时重跑）：
+
 | 类别 | 格式 |
 |---|---|
-| 矢量 | Shapefile、GeoJSON、KML、GDB（文件夹）、DXF、OSM PBF、TopoJSON 等 OGR 可读格式 |
-| 栅格 | GeoTIFF（含 COG）、IMG、JPEG、PNG 等 GDAL 可读格式 |
-| 其他 | 瓦片目录（TMS/XYZ）、上述格式的 zip 压缩包 |
+| 矢量 | Shapefile ✓、GeoJSON/JSONL ✓、KML ✓、GPX ✓、GeoPackage ✓、FlatGeobuf ✓、GDB（文件夹）✓、DXF/DWG ✓、OSM PBF ✓、MapInfo TAB/MIF ✓、CSV（WKT 列）✓、XLSX ✓、GML ✓ |
+| 栅格 | GeoTIFF ✓、ArcInfo ASCII ✓、ENVI ✓、NITF ✓、VRT ✓、NetCDF ✓、IMG/HDF/GRIB2/JPEG2000 等 GDAL 可读格式（未逐一验证） |
+| 压缩包 | zip ✓（直接拖入，不解压） |
+| 待验证 | TopoJSON、EsriJSON、PMTiles/MBTiles、S-57（暂无样例素材） |
 
 明确的边界：**不做**编辑、符号化、重投影、属性表编辑、多图层叠加、网络数据源。
 

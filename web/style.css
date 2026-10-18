@@ -493,7 +493,7 @@ table.grid.layer-table td { overflow-wrap: anywhere; }
   z-index: 5;
   top: 6px;
   left: 6px;
-  width: 300px;
+  width: 236px;   /* 窄一点：内容都能换行，占的地图面积少些 */
   max-width: calc(100% - 240px);
   padding: 6px 9px;
   background: var(--overlay);

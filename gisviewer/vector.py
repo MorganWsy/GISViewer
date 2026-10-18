@@ -650,7 +650,9 @@ def geom_type_counts(target, layer_index=0):
     text = " · ".join("%s %s" % (k, count_cn(v)) for k, v in ordered)
     return {"layer": index, "total": scanned,
             "types": [{"label": k, "count": v} for k, v in ordered],
-            "counts_text": text}
+            "counts_text": text,
+            # 图层声明报不出 Z（混合类型常报 Unknown），逐要素数出来的才算数
+            "has_z": zcount > 0}
 
 
 def _stamp(target):
