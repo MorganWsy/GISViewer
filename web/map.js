@@ -318,6 +318,7 @@
         features: feats,
         layerName: m.layer_name || data.layerName || data.label || '',
         total: m.layer_total, inBbox: m.in_bbox, truncated: !!m.truncated,
+        assumedLocal: !!m.assumed_local,
       };
       const parts = [];
       if (m.layer_name) parts.push('图层 ' + m.layer_name);
@@ -724,13 +725,17 @@
         group.appendChild(btn);
       });
     }
-    // 复位：不管当前在第几级、转到哪，飞回开场那个中国全图的视野。
-    // 用 flyTo 而不是 jumpTo——一秒钟的移动能让人看清"从哪飞到哪"，不会像画面被换掉
+    // 复位：回到"当前打开图层"的范围，不是全国视野。
+    // 有真实范围用范围；本地坐标的 CAD 用已绘制要素的范围。
+    // 用 flyTo 而不是 jumpTo——一秒钟的移动能让人看清"从哪飞到哪"
     const home = document.getElementById('homeBtn');
     if (home) home.addEventListener('click', () => {
-      if (live()) {
-        map.flyTo({ center: [104, 35], zoom: 3.2, bearing: 0, pitch: 0, duration: 900, essential: true });
-      }
+      if (!live()) return;
+      const t = targets && targets[activeTarget];
+      const box = t && (t.wgs || (t.ring && t.ring.length >= 4 ? boxFromRing(t.ring) : null));
+      if (box) { fitTo(box); return; }
+      const b = lastVec && lastVec.features.length ? featsBBox(lastVec.features) : null;
+      if (b) fitTo(b);
     });
     // 指北针：库自己只把方位角转回正北，俯仰角留着不动。这里连俯仰一起压平，
     // 不然刚拖成斜视的地图"回正"之后还是歪的
@@ -1052,6 +1057,10 @@
       (f) => {   // 聚焦：直接框到画面上这份几何的范围，不再等引擎
         const b = geomBBox(f.geometry);
         if (b) fitBBox(b);
+      },
+      () => {   // 再点一次量算图标：把结果收起来
+        dropMeasure();
+        measureOn = false;
       });
     box.appendChild(footNode);
     // 宽窄按字段最多的那个要素一次定死，翻页时弹窗不会左右跳
@@ -1067,7 +1076,7 @@
   }
 
   /* 底部工具行：左边聚焦、量算，右边翻页；上面一条分隔线和主体分开 */
-  function foot(getFeat, total, step, onMeasure, onFocus) {
+  function foot(getFeat, total, step, onMeasure, onFocus, onMeasureToggle) {
     const node = el2('div', 'idp-foot');
     const mkBtn = (icon, title, cls) => {
       const b = el2('button', 'idp-tbtn' + (cls ? ' ' + cls : ''));
@@ -1080,12 +1089,14 @@
     focus.onclick = () => onFocus(getFeat() || {});
     const measure = mkBtn(ICON_MEASURE, '计算面积和周长');
     let busy = false;
+    let hasResult = false;   // 量算结果正钉在弹窗里
     measure.onclick = () => {
       if (busy) return;
       /* 结果已经钉在弹窗里时再点一下就是收掉，不是重新算一遍 */
-      if (measureBox) { dropMeasure(); measureOn = false; syncMeasure(); return; }
+      if (hasResult) { onMeasureToggle(); hasResult = false; syncMeasure(); return; }
       const p = onMeasure(getFeat() || {});
       if (!p || typeof p.then !== 'function') return;
+      hasResult = true;
       busy = true;
       syncMeasure();
       const done = () => { busy = false; syncMeasure(); };
@@ -1100,7 +1111,7 @@
       measure.disabled = busy || !ok;
       measure.classList.toggle('busy', busy);
       measure.title = busy ? '正在计算…'
-        : (measureBox ? '收起量算结果'
+        : (hasResult ? '收起量算结果'
           : (!ok
             ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
             : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
@@ -1325,6 +1336,16 @@
       return had;
     },
     hasLayer() { return live() && !!data; },
+    /* 调试与自动化测试用的地图句柄：CDP 里能直接查渲染状态 */
+    __map() { return map; },
+    /* 属性表双击过来的高亮：按 fid 找已绘制的要素描一圈；找到返回 true */
+    highlightFid(fid) {
+      if (!live() || fid === null || fid === undefined) return false;
+      const f = ((lastVec && lastVec.features) || []).find((x) => fidOf(x) === fid);
+      if (!f) { setHighlight([]); return false; }
+      setHighlight([f]);
+      return true;
+    },
     fullExtent() {
       if (!live() || !data) return;
       const box = data.wgs || (data.ring && data.ring.length >= 4 ? boxFromRing(data.ring) : null);

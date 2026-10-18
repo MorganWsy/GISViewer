@@ -503,9 +503,10 @@ function degText(v, isLon) {
 const EXT_EDGES = [['西', 'left', 0, true], ['东', 'right', 2, true],
   ['南', 'bottom', 1, false], ['北', 'top', 3, false]];
 
-function extentRows(extent, wgs, unitLabel) {
+function extentRows(extent, wgs, unitLabel, local) {
   const unit = unitText(unitLabel);
-  const geo = !unit || unit === '°' || unit === '度';
+  // local：有范围但没有经纬度范围——本地坐标图层（多为 CAD），数值不是度，别按经纬度格式化
+  const geo = !local && (!unit || unit === '°' || unit === '度');
   const lines = [];
   EXT_EDGES.forEach((e) => {
     const v = extent ? extent[e[1]] : null;
@@ -515,10 +516,11 @@ function extentRows(extent, wgs, unitLabel) {
       return;
     }
     if (geo) { lines.push(e[0] + ' ' + degText(v, e[3])); return; }
-    lines.push(e[0] + ' ' + num(v) + ' ' + unit +
+    lines.push(e[0] + ' ' + num(v) + (unit ? ' ' + unit : '') +
       (g !== null && g !== undefined ? ' (' + degText(g, e[3]) + ')' : ''));
   });
-  return lines.length ? [['范围', lines.join('\n')]] : [];
+  if (!lines.length) return [];
+  return [['范围', lines.join('\n') + (local ? '\n（本地坐标，非经纬度）' : '')]];
 }
 
 function statRows(st) {
@@ -709,11 +711,12 @@ function railVector(rail, d) {
     }
   }
   rail.row('要素数', count(primary.feature_count) ||
-    (primary.quick ? '统计中…（后台补齐）' : null));
+    (primary.quick ? '统计中…' : null));
   rail.row('Z 值坐标', primary.has_z ? '有' : '无');
   rail.row('M 值坐标', primary.has_m ? '有' : '无');
-  rail.many(extentRows(primary.extent, primary.extent_wgs84, (primary.crs || {}).unit_label));
-  if (primary.quick && !primary.extent) rail.row('范围', '统计中…（后台补齐）');
+  rail.many(extentRows(primary.extent, primary.extent_wgs84,
+    (primary.crs || {}).unit_label, !primary.extent_wgs84 && !!primary.extent));
+  if (primary.quick && !primary.extent) rail.row('范围', '统计中…');
 
   rail.sec('坐标');
   rail.many(crsRows(primary.crs || {}));
@@ -796,10 +799,10 @@ function fillGeomTypes(primary, base) {
         putText((res && res.error && res.error.title) || '统计没成功');
         return;
       }
-      const types = res.types || [];
-      const text = types.length
-        ? types.map((t) => t.label + ' ' + num(t.count)).join(' · ')
-        : '类型混合';
+      // 服务端给好的成品文本（已按基础类型归并、Z 值单独汇总），直接用
+      const text = res.counts_text ||
+        (res.types || []).map((t) => t.label + ' ' + num(t.count)).join(' · ') ||
+        '类型混合';
       geomTypeText[key] = text;              // 本会话再打开同一个文件直接用
       primary.geometry_counts_text = text;   // 重画右栏时也直接复用
       putText(text);
@@ -872,7 +875,7 @@ function sidecarText(side) {
 /* 上一条错误由打开入口（inspectPath/uploadFiles）在开始新一次读取时收掉；
    这里不能再收——"已开图层 + 新文件打不开"的回滚也走这个函数，
    在这儿收会把刚弹出来的错误卡片又立刻抹掉 */
-async function renderResult(data, path) {
+async function renderResult(data, path, opts) {
   renderRail(data);
 
   if (!data.ok) {
@@ -899,6 +902,9 @@ async function renderResult(data, path) {
       data.conversion.note);
   }
 
+  /* deferMap：快速打开的大矢量先不画地图——这时还没有范围，取数会按当前视野过滤，
+     十有八九取回来 0 个，而且永远等不到自动聚焦。等全量检查（带范围）到了再画 */
+  if (opts && opts.deferMap) return;
   if (window.GisMap) GisMap.clear();
   if (data.kind === 'raster' && !data.multi_variable) await setupRaster(data);
   else resetRasterView();
@@ -1456,6 +1462,8 @@ function hideLegend() {
 
 let attrLayer = 0;     // 图层下拉里选中的项
 let attrCol = -1;      // 选中的列（0 是行号列），Ctrl+C 复制它
+let pendingHi = null;  // 双击定位过、但还没画出来的要素：画完补高亮
+let localCoords = false;  // 当前图层是不是本地坐标（多为 CAD），底部读数跟着换显示
 let attrShown = null;  // 当前正显示的那份缓存
 let attrCache = {};    // 键：路径+图层序号。收起再打开直接从这份里画，不再问服务端
 
@@ -1801,7 +1809,11 @@ function locateAttrRow(c, i) {
   attrToast('正在定位…');
   fetch(url).then((r) => r.json()).then((res) => {
     if (!res || !res.ok || !res.bbox) { attrToast((res && res.error && res.error.title) || '定位失败'); return; }
-    if (window.GisMap) GisMap.zoomToBBox(res.bbox);
+    if (window.GisMap) {
+      GisMap.zoomToBBox(res.bbox);
+      // 要素还没被画出来（不在当前视野）时先记下，等下一批绘制完再高亮
+      if (!GisMap.highlightFid(fid)) pendingHi = fid;
+    }
     attrToast('已定位到该要素');
   }).catch(() => attrToast('定位失败'));
 }
@@ -1827,8 +1839,7 @@ function wireQuickKeys() {
       if (t === $('attrFind')) { $('attrFind').value = ''; applyAttrFind(); $('attrFind').blur(); return; }
       if (typing) return;
       if (window.GisMap && GisMap.closePopup()) return;
-      if (attrOpen()) { closeAttr(); return; }
-      return;
+      return;   // 属性表不归 Esc 管：点右上角的 × 关，别让按键误伤
     }
     if (combo && combo === keyOf('key_find')) {
       e.preventDefault();
@@ -2014,8 +2025,18 @@ function paintPos(e) {
   const d = e.detail;
   mouseOn = !!d;
   if (mouseOn) {
-    $('posLng').textContent = num(d.lng, 5) || '—';
-    $('posLat').textContent = num(d.lat, 5) || '—';
+    if (localCoords) {
+      // 本地坐标的图层（多为 CAD）：坐标不是经纬度，照实显示原始数值
+      $('posLngLab').textContent = 'X';
+      $('posLatLab').textContent = 'Y';
+      $('posLng').textContent = num(d.lng, 1) || '—';
+      $('posLat').textContent = num(d.lat, 1) || '—';
+    } else {
+      $('posLngLab').textContent = '经度';
+      $('posLatLab').textContent = '纬度';
+      $('posLng').textContent = num(d.lng, 5) || '—';
+      $('posLat').textContent = num(d.lat, 5) || '—';
+    }
   }
   $('statusBox').hidden = false;
 }
@@ -2276,8 +2297,29 @@ async function inspectPath(path) {
   /* 先挂遮罩再渲染：栅格是同步画完的，等渲染返回时完成事件早发过了 */
   const staged = !!data.ok && VEIL_KINDS.indexOf(data.kind) >= 0;
   if (staged) holdVeil('正在画图层…');
+  /* 大矢量走快速元数据：信息栏立刻立起来，地图等全量检查（带范围）到了再画 */
+  const deferMap = !!data.ok && data.quick && data.kind === 'vector';
   try {
-    await renderResult(data, path);
+    await renderResult(data, path, { deferMap });
+    if (deferMap && data.ok) {
+      loadTip(true, '补齐要素数量与范围…');
+      let full = null;
+      try {
+        const res = await fetch('/api/path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, fast: false }),
+        });
+        full = await res.json();
+      } catch (err) { /* 补不上就用快速数据画 */ }
+      if (current && current.data === data && full && full.ok) {
+        current.data = full;
+        data = full;
+      }
+      await renderResult(data, path);   // 带着范围正式渲染（右栏重画 + 画地图）
+      if (data.ok) rememberLast(path, data);
+      return;
+    }
     if (data.ok) rememberLast(path, data);
   } catch (err) {
     releaseVeil();
@@ -2310,7 +2352,7 @@ function rememberLast(path, data) {
 const SETTING_TIPS = {
   cfgBasemap: '地图底层使用的地图服务。天地图影像与天地图矢量需要下方配置密钥；选择"无底图"时背景为纯色',
   cfgAnnotation: '在天地图底图上叠加地名、路名等注记，仅在选择天地图底图时生效',
-  cfgKey: '到天地图开放平台申请一个"浏览器端"密钥，仅保存在本机。申请时请在授权域名里填写 127.0.0.1 和 localhost',
+  cfgKey: '到天地图开放平台申请一个"浏览器端"类型的密钥，只保存在本机配置里；软件以本机网页方式运行，与授权域名无关',
   cfgRamp: '单色分级显示影像时使用的颜色系列，由低值到高值依次取色；下拉选项即实际配色效果',
   cfgClassCount: '分级上色时将数值范围划分的档数；档数越多层次越细，过密时画面容易显得破碎',
   cfgNodata: '数值等于 NoData 的像元按何种方式绘制：透出底图、涂黑或涂白',
@@ -3525,26 +3567,9 @@ function init() {
     }
     /* 快速打开的矢量：个数先用取数结果补上；
        范围和混合类型的明细需要整份扫描，等画完再补一次全量检查 */
-    const qd = current && current.data;
-    if (!qd || !qd.quick || !e.detail) return;
-    const qL = (qd.layers || [])[qd.layerIndex || 0];
-    if (qL && qL.feature_count == null && e.detail.total != null) {
-      qL.feature_count = e.detail.total;
-      if (current.data === qd) renderRail(qd);
-    }
-    if (qd.fullAsked) return;
-    qd.fullAsked = 1;
-    fetch('/api/path', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: (qd.file && qd.file.path) || current.path, fast: false }),
-    }).then((r) => r.json()).then((full) => {
-      // 期间换了文件就别再动右栏
-      if (full && full.ok && current && current.data === qd) {
-        current.data = full;
-        renderRail(full);
-      }
-    }).catch(() => { /* 补不上就留在"统计中" */ });
+    localCoords = !!(e.detail && e.detail.assumedLocal);
+    // 双击定位过一个还没画出来的要素：这一批画完就补高亮
+    if (pendingHi != null && window.GisMap && GisMap.highlightFid(pendingHi)) pendingHi = null;
   });
   $('map').addEventListener('gis:mouse', paintPos);
   $('map').addEventListener('gis:view', (e) => {

@@ -600,6 +600,16 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     return {"type": "FeatureCollection", "features": features, "gisviewer": meta}
 
 
+def count_cn(n):
+    """数字按中文习惯带万/亿，跟界面上的数字写法保持一致。"""
+    n = int(n)
+    if n >= 100000000:
+        return "%g 亿" % round(n / 100000000.0, 1)
+    if n >= 10000:
+        return "%g 万" % round(n / 10000.0, 1)
+    return str(n)
+
+
 @_serialized
 def geom_type_counts(target, layer_index=0):
     """逐个数每个几何类型各有多少个要素。
@@ -619,6 +629,7 @@ def geom_type_counts(target, layer_index=0):
     if lyr is None:
         raise InspectError("打不开这个图层")
     counts = {}
+    zcount = 0
     scanned = 0
     lyr.ResetReading()
     while True:
@@ -628,11 +639,20 @@ def geom_type_counts(target, layer_index=0):
         scanned += 1
         g = feat.GetGeometryRef()
         key = "无几何" if g is None else geom_type_label(int(g.GetGeometryType()))
+        # CAD 数据一个文件里"线·含 Z 值"和"线"各一大堆，分开列出来一长串没法看。
+        # 按基础类型归并，Z 值单独汇总一句
+        if "含 Z 值" in key:
+            zcount += 1
+            key = key.replace("·含 Z 值", "")
         counts[key] = counts.get(key, 0) + 1
     del ds
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    text = " · ".join("%s %s" % (k, count_cn(v)) for k, v in ordered)
+    if zcount:
+        text += "（其中 %s 个含 Z 值）" % count_cn(zcount)
     return {"layer": index, "total": scanned,
-            "types": [{"label": k, "count": v} for k, v in ordered]}
+            "types": [{"label": k, "count": v} for k, v in ordered],
+            "counts_text": text}
 
 
 def _stamp(target):

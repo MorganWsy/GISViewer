@@ -712,7 +712,7 @@ class Handler(BaseHTTPRequestHandler):
             layer = int((query.get("layer") or ["0"])[0])
         except ValueError:
             return self._send(400, {"ok": False, "error": {"title": "参数不对"}})
-        k = cache.key("gtypes", path, "layer=%d" % layer) if _cacheable(path) else None
+        k = cache.key("gtypes2", path, "layer=%d" % layer) if _cacheable(path) else None
         if k:
             started = time.perf_counter()
             hit = cache.load_json("gtypes", k)
