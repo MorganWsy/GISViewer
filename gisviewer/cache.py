@@ -192,6 +192,19 @@ def save_blob(kind, key_hex, body):
     _write(_entry(kind, key_hex, ".bin"), body)
 
 
+def blob_path(kind, key_hex, ext=".bin"):
+    """给"要落一个大文件、得直接往上写"的用法返回路径（矢量索引就是这样）。
+    父目录一并建好；键为空时返回 None，调用方照旧走原路。"""
+    if not key_hex:
+        return None
+    path = _entry(kind, key_hex, ext)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return path
+
+
 # ---------- 容量与统计 ----------
 
 def stats():

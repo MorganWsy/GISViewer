@@ -1563,6 +1563,8 @@ function showAttr(on) {
 function closeAttr() {
   showAttr(false);
   attrCol = -1;
+  // 表收起来了，那一行的定位标记也就没意义了；地图上的高亮留着不动
+  markLocateRow(null);
 }
 
 /* 这份文件里所有能画到地图上的矢量图层（压缩包成员也算一层） */
@@ -1803,6 +1805,7 @@ function attrShell(c) {
        真要复制单元格文字，按住拖动或点表头选整列都行 */
     const sel = window.getSelection && window.getSelection();
     if (sel) sel.removeAllRanges();
+    markLocateRow(tr);
     locateAttrRow(c, Array.prototype.indexOf.call(tb.children, tr));
   });
 
@@ -1879,6 +1882,19 @@ function applyAttrFind() {
    等地图画完这一批再弹一句"高亮好了"。中间又双击了别的行就只认最后一次 */
 let locateFid = null;
 
+/* 表里"正在定位的那一行"：和地图上的要素高亮同生同灭。
+   地图那边每次换高亮都会发 gis:highlight，带着被描到的要素编号，
+   这一行据此亮起或撤掉——点地图空白处、按 Esc 收弹窗，两边一起收 */
+let locateRowEl = null;
+
+function markLocateRow(tr) {
+  const next = tr || null;
+  if (locateRowEl === next) return;
+  if (locateRowEl) locateRowEl.classList.remove('row-focus');
+  locateRowEl = next;
+  if (locateRowEl) locateRowEl.classList.add('row-focus');
+}
+
 /* 双击某一行：把地图框到这要素的范围上，再把它描一圈高亮。
    范围读表时就已经拿到了（服务端随行带回 bbox），这一下是瞬时的，
    不再为了一个包围盒回原文件按编号扫一遍——wuningGEP.json 十万要素，那一下要等七八秒。
@@ -1894,7 +1910,7 @@ function locateAttrRow(c, i) {
   }
   locateFid = fid === null || fid === undefined ? null : Number(fid);
   const state = GisMap.focusFid(fid, box);
-  if (state === 'none') { attrToast('地图还没准备好，稍后再试'); return; }
+  if (state === 'none') { markLocateRow(null); attrToast('地图还没准备好，稍后再试'); return; }
   if (state === 'feature') { attrToast('已定位并高亮该要素'); return; }
   /* 要素不在已画出来的那批里：地图正往那儿去，画完由 gis:focus 收尾。
      这一条挂着不自动走——它说的是"正在进行"，不是"已经完成" */
@@ -2022,6 +2038,8 @@ function refreshAttr() {
   const layers = attrLayers();
   if (attrLayer >= layers.length) attrLayer = 0;
   attrCol = -1;
+  // 表要重建，旧的行元素马上就不在文档里了，定位标记一并清掉
+  markLocateRow(null);
   if (!layers.length) {
     attrShown = null;
     body.textContent = '';
@@ -2296,20 +2314,11 @@ function placeErrToast() {
   box.style.left = cx + 'px';
 }
 
-/* 说明和建议都能写成多条：传数组就是分点，传字符串就是一句话。
-   分点比一整段话好读——"哪里不对"和"该怎么办"本来就该分成两行 */
+/* 全局提示只有"标题 + 一句说明 + 一句建议"：
+   想分点讲清一件事的地方是设置项那枚 ⓘ 的气泡（见 showTipBox），不是这里 */
 function fillToastText(box, value) {
   if (!box) return;
-  const lines = Array.isArray(value) ? value.filter((v) => v !== null && v !== '') : [];
-  box.textContent = '';
-  if (lines.length > 1) {
-    const ul = el('ul', 'et-list');
-    lines.forEach((line) => ul.appendChild(el('li', null, String(line))));
-    box.appendChild(ul);
-    box.hidden = false;
-    return;
-  }
-  const one = lines.length ? lines[0] : (value == null ? '' : String(value));
+  const one = value == null ? '' : String(value);
   box.textContent = one;
   box.hidden = !one;
 }
@@ -2528,39 +2537,39 @@ function rememberLast(path, data) {
 /* 按控件 id 挂提示；一两句话把"这是什么、调了会怎样"说清楚。
    这些内容原来是各设置项下面的小字说明，统一改挂在气泡里，措辞从简、从正式 */
 const SETTING_TIPS = {
-  cfgBasemap: '地图底层使用的地图服务。天地图影像与天地图矢量需要密钥，Esri 影像、OpenStreetMap 与高德影像都不需要；选择"无底图"时背景为纯色',
-  cfgAnnotation: '在底图上叠加地名、路名等注记。天地图两种底图自带注记层可单独开关；Esri 影像本身没有注记，勾选后叠天地图的注记，需要密钥；OpenStreetMap 瓦片自带注记，高德影像是 GCJ-02 基准、与天地图注记对不上，这两种底图不提供该项',
-  cfgKey: '天地图密钥。到天地图开放平台申请"浏览器端"类型的密钥，只保存在本机配置里；软件以本机网页方式运行，与授权域名无关',
-  cfgRamp: '单色分级显示影像时使用的颜色系列，由低值到高值依次取色；下拉选项即实际配色效果',
-  cfgClassCount: '分级上色时将数值范围划分的档数；档数越多层次越细，过密时画面容易显得破碎',
-  cfgNodata: '数值等于 NoData 的像元按何种方式绘制：透出底图、涂黑或涂白',
-  cfgRasterDefault: '打开多波段文件时的默认显示方式：取前三个波段合成彩色，或取第一个波段做单色分级',
-  cfgVectorColor: '矢量要素的填充、描边与数据范围框使用的颜色',
-  cfgDrawLimit: '视野里一次最多画多少个要素。调大能看到更多细节，但每次移动、缩放后重画会变慢；视野内超过上限时会弹出全局提示，移动、缩放后继续加载',
-  cfgMaxFeatures: '属性表向下滚动时每次续读的行数；数值越大单次读取越多，大图层上滚动会更重',
-  cfgFontUi: '界面文字使用的字体，列表中仅包含本机已安装的字体',
-  cfgFontNum: '数字、坐标与表格内容使用的字体，可与界面字体分开设置',
-  cfgUnitLang: '量算结果与坐标读数使用的单位写法：符号（m、km）或中文（米、千米）',
-  cfgZoom: '仅缩放界面文字与面板，地图画布不参与缩放，因此不影响坐标取点的精度',
-  cfgAlpha: '浮在地图上的面板的不透明度；顶栏与右侧信息栏始终保持不透明',
-  cfgToastSec: '错误与提示浮层停留多久后自动收起；正在进行的操作（定位、整列复制）不会中途消失，做完或出错就换成结果那一条。点一下浮层可以立即关掉',
-  cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。留空就用上次打开文件所在的文件夹；也可以点"选择…"固定一个目录',
-  cachePath: '读取结果的缓存文件夹：打开过的文件的元数据、直方图与缩略图都在这里。清空只会让下次读取变慢，不会动源文件',
-  cfgCloseAct: '点击窗口右上角关闭按钮时的行为：驻留托盘（任务栏不再保留按钮，可从托盘或快捷键唤回），或直接退出软件',
-  cfgCloseAsk: '勾选后每次点关闭按钮都先问一句：驻留托盘还是直接退出；不勾选就按上面选的行为直接执行',
-  cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
+  cfgBasemap: '地图底层使用的地图服务\n天地图影像、天地图矢量需要密钥\nEsri 影像、OpenStreetMap、高德影像都不要密钥\n选"无底图"时背景为纯色',
+  cfgAnnotation: '在底图上叠地名、路名等注记\n天地图两种底图自带注记层，可单独开关\nEsri 影像本身没有注记，勾选后叠天地图的，要密钥\nOpenStreetMap 瓦片自带注记、高德是 GCJ-02 基准，这两项不显示本条',
+  cfgKey: '天地图密钥，只保存在本机配置里\n到天地图开放平台申请"浏览器端"类型\n软件以本机网页方式运行，与授权域名无关',
+  cfgRamp: '单色分级显示影像时用的颜色系列\n由低值到高值依次取色\n下拉选项就是实际配色',
+  cfgClassCount: '分级上色把数值范围分成几档\n档数越多层次越细\n过密时画面容易显得破碎',
+  cfgNodata: '数值等于 NoData 的像元怎么画\n透出底图、涂黑或涂白\n只影响显示，不动源文件',
+  cfgRasterDefault: '打开多波段文件的默认显示方式\n取前三个波段合成彩色画面\n或取第一个波段做单色分级',
+  cfgVectorColor: '矢量要素的填充、描边与数据范围框用的颜色\n只影响显示',
+  cfgDrawLimit: '视野里一次最多画多少个要素\n调大能看到更多细节\n移动、缩放后每次重画会更慢\n超过上限会弹提示，动一下地图继续加载',
+  cfgMaxFeatures: '属性表向下滚动时每次续读的行数\n调大单次读得多，大图层上滚动更重',
+  cfgFontUi: '界面文字用的字体\n列表里只有本机已安装的字体',
+  cfgFontNum: '数字、坐标与表格内容用的字体\n可以和界面字体分开设',
+  cfgUnitLang: '量算结果与坐标读数用哪种单位写法\n符号（m、km）或中文（米、千米）',
+  cfgZoom: '只缩放界面文字与面板\n地图画布不参与缩放\n所以不影响坐标取点的精度',
+  cfgAlpha: '浮在地图上的面板的不透明度\n顶栏与右侧信息栏始终不透明',
+  cfgToastSec: '错误与提示浮层停留多久自动收起\n定位、整列复制这类进行中的提示不会中途消失\n点一下浮层可以立即关掉',
+  cfgOpenDir: '点"打开文件""打开文件夹"时从哪个目录起步\n留空就用上次打开文件所在的位置\n也可以点"选择…"固定一个目录',
+  cachePath: '打开过的文件的元数据、直方图、缩略图与矢量索引都放在这里\n清空只会让下次读取变慢，不动源文件',
+  cfgCloseAct: '点窗口右上角关闭按钮时的行为\n驻留托盘：任务栏不再保留按钮，可从托盘或快捷键唤回\n直接退出：进程结束',
+  cfgCloseAsk: '勾选后每次点关闭都先问一句：驻留托盘还是直接退出\n不勾选就按上面选的行为直接执行',
+  cfgAutoStart: '开机后自动启动并驻留托盘\n不弹窗口，任务栏也不显示按钮\n通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
-  cfgUpdFreq: '检查新版本的频率。检查时仅访问发布页一次，其余时间不联网',
+  cfgUpdFreq: '检查新版本的频率\n检查时只访问发布页一次\n其余时间不联网',
   cfgRestore: '启动时自动打开上次查看的文件',
-  cfgRecentMax: '顶栏路径框点开时，下拉列表里"最近打开"最多显示的条数',
-  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取，软件退出后自动删除。读取结果的缓存不在这个目录，见下方"缓存位置"',
-  cfgKeepHours: '软件异常退出时，临时副本保留的时长，超过后自动清理',
+  cfgRecentMax: '顶栏路径框点开时"最近打开"最多显示几条\n记录池最多留 20 条，调小不用重新攒',
+  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取\n软件退出后自动删除\n读取结果的缓存在"缓存位置"那一栏，不是这个目录',
+  cfgKeepHours: '软件异常退出时临时副本保留多久\n超过后自动清理',
 };
 
 /* 标签上没有 for 的两处快捷键，按标签文字挂提示 */
 const SETTING_LABEL_TIPS = {
-  '唤出快捷键': '在任何程序中按下都可将窗口唤到前台；点按钮后按下新的组合键即可修改',
-  '选中即开快捷键': '在资源管理器或桌面上选中文件后按下，直接在图览中打开；空格单独按下被系统占用，需要搭配修饰键',
+  '唤出快捷键': '在任何程序中按下都能把窗口唤到前台\n点按钮后按下新的组合键即可修改',
+  '选中即开快捷键': '在资源管理器或桌面上选中文件后按下，直接在图览中打开\n空格单独按下被系统占用，要搭配修饰键',
 };
 
 /* ---------- 设置卡片：按住标题条拖动 ---------- */
@@ -3937,11 +3946,23 @@ function init() {
     if (d.fid === null || d.fid === undefined) return;
     if (locateFid !== null && Number(d.fid) !== locateFid) return;
     if (d.ok === false) {
-      toastNote('已框到该要素的范围',
-        ['视野内还没有画出这个要素，可能是超出了单次绘制上限', '范围框先标出它的位置，放大后会补上高亮']);
+      toastNote('已框到该要素的范围', '视野内还没有画出这个要素，范围框先标出位置，放大后会补上高亮');
       return;
     }
     attrToast('已定位并高亮该要素');
+  });
+  /* 地图高亮变了：属性表里对应的那一行跟着亮起或撤掉。
+     点地图上的要素做识别、按 Esc 收弹窗、双击定位，走的都是这一条 */
+  $('map').addEventListener('gis:highlight', (e) => {
+    const fids = (e.detail && e.detail.fids) || [];
+    const c = attrShown;
+    if (!c || !c.ids || !c.ids.length || !fids.length) { markLocateRow(null); return; }
+    let row = null;
+    for (let i = 0; i < fids.length && !row; i++) {
+      const at = c.ids.indexOf(fids[i]);
+      if (at >= 0 && c.tbody) row = c.tbody.children[at] || null;
+    }
+    markLocateRow(row);
   });
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);

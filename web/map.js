@@ -187,14 +187,16 @@
     }
   }
 
-  /* 点中的要素描一圈高亮；弹窗关掉或点了别处就撤掉 */
+  /* 点中的要素描一圈高亮；弹窗关掉或点了别处就撤掉。
+     描的是哪个要素要告诉界面：属性表靠着这条把对应行一起标上或撤掉 */
   function setHighlight(feats) {
     if (!live()) return;
     const src = map.getSource('gis-hl');
     if (!src) return;
-    const list = (feats || []).filter((f) => f && f.geometry)
-      .map((f) => ({ type: 'Feature', geometry: f.geometry, properties: {} }));
+    const kept = (feats || []).filter((f) => f && f.geometry);
+    const list = kept.map((f) => ({ type: 'Feature', geometry: f.geometry, properties: {} }));
     src.setData({ type: 'FeatureCollection', features: list });
+    emit('gis:highlight', { fids: kept.map(fidOf).filter((v) => v !== null) });
   }
 
   function addLayers() {
@@ -387,10 +389,8 @@
         parts.push('坐标按米临时摆放');
         if (!localNoteShown) {
           localNoteShown = true;
-          toast('这个图层没有坐标系', [
-            '按原始坐标当作米临时摆放，只用于看清图形',
-            '底图与注记已暂时收起',
-          ]);
+          toast('这个图层没有坐标系',
+            '按原始坐标当作米临时摆放，只用于看清图形；底图与注记已暂时收起。');
         }
       } else if (m.reprojected) parts.push('显示坐标已转到经纬度');
       note(baseNote() + parts.join(' · '));
@@ -400,8 +400,7 @@
         const now = Date.now();
         if (now - lastLimitToast > 6000) {
           lastLimitToast = now;
-          toast('视野内超过单次上限',
-            ['已绘制 ' + feats.length + ' 个', '移动、缩放后继续加载'], 'info');
+          toast('视野内超过单次上限', '已绘制 ' + feats.length + ' 个，移动、缩放后继续加载。', 'info');
         }
       }
       const src = map.getSource('gis-data');
@@ -1034,7 +1033,8 @@
       emit('gis:focus', { fid: fid, ok: true });
       return true;
     }
-    setHighlight([{ geometry: boxRing(pendingFocus.box) }]);
+    // 带上 fid：范围框也是这个要素的高亮，属性表那一行不能跟着灭
+    setHighlight([{ id: fid, geometry: boxRing(pendingFocus.box) }]);
     if (fid === null) { pendingFocus = null; return false; }
     /* 视图可能还没走到目标位置（定位是带动画的）：这一轮画的是旧视野，
        不能拿它下结论，等视图到位那一轮再说 */
@@ -1496,7 +1496,7 @@
         pendingFocus = null;
         return 'feature';
       }
-      setHighlight([{ geometry: boxRing(b) }]);
+      setHighlight([{ id: n, geometry: boxRing(b) }]);
       return 'box';
     },
     fullExtent() {

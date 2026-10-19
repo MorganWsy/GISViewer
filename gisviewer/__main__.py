@@ -2,11 +2,14 @@
 
 import argparse
 import json
+import os
 import sys
+import time
 
 from . import __version__
 from . import inspect as engine
 from . import labels
+from . import verdict
 
 
 def _row(label, value):
@@ -310,12 +313,132 @@ def _jsonable(obj):
     return obj
 
 
+def _report(results):
+    """存成文件的体检报告：比结果本身多一层外壳，方便以后对比时认版本、认时间。"""
+    return {
+        "app": "图览 " + __version__,
+        "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "files": [_jsonable(r) for r in results],
+    }
+
+
+def _norm(path):
+    return str(path or "").replace("\\", "/").casefold()
+
+
+def _old_by_path(path):
+    """读一份以前存下的报告，按文件路径索引。"""
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    files = data.get("files") if isinstance(data, dict) else data
+    out = {}
+    for item in files or []:
+        if isinstance(item, dict) and item.get("file"):
+            out[_norm(item["file"].get("path"))] = item
+    return out
+
+
+def _print_check(result, said):
+    """一份文件打印一段结论：先是文件，再逐条"要紧程度 + 结论 + 说明 + 建议"。"""
+    f = result.get("file") or {}
+    # 读不出来的文件没有 file 块，只有 input：结论一样要指明是哪个文件
+    path = f.get("path") or result.get("input")
+    name = f.get("name") or (os.path.basename(str(path)) if path else "（未命名）")
+    v = said(result)
+    tag = verdict.LEVEL_LABEL.get(v["level"], "")
+    print(f"{name}    {tag}")
+    if path:
+        print(f"    {path}")
+    for it in v["items"]:
+        # 结论与文件末尾那句"都没发现问题"重复时只留一次
+        if it["level"] == "ok" and len(v["items"]) == 1:
+            continue
+        print(f"    {verdict.LEVEL_LABEL[it['level']]:<4}  {it['title']}")
+        if it.get("detail"):
+            print(f"          {it['detail']}")
+        if it.get("hint"):
+            print(f"          建议：{it['hint']}")
+
+
+def _environment():
+    """诊断包里的环境部分：出问题时这几行最先要看。"""
+    import platform
+    rows = [("图览版本", __version__), ("操作系统", platform.platform()),
+            ("Python", sys.version.split()[0])]
+    try:
+        from osgeo import gdal, osr
+        rows.append(("GDAL", gdal.VersionInfo("RELEASE_NAME")))
+        rows.append(("PROJ", "%d.%d.%d" % (osr.GetPROJVersionMajor(),
+                                          osr.GetPROJVersionMinor(),
+                                          osr.GetPROJVersionMicro())))
+        rows.append(("GDAL 数据目录", gdal.GetConfigOption("GDAL_DATA") or ""))
+        rows.append(("PROJ 数据目录", ";".join(osr.GetPROJSearchPaths() or [])))
+    except Exception as exc:
+        rows.append(("GDAL", f"读不到：{exc}"))
+    try:
+        from . import cache
+        st = cache.stats()
+        rows.append(("缓存目录", str(st.get("path") or "")))
+        rows.append(("缓存占用", str(st.get("size_label") or "")))
+    except Exception:
+        pass
+    return "".join(f"{k}：{v}\n" for k, v in rows if v)
+
+
+def _write_zip(zip_path, results):
+    """诊断包：环境 + 完整结果 + 一句说明。日志不打包（引擎不落日志文件）。"""
+    import zipfile
+    payload = json.dumps(_jsonable(_report(results)), ensure_ascii=False, indent=2, default=str)
+    note = ("这个包里没有源数据，只有环境信息和图览读到的结果。\n"
+            "反馈问题时把整个 zip 发过来即可，里面不含你的文件内容。\n")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("环境.txt", _environment())
+        z.writestr("体检结果.json", payload)
+        z.writestr("说明.txt", note)
+    return zip_path
+
+
+def _expand(paths, limit=500):
+    """批量体检时把普通文件夹展开成里面的数据文件：要的是一份清单。
+    .gdb / .zarr 这类目录本身就是一份数据，不展开；伴生文件按 is_primary 排掉，
+    再排掉 .hdr / .ovr 这些"只是配件"的后缀。"""
+    skip = {".hdr", ".ovr", ".rrd"}
+    out = []
+    for raw in paths:
+        low = str(raw).lower().rstrip("/\\")
+        if os.path.isdir(raw) and not low.endswith((".gdb", ".zarr")):
+            hits = []
+            for root, dirs, names in os.walk(raw):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for n in sorted(names):
+                    full = os.path.join(root, n)
+                    if n.startswith(".") or os.path.splitext(n)[1].lower() in skip:
+                        continue
+                    if engine.is_primary(full):
+                        hits.append(full)
+                if len(hits) >= limit:
+                    break
+            out.extend(hits[:limit])
+        else:
+            out.append(raw)
+    return out
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="gisviewer", description="快速查看 GIS 文件信息")
     parser.add_argument("--version", action="version", version="图览 " + __version__)
     parser.add_argument("paths", nargs="+", help="文件或文件夹路径")
     parser.add_argument("--json", action="store_true", help="输出完整 JSON")
     parser.add_argument("--no-stats", action="store_true", help="跳过缺失统计值的计算")
+    parser.add_argument("--check", action="store_true",
+                        help="只给结论：有没有问题、要不要紧；文件夹会展开成逐个文件"
+                             "（有问题时退出码为 1）")
+    parser.add_argument("--out", metavar="文件",
+                        help="把完整结果存成 JSON，以后可以用 --diff 对比")
+    parser.add_argument("--diff", metavar="旧报告.json",
+                        help="和上一次存下的结果比，列出变了的地方")
+    parser.add_argument("--diagnose", metavar="压缩包", nargs="?", const="",
+                        help="生成诊断包（环境 + 体检结果），默认放在第一个文件旁边")
     args = parser.parse_args(argv)
 
     try:
@@ -323,8 +446,77 @@ def main(argv=None):
     except Exception:
         pass
 
+    targets = _expand(args.paths) if args.check else args.paths
     results = [engine.safe_inspect(raw, compute_stats=not args.no_stats)
-               for raw in args.paths]
+               for raw in targets]
+
+    if args.diff:
+        old = _old_by_path(args.diff)
+        worst = 0
+        for result in results:
+            f = result.get("file") or {}
+            name = f.get("name") or "（未命名）"
+            before = old.get(_norm(f.get("path")))
+            print(f"== {name} ==")
+            if before is None:
+                print("  旧报告里没有这个文件，无法对比")
+                continue
+            rows = verdict.compare(before, result)
+            if not rows:
+                print("  没有变化")
+                continue
+            worst = 1
+            for row in rows:
+                print(f"  {row['label']}：{_fmt(row['before'])} → {_fmt(row['after'])}")
+        return worst
+
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(_report(results), fh, ensure_ascii=False, indent=2, default=str)
+        print(f"已保存：{args.out}")
+
+    if args.diagnose is not None:
+        target = args.diagnose
+        if not target:
+            first = results[0].get("file") or {}
+            base = os.path.dirname(str(first.get("path") or "")) or os.getcwd()
+            target = os.path.join(base, "图览诊断包-%s.zip" % time.strftime("%Y%m%d-%H%M%S"))
+        _write_zip(target, results)
+        print(f"诊断包：{target}")
+
+    if args.check:
+        said = [verdict.judge(r) for r in results]
+        if args.json:
+            files = []
+            summary = {"bad": 0, "warn": 0, "note": 0, "ok": 0}
+            for result, v in zip(results, said):
+                summary[v["level"]] = summary.get(v["level"], 0) + 1
+                files.append({"path": (result.get("file") or {}).get("path")
+                              or result.get("input"),
+                              "level": v["level"], "items": v["items"]})
+            print(json.dumps({"files": files, "summary": summary},
+                             ensure_ascii=False, indent=2, default=str))
+        else:
+            for i, result in enumerate(results):
+                if i:
+                    print()
+                _print_check(result, verdict.judge)
+            bad = sum(1 for v in said if v["level"] == "bad")
+            warn = sum(1 for v in said if v["level"] == "warn")
+            note = sum(1 for v in said if v["level"] == "note")
+            parts = [f"共 {len(results)} 个"]
+            if bad:
+                parts.append(f"{bad} 个有问题")
+            if warn:
+                parts.append(f"{warn} 个要留意")
+            if note:
+                parts.append(f"{note} 个只有提示")
+            if not (bad or warn or note):
+                parts.append("都没发现问题")
+            print()
+            print("，".join(parts))
+        return 1 if any(v["level"] in ("bad", "warn") for v in said) else 0
+
     if args.json:
         payload = results[0] if len(results) == 1 else [_jsonable(r) for r in results]
         print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, default=str))

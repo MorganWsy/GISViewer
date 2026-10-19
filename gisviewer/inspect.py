@@ -488,12 +488,12 @@ def error_block(exc, raw=None):
     if isinstance(exc, InspectError):
         payload = {"ok": False, "error": {"title": exc.title, "detail": exc.detail, "hint": exc.hint}}
     else:
-        raw = f"{type(exc).__name__}: {exc}"
+        text = f"{type(exc).__name__}: {exc}"
         payload = {"ok": False, "error": {"title": "读取时出了意外",
-                                         "detail": raw[:300],
+                                         "detail": text[:300],
                                          "hint": _friendly(str(exc)) or "确认文件完整、格式在支持范围内。"}}
     if raw is not None:
-        payload["input"] = str(raw)
+        payload["input"] = str(raw)     # 原始路径，界面上要显示"是哪个文件没读出来"
     return payload
 
 

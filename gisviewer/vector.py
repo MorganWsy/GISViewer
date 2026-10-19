@@ -10,6 +10,7 @@ from pathlib import Path
 from . import bootstrap
 from . import dwg as _dwg
 from . import labels
+from . import vindex
 from .errors import InspectError
 from .crs import bounds_to_wgs84, describe, extent_warning
 
@@ -503,11 +504,18 @@ def inspect(target, quick=False):
 _SIMPLIFIABLE = (ogr.wkbPolygon, ogr.wkbMultiPolygon, ogr.wkbLineString, ogr.wkbMultiLineString)
 
 
+_WGS84_REF = None
+
+
 def _wgs84():
-    ref = osr.SpatialReference()
-    ref.ImportFromEPSG(4326)
-    ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    return ref
+    """经纬度坐标系。全进程共用一份：每个要素都新建一个，十万要素光构建就够慢了。"""
+    global _WGS84_REF
+    if _WGS84_REF is None:
+        ref = osr.SpatialReference()
+        ref.ImportFromEPSG(4326)
+        ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        _WGS84_REF = ref
+    return _WGS84_REF
 
 
 def _pair(wkt):
@@ -546,16 +554,23 @@ _METRICS_MAX = 30000
 
 def _wgs_metrics(geom):
     """在 WGS 84 几何上算面积、周长。绘制时顺手算好带给界面，
-    点开弹窗再量就不用回引擎重新解析整份大文件了。"""
+    点开弹窗再量就不用回引擎重新解析整份大文件了。
+
+    几何没有坐标系时 GeodesicArea 会直接抛错（"missing SRS"）：这是"能不能量"
+    的问题，不该把要素本身也连累成读取失败，所以量不出来就留空。
+    """
     base = _split_geom_code(int(geom.GetGeometryType()))[0]
     area = None
     length = None
-    if base in (ogr.wkbPolygon, ogr.wkbMultiPolygon, ogr.wkbCurvePolygon, ogr.wkbMultiSurface):
-        area = geom.GeodesicArea()
-        length = geom.GeodesicLength()
-    elif base in (ogr.wkbLineString, ogr.wkbMultiLineString, ogr.wkbCircularString,
-                  ogr.wkbCompoundCurve, ogr.wkbMultiCurve):
-        length = geom.GeodesicLength()
+    try:
+        if base in (ogr.wkbPolygon, ogr.wkbMultiPolygon, ogr.wkbCurvePolygon, ogr.wkbMultiSurface):
+            area = geom.GeodesicArea()
+            length = geom.GeodesicLength()
+        elif base in (ogr.wkbLineString, ogr.wkbMultiLineString, ogr.wkbCircularString,
+                      ogr.wkbCompoundCurve, ogr.wkbMultiCurve):
+            length = geom.GeodesicLength()
+    except Exception:
+        area = length = None
     if area is not None and area < 0:
         area = None
     if length is not None and length < 0:
@@ -564,17 +579,137 @@ def _wgs_metrics(geom):
 
 
 @_serialized
-def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUEST,
-                  tolerance=0.0, offset=0, with_geometry=True, layer_total_hint=None):
-    """按视野取要素，统一转成经纬度 GeoJSON，供地图绘制。
+def _wgs_box(env, ct):
+    """源坐标系的包络 (minx, miny, maxx, maxy) 转成经纬度包围盒；转不动返回 None。"""
+    if not env or len(env) < 4:
+        return None
+    try:
+        if ct is not None:
+            p1 = ct.TransformPoint(float(env[0]), float(env[1]))
+            p2 = ct.TransformPoint(float(env[2]), float(env[3]))
+            return [min(p1[0], p2[0]), min(p1[1], p2[1]),
+                    max(p1[0], p2[0]), max(p1[1], p2[1])]
+        return [float(env[0]), float(env[1]), float(env[2]), float(env[3])]
+    except Exception:
+        return None
 
-    tolerance 是面/线抽稀容差（单位：度），0 表示原样输出。
-    offset/limit 供属性表分页；with_geometry=False 时只带属性，
-    跳过坐标变换和几何序列化，大图层的翻页能快不少。
-    layer_total_hint：调用方（服务端）从缓存的元数据里已经把总要素数带过来了，
-    有它就不用再花几秒钟重新数一遍。
+
+def _shape_item(fid, props, geom, ct, tolerance, target, index, stamp):
+    """把一条要素做成接口返回的形状：几何转经纬度、按容差抽稀、带上量算值。
+
+    索引取数和读原文件这两条路都走这里，两边结果才不会一边多一个字段、
+    一边少算一个面积。返回 (item, 说明)，说明是 ok / simple / nogeom / failed。
     """
-    target = read_target(target)
+    if geom is None:
+        return None, "nogeom"
+    try:
+        if ct is not None:
+            geom = geom.Clone()
+            if geom.Transform(ct) != 0:
+                return None, "failed"
+            # 坐标已经换成经纬度，坐标系也要跟着换：面积、周长按 WGS 84 的椭球算，
+            # 留着源坐标系等于把"度"当源坐标系的米来量，出来的数会差好几个量级
+            geom.AssignSpatialReference(_wgs84())
+        # 量算要用原始几何；抽稀之后再算面积周长会偏小
+        area = length = None
+        mkey = None
+        if fid is not None and fid >= 0:
+            mkey = (str(target), index, int(fid)) + stamp
+            hit = _METRICS.get(mkey)
+            if hit is not None:
+                area, length = hit
+        if mkey is None or mkey not in _METRICS:
+            area, length = _wgs_metrics(geom)
+            if mkey is not None and len(_METRICS) < _METRICS_MAX:
+                _METRICS[mkey] = (area, length)
+        base = _split_geom_code(int(geom.GetGeometryType()))[0]
+        simplified = False
+        if tolerance and base in _SIMPLIFIABLE:
+            # 用 WKB 字节数判断顶点有没有真被删掉：多面体的 GetPointCount
+            # 只数几何个数，拿它比会一直得出"没抽稀"的错误结论
+            before = 0
+            try:
+                before = geom.WkbSize()
+            except Exception:
+                pass
+            geom = geom.SimplifyPreserveTopology(tolerance)
+            after = 0
+            try:
+                after = geom.WkbSize()
+            except Exception:
+                pass
+            simplified = before == 0 or after < before
+        item = {"type": "Feature", "geometry": json.loads(geom.ExportToJson()),
+                "properties": props}
+        if fid is not None and fid >= 0:
+            item["id"] = fid
+        # 下划线开头：属性表、识别弹窗都不把它当业务字段显示
+        if area is not None:
+            props["_msr_area"] = area
+        if length is not None:
+            props["_msr_len"] = length
+        return item, ("simple" if simplified else "ok")
+    except Exception:
+        return None, "failed"
+
+
+def feature_props(feat, specs):
+    """按字段表把一条要素的属性取成字典。specs 是 (序号, 名字, 是否布尔) 的列表。
+
+    按序号取、不按名字：绑定自带的 ExportToJson 每个要素都按字段名重新线性查一遍，
+    22 个字段的图层光这一步 5000 个要素就要十几秒。
+    """
+    out = {}
+    for fi, fname, is_bool in specs:
+        if not feat.IsFieldSet(fi):
+            continue
+        value = feat.GetField(fi)
+        out[fname] = bool(value) if is_bool else value
+    return out
+
+
+def _src_rect(src, dst, ct, bbox, assumed_local):
+    """经纬度视野框 -> 源坐标系矩形；没有视野框、或本地坐标摆法时返回 None。"""
+    if not bbox or assumed_local:
+        return None
+    if ct is None:
+        return [float(v) for v in bbox]
+    rect = _rect_for_src(osr.CoordinateTransformation(dst, src), bbox)
+    if rect is None:
+        raise InspectError("这个坐标系转不到经纬度，画不了")
+    return [float(v) for v in rect]
+
+
+def _layer_from_desc(desc, index, bbox, layer_total_hint):
+    """用索引里存的图层概况凑出与打开源文件同样的那份信息。"""
+    src = dst = ct = None
+    wkt = desc["srs"]
+    if wkt:
+        src, dst, ct = _pair(wkt)
+    elif not desc["wgs84"]:
+        # 建索引时源图层没有坐标系，且不是天然经纬度的格式：与读文件时一样，
+        # 把原始坐标当成米按墨卡托摆上去
+        local = osr.SpatialReference()
+        local.ImportFromEPSG(3857)
+        src, dst, ct = _pair(local.ExportToWkt())
+    total = desc["total"]
+    try:
+        if layer_total_hint is not None:
+            total = int(layer_total_hint)
+    except (TypeError, ValueError):
+        pass
+    rect_src = _src_rect(src, dst, ct, bbox, desc["assumed_local"])
+    return {
+        "ds": None, "lyr": None, "index": index, "src": src, "dst": dst, "ct": ct,
+        "assumed_local": desc["assumed_local"], "rect_src": rect_src,
+        "layer_name": desc["layer_name"], "geometry_label": geom_type_label(desc["geom_type"]),
+        "field_count": desc["field_count"], "layer_total": total,
+        "in_bbox": total if rect_src is None else None,
+    }
+
+
+def _layer_from_file(target, layer_index, bbox, layer_total_hint):
+    """打开源文件，把取数要用的东西一次备齐：图层、坐标系、字段表、视野矩形。"""
     ds = _open_vector(target)
     if ds is None:
         raise InspectError("没有可识别的矢量图层", hint="确认文件没损坏，伴生文件都在同一个文件夹里。")
@@ -619,17 +754,11 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         except Exception:
             layer_total = None
 
+    rect_src = _src_rect(src, dst, ct, bbox, assumed_local)
     in_bbox = None
-    if bbox and not assumed_local:
-        if ct is None:
-            rect = [float(v) for v in bbox]
-        else:
-            rect = _rect_for_src(osr.CoordinateTransformation(dst, src), bbox)
-            if rect is None:
-                raise InspectError("这个坐标系转不到经纬度，画不了")
-        lyr.SetSpatialFilterRect(*rect)
-        # 只有"数得快"的驱动才在这儿预数一遍；GeoJSON 这类没索引的，
-        # 数一遍和全读一遍一样贵，改成扫完下面那圈顺手统计
+    if rect_src:
+        lyr.SetSpatialFilterRect(*rect_src)
+        # 只有"数得快"的驱动才在这儿预数一遍；没有索引的格式，数一遍和全读一遍一样贵
         try:
             if lyr.TestCapability(ogr.OLCFastFeatureCount):
                 in_bbox = int(lyr.GetFeatureCount())
@@ -639,90 +768,151 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         # 没有滤波器（没视野框，或本地坐标没法按视野筛）时，"视野内"就是全部
         in_bbox = layer_total
 
+    defn = lyr.GetLayerDefn()
+    field_specs = []
+    for fi in range(defn.GetFieldCount()):
+        fdef = defn.GetFieldDefn(fi)
+        field_specs.append((fi, fdef.GetName(),
+                            fdef.GetType() == ogr.OFTInteger
+                            and fdef.GetSubType() == ogr.OFSTBoolean))
+
+    return {
+        "ds": ds, "lyr": lyr, "index": index, "src": src, "dst": dst, "ct": ct,
+        "assumed_local": assumed_local, "rect_src": rect_src,
+        "layer_name": lyr.GetName(), "geometry_label": geom_type_label(int(lyr.GetGeomType())),
+        "field_count": defn.GetFieldCount(), "field_specs": field_specs,
+        "layer_total": layer_total, "in_bbox": in_bbox,
+    }
+
+
+def _rows_from_index(idx, info, limit, offset):
+    """按视野（或页码）从索引取行；有视野框就按框查，没有就按编号顺序取。"""
+    rect_src = info["rect_src"]
+    if rect_src:
+        return vindex.rows_bbox(idx, rect_src, limit)
+    return vindex.rows_page(idx, offset, limit)
+
+
+def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUEST,
+                  tolerance=0.0, offset=0, with_geometry=True, layer_total_hint=None):
+    """按视野取要素，统一转成经纬度 GeoJSON，供地图绘制。
+
+    tolerance 是面/线抽稀容差（单位：度），0 表示原样输出。
+    offset/limit 供属性表分页；with_geometry=False 时只带属性，
+    跳过坐标变换和几何序列化，大图层的翻页能快不少。
+    layer_total_hint：调用方（服务端）从缓存的元数据里已经把总要素数带过来了，
+    有它就不用再花几秒钟重新数一遍。
+    """
+    target = read_target(target)
+    index = max(0, int(layer_index or 0))
+    target_stamp = _stamp(target)   # 指纹每次请求算一次，别放在逐要素循环里
+
+    # ---------- 先试索引：命中就不打开源文件 ----------
+    # GeoJSON 这类没有空间索引的格式，打开一次就要把整份文件读进内存
+    # （138 MB 约 3 秒），而索引里已经存了坐标系、图层名、字段表、要素总数
+    idx = vindex.existing(target, index)
+    desc = vindex.describe(idx) if idx else None
+    info = _layer_from_desc(desc, index, bbox, layer_total_hint) if desc else None
+    rows = None
+    if info is not None:
+        rows = _rows_from_index(idx, info, limit, offset)
+        if rows is None:
+            # 索引读不出来（被删、被改坏）：删掉它，退回源文件重来
+            vindex.drop(idx)
+            idx = None
+            info = None
+
+    if info is None:
+        info = _layer_from_file(target, layer_index, bbox, layer_total_hint)
+        index = info["index"]
+        # 没有空间索引的大文件，第一次取数顺手建一份：后台建，这一次不等它，
+        # 建好之后同一个文件的每次拖动、缩放都是几毫秒（见 vindex 的说明）
+        if with_geometry and info["rect_src"] and vindex.suitable(target, info["lyr"]):
+            vindex.ensure(target, index)
+        elif not with_geometry and int(offset or 0) > 0:
+            # 属性表翻到很深的页：有索引就按编号直接取，不必让驱动从头扫过去
+            idx = vindex.existing(target, index)
+        if idx:
+            rows = _rows_from_index(idx, info, limit, offset)
+
     features = []
     scanned = 0
     no_geometry = 0
     failed = 0
     simplified_features = 0
     truncated = False
-    target_stamp = _stamp(target)   # 指纹每次请求算一次，别放在逐要素循环里
-    # 字段的（名字, 是不是布尔）一次列好：绑定自带的 ExportToJson 每个要素都按字段名
-    # 重新线性查一遍索引，22 个字段的图层光这一步 5000 个要素就要十几秒
-    defn = lyr.GetLayerDefn()
-    field_specs = []
-    for fi in range(defn.GetFieldCount()):
-        fdef = defn.GetFieldDefn(fi)
-        field_specs.append((fdef.GetName(),
-                            fdef.GetType() == ogr.OFTInteger and fdef.GetSubType() == ogr.OFSTBoolean))
-    lyr.ResetReading()
-    if offset:
-        try:
-            lyr.SetNextByIndex(int(offset))
-        except Exception:
-            # 个别驱动不支持直接跳转，退回逐个跳过
-            for _ in range(int(offset)):
-                if lyr.GetNextFeature() is None:
-                    break
-    while True:
-        feat = lyr.GetNextFeature()
-        if feat is None:
-            break
-        scanned += 1
-        if len(features) >= limit:
-            truncated = True
-            break
-        geom = feat.GetGeometryRef()
-        try:
-            fid_now = feat.GetFID()
-        except Exception:
-            fid_now = -1
-        msr_area = None
-        msr_len = None
-        row_box = None
-        if with_geometry:
-            if geom is None:
-                no_geometry += 1
-                continue
-            try:
-                if ct is not None:
-                    geom = geom.Clone()
-                    if geom.Transform(ct) != 0:
+    lyr = info["lyr"]
+    ct = info["ct"]
+    assumed_local = info["assumed_local"]
+    layer_total = info["layer_total"]
+    in_bbox = info["in_bbox"]
+    # 走索引时没有图层对象，字段表只有打开文件那条路上才有
+    field_specs = info.get("field_specs") or []
+
+    if rows is not None:
+        # 走索引：要素和几何都已经在本地，不用再碰源文件
+        scanned = len(rows)
+        truncated = scanned >= limit
+        for row in rows:
+            fid_now = row["fid"]
+            if with_geometry:
+                item, why = _shape_item(fid_now, row["props"], row["geom"], ct, tolerance,
+                                        target, index, target_stamp)
+                if item is None:
+                    if why == "nogeom":
+                        no_geometry += 1
+                    else:
                         failed += 1
-                        continue
-                # 量算要用原始几何；抽稀之后再算面积周长会偏小
-                mkey = None
-                if fid_now is not None and fid_now >= 0:
-                    mkey = (str(target), index, int(fid_now)) + target_stamp
-                    hit = _METRICS.get(mkey)
-                    if hit is not None:
-                        msr_area, msr_len = hit
-                if mkey is None or mkey not in _METRICS:
-                    msr_area, msr_len = _wgs_metrics(geom)
-                    if mkey is not None and len(_METRICS) < _METRICS_MAX:
-                        _METRICS[mkey] = (msr_area, msr_len)
-                base = _split_geom_code(int(geom.GetGeometryType()))[0]
-                if tolerance and base in _SIMPLIFIABLE:
-                    # 用 WKB 字节数判断顶点有没有真被删掉：多面体的 GetPointCount
-                    # 只数几何个数，拿它比会一直得出"没抽稀"的错误结论
-                    before = 0
-                    try:
-                        before = geom.WkbSize()
-                    except Exception:
-                        pass
-                    geom = geom.SimplifyPreserveTopology(tolerance)
-                    after = 0
-                    try:
-                        after = geom.WkbSize()
-                    except Exception:
-                        pass
-                    if before == 0 or after < before:
-                        simplified_features += 1
+                    continue
+                if why == "simple":
+                    simplified_features += 1
+                features.append(item)
+            else:
+                if row["geom"] is None:
+                    no_geometry += 1
+                features.append({
+                    "type": "Feature", "geometry": None, "properties": row["props"],
+                    "fid": fid_now, "bbox": _wgs_box(row["bbox"], ct),
+                })
+    else:
+        lyr.ResetReading()
+        if offset:
+            try:
+                lyr.SetNextByIndex(int(offset))
             except Exception:
-                failed += 1
+                # 个别驱动不支持直接跳转，退回逐个跳过
+                for _ in range(int(offset)):
+                    if lyr.GetNextFeature() is None:
+                        break
+        while True:
+            feat = lyr.GetNextFeature()
+            if feat is None:
+                break
+            scanned += 1
+            if len(features) >= limit:
+                truncated = True
+                break
+            geom = feat.GetGeometryRef()
+            try:
+                fid_now = int(feat.GetFID())
+            except Exception:
+                fid_now = -1
+            if with_geometry:
+                item, why = _shape_item(fid_now, feature_props(feat, field_specs), geom, ct, tolerance,
+                                        target, index, target_stamp)
+                if item is None:
+                    if why == "nogeom":
+                        no_geometry += 1
+                    else:
+                        failed += 1
+                    continue
+                if why == "simple":
+                    simplified_features += 1
+                features.append(item)
                 continue
-        else:
-            # 只要属性。但属性表双击定位要用这一行要素的范围，而这里的几何
+            # 只要属性。属性表双击定位要用这一行要素的范围，而这里的几何
             # 本来就已经解析过了——顺手取个包络，比双击时回原文件按编号扫一遍便宜得多
+            row_box = None
             if geom is None:
                 no_geometry += 1
             else:
@@ -741,38 +931,14 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
                                        float(env[1]), float(env[3])]
                 except Exception:
                     row_box = None
-            geom = None   # 只要属性，几何不序列化
-        try:
-            # 等价于绑定里的 feat.ExportToJson()，但几何让 C 层直接导、属性按字段
-            # 索引取，绕开按名查找的开销（实测 5000 个要素从 17 秒降到 2 秒出头）。
-            # "没设置过"的字段和绑定一致：直接不出现在结果里
-            if geom is not None:
-                geom_obj = json.loads(geom.ExportToJson())
-            else:
-                geom_obj = None
-            item = {"type": "Feature", "geometry": geom_obj, "properties": {}}
-            props = item["properties"]
-            for fi, (fname, is_bool) in enumerate(field_specs):
-                if not feat.IsFieldSet(fi):
-                    continue
-                value = feat.GetField(fi)
-                props[fname] = bool(value) if is_bool else value
-            if fid_now is not None and fid_now >= 0:
-                item["id"] = fid_now
-            if not with_geometry:
-                # 属性表要能按行定位回要素，得带上 FID 和这一行的经纬度范围
-                item["fid"] = fid_now
-                item["bbox"] = row_box
-            elif msr_area is not None or msr_len is not None:
-                # 下划线开头：属性表、识别弹窗都不把它当业务字段显示
-                if msr_area is not None:
-                    props["_msr_area"] = msr_area
-                if msr_len is not None:
-                    props["_msr_len"] = msr_len
-            features.append(item)
-        except Exception:
-            failed += 1
-            continue
+            try:
+                # 属性表的每一行都带着编号与经纬度范围，双击定位不必再回读文件
+                features.append({"type": "Feature", "geometry": None,
+                                 "properties": feature_props(feat, field_specs), "fid": fid_now,
+                                 "bbox": row_box})
+            except Exception:
+                failed += 1
+                continue
 
     # 视野内的总数：数得快的驱动上面已经数过了；没索引的这类，
     # 上面那圈扫完没截断就说明全扫过了，直接用扫描数当结果
@@ -781,8 +947,8 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
 
     meta = {
         "layer_index": index,
-        "layer_name": lyr.GetName(),
-        "geometry_type_label": geom_type_label(int(lyr.GetGeomType())),
+        "layer_name": info["layer_name"],
+        "geometry_type_label": info["geometry_label"],
         "layer_total": layer_total,
         "in_bbox": in_bbox,
         "bbox": [float(v) for v in bbox] if (bbox and not assumed_local) else None,
@@ -799,9 +965,13 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         "reprojected": ct is not None,
         "assumed_local": assumed_local,
         "with_geometry": bool(with_geometry),
-        "field_count": lyr.GetLayerDefn().GetFieldCount(),
+        "field_count": info["field_count"],
+        # 这一次是否走了索引；indexing 表示正在后台建（建好之前的拖动还会慢）
+        "indexed": bool(idx),
+        "indexing": bool(not idx and vindex.building(target, index)),
     }
-    del ds
+    # 数据集在这里就放掉：Windows 上句柄不松，用户删文件、覆盖文件都会被占用
+    info["ds"] = None
     return {"type": "FeatureCollection", "features": features, "gisviewer": meta}
 
 
