@@ -147,9 +147,11 @@
           <div class="attr-load" id="attrLoad" hidden><i class="load-spin"></i><span>正在读取…</span></div>
         </div>
       </div>
+      <!-- 取数胶囊挂在地图区块里：它要贴着右下角那排读数走，
+           挂到 map-pane 上就跟着整个面板（含下方那行说明）定位，位置对不准 -->
+      <div id="vecBusy" hidden>正在更新要素…</div>
       </div>
       <div class="map-note" id="mapNote"></div>
-      <div id="vecBusy" hidden>正在更新要素…</div>
     </div>
     <div id="splitter" class="splitter" title="拖动调整地图与信息栏的宽度"></div>
     <aside id="rail" class="rail"></aside>
@@ -165,6 +167,22 @@
     <div class="et-title" id="errTitle"></div>
     <div class="et-detail" id="errDetail"></div>
     <div class="et-hint" id="errHint"></div>
+  </div>
+</div>
+
+<div id="closeAsk" class="modal" hidden>
+  <div class="modal-card close-card" role="dialog" aria-modal="true" aria-labelledby="caTitle">
+    <h3 id="caTitle">让 图览 继续运行吗？</h3>
+    <p class="ca-text">保留在托盘中时，全局快捷键与"选中即开"可以继续使用。<br>之后可以在 设置 → 系统 中更改。</p>
+    <label class="ca-remember">
+      <input type="checkbox" id="caRemember">
+      <span>不再询问</span>
+    </label>
+    <div class="ca-actions">
+      <button id="caCancel" class="btn ghost" type="button">取消</button>
+      <button id="caExit" class="btn ghost" type="button">退出</button>
+      <button id="caTray" class="btn" type="button">保持在托盘</button>
+    </div>
   </div>
 </div>
 
@@ -394,12 +412,16 @@
         <label for="cfgDeskLnk">桌面快捷方式</label>
         <input id="cfgDeskLnk" type="checkbox">
       </div>
-      <div class="field">
+      <div class="field inline">
         <label for="cfgCloseAct">关闭按钮行为</label>
         <select id="cfgCloseAct">
           <option value="min">收进托盘</option>
           <option value="exit">直接退出软件</option>
         </select>
+      </div>
+      <div class="field inline">
+        <label for="cfgCloseAsk">关闭时询问</label>
+        <input id="cfgCloseAsk" type="checkbox">
       </div>
       <div class="field">
         <label>键盘操作</label>
@@ -446,7 +468,10 @@
       </div>
       <div class="field inline">
         <label>项目仓库</label>
-        <a class="repo-link" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer">github.com/MorganWsy/GISViewer</a>
+        <a class="repo-btn" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer" title="在浏览器中打开 github.com/MorganWsy/GISViewer">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          <span>GitHub</span>
+        </a>
       </div>
       <div class="field">
         <label for="cfgUpdFreq">检查更新</label>
@@ -475,6 +500,25 @@
           <li><b>明确的边界：</b>不做编辑、符号化、重投影与出图，这些请交给专业软件。</li>
         </ul>
         <p class="copyright">版权所有 © 2026 MorganWsy · 以 Apache-2.0 协议开源</p>
+      </div>
+      <div class="third-party">
+        <h4>第三方声明</h4>
+        <p>图览本身以 Apache-2.0 协议开源；运行过程中还使用了下列第三方软件与组件，各组件版权归其各自作者所有、遵循其自身的许可证。</p>
+        <table class="third-table">
+          <thead>
+            <tr><th>组件</th><th>许可证</th><th>项目</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Python</td><td>PSF-2.0</td><td><a href="https://www.python.org/" target="_blank" rel="noreferrer">python.org</a></td></tr>
+            <tr><td>GDAL / OGR / PROJ</td><td>MIT/X</td><td><a href="https://gdal.org/" target="_blank" rel="noreferrer">gdal.org</a></td></tr>
+            <tr><td>NumPy</td><td>BSD-3-Clause</td><td><a href="https://numpy.org/" target="_blank" rel="noreferrer">numpy.org</a></td></tr>
+            <tr><td>rasterio</td><td>BSD-3-Clause</td><td><a href="https://rasterio.readthedocs.io/" target="_blank" rel="noreferrer">rasterio.readthedocs.io</a></td></tr>
+            <tr><td>MapLibre GL JS</td><td>BSD-3-Clause</td><td><a href="https://maplibre.org/" target="_blank" rel="noreferrer">maplibre.org</a></td></tr>
+            <tr><td>Chart.js</td><td>MIT</td><td><a href="https://www.chartjs.org/" target="_blank" rel="noreferrer">chartjs.org</a></td></tr>
+            <tr><td>.NET Framework</td><td>微软组件（随 Windows 提供）</td><td><a href="https://dotnet.microsoft.com/" target="_blank" rel="noreferrer">dotnet.microsoft.com</a></td></tr>
+            <tr><td>Microsoft Edge WebView2</td><td>微软组件</td><td><a href="https://developer.microsoft.com/microsoft-edge/webview2/" target="_blank" rel="noreferrer">developer.microsoft.com/webview2</a></td></tr>
+          </tbody>
+        </table>
       </div>
       </section>
 

@@ -25,6 +25,17 @@ namespace GISViewer
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            /* 兜住所有没人接的异常：这个工具是"看一眼就关"的，退出瞬间弹一个 .NET 错误框
+               比异常本身更扰人。走过的异常一律记进 shell.log，不再出框 */
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += delegate(object s, System.Threading.ThreadExceptionEventArgs e)
+            {
+                LogQuiet(e.Exception);
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+            {
+                LogQuiet(e.ExceptionObject as Exception);
+            };
             bool first;
             using (System.Threading.Mutex gate = new System.Threading.Mutex(true, InstanceName, out first))
             {
@@ -36,6 +47,17 @@ namespace GISViewer
                 Application.Run(new Shell(args));
                 GC.KeepAlive(gate);
             }
+        }
+
+        /* 未捕获异常只落盘、不出框：日志就是排查入口 */
+        static void LogQuiet(Exception ex)
+        {
+            try
+            {
+                string p = Path.Combine(Shell.DataDir, "shell.log");
+                File.AppendAllText(p, DateTime.Now.ToString("HH:mm:ss.fff") + " 未捕获异常 " + ex + Environment.NewLine);
+            }
+            catch { /* 连日志都写不进去就只能放弃 */ }
         }
 
         static void Handoff()
@@ -84,6 +106,8 @@ namespace GISViewer
         string _openDir = "";
         /* 顶栏关闭按钮的行为：min＝最小化留在托盘（默认），exit＝直接退出；页面读设置后告知 */
         string _closeAction = "min";
+        /* 关闭时是否先问一句（对话框画在页面里）：空串＝页面还没报，按旧行为直接办 */
+        string _closeAsk = "";
 
         public Shell(string[] args)
         {
@@ -172,7 +196,7 @@ namespace GISViewer
             get { return Path.GetDirectoryName(typeof(Shell).Assembly.Location); }
         }
 
-        static string DataDir
+        internal static string DataDir
         {
             get
             {
@@ -513,6 +537,9 @@ namespace GISViewer
                    收进托盘用"藏掉"而不是"最小化"：最小化的窗口任务栏上仍留着按钮
                    （实测改 WS_EX_TOOLWINDOW 也压不住已经建好的那个按钮），
                    窗口一藏，按钮和 Alt+Tab 那一项才真的没了，只剩托盘一个图标 */
+                /* 页面开着"关闭时询问"就先问一句：对话框画在页面里，跟主题一套皮。
+                   页面还没报过状态（刚启动那一下）就按记下的行为直接办 */
+                if (_closeAsk == "on") { Push("askClose", "true"); return; }
                 if (_closeAction == "exit") Close();
                 else
                 {
@@ -521,6 +548,19 @@ namespace GISViewer
                 }
                 return;
             }
+            if (msg.StartsWith("closeask:"))
+            {
+                _closeAsk = msg.Substring(9) == "off" ? "off" : "on";
+                return;
+            }
+            if (msg == "closechoice:tray")
+            {
+                Hide();
+                Log("关闭确认：保持在托盘");
+                return;
+            }
+            if (msg == "closechoice:exit") { Log("关闭确认：退出"); Close(); return; }
+            if (msg == "closechoice:cancel") { Log("关闭确认：取消"); return; }
             if (msg.StartsWith("closeact:"))
             {
                 _closeAction = msg.Substring(9) == "exit" ? "exit" : "min";
@@ -1177,6 +1217,9 @@ namespace GISViewer
 
         void DragWatchTick()
         {
+            /* 窗口正在拆的时候定时器还可能打一拍：这时候 RectangleToScreen 会抛
+               ObjectDisposedException，异常没人接就是一闪而过的 .NET 崩溃框 */
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
             bool btn = (Native.GetAsyncKeyState(Native.VK_LBUTTON) & 0x8000) != 0;
             Point pt = Cursor.Position;
             bool inside = DropAreaScreen().Contains(pt);
@@ -1321,6 +1364,8 @@ namespace GISViewer
            系统自己把空格给了"快速预览"，单独按抢不过来，所以默认带一组修饰键 */
         void RegisterHotkey2()
         {
+            /* 同上：拆窗过程中的重试一拍都不能打 */
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
             Native.UnregisterHotKey(Handle, Native.HotkeyId2);
             string text = Hotkey.Describe(_hk2Mods, _hk2Key);
             _hk2Text = text;
@@ -1339,6 +1384,8 @@ namespace GISViewer
         /* 上一次退出时热键可能还被旧进程占着，重试几次而不是干脆不要 */
         void RegisterHotkey()
         {
+            /* 重试定时器与拆窗赛跑：窗口一旦开始销毁，Handle 就是无效句柄 */
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
             if (Native.RegisterHotKey(Handle, Native.HotkeyId, _hkMods, _hkKey))
             {
                 _hkOk = true;
@@ -1472,6 +1519,10 @@ namespace GISViewer
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             // 真正退出的路径才走到这里（关闭按钮默认只最小化；托盘菜单的"退出"或设置里选了直接退出才会关）。这是个"看一眼"的工具，弹一句"要不要留在托盘"只会拖慢下一次
+            // 拖放轮询先停：窗体开始拆以后定时器再打一拍就会抛异常，
+            // 弹出的 .NET 崩溃框就是用户反复看到的那一闪
+            if (_dragWatch != null) { _dragWatch.Stop(); _dragWatch.Dispose(); _dragWatch = null; }
+            if (_hkRetry != null) { _hkRetry.Stop(); _hkRetry.Dispose(); _hkRetry = null; }
             // 上轮只先拆了拖放遮罩，实测托盘退出仍有人看到一闪——说明闪的不是（只是）遮罩，
             // 主窗自己拆窗（WebView2 的子窗口销毁）同样会闪。治本做法：把主窗整体先从屏幕
             // 撤下去（连同里面的 WebView2 和属主的其他窗口），后面一切清理都发生在看不见的时候

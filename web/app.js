@@ -38,7 +38,7 @@ let config = {
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
   key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000,
   hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32,
-  upd_freq: 'open', close_act: 'min', recent: [], recent_max: 5,
+  upd_freq: 'open', close_act: 'min', close_ask: true, recent: [], recent_max: 5,
 };
 const RAIL_MIN = 300;
 const RAIL_MAX = 760;
@@ -411,14 +411,6 @@ function wireRailFolds(body) {
   });
 }
 
-function notice(kind, title, detail, hint) {
-  const box = el('div', kind === 'error' ? 'err' : 'warn');
-  box.appendChild(el('b', null, title));
-  if (detail) box.appendChild(el('span', null, detail));
-  if (hint) { box.appendChild(document.createElement('br')); box.appendChild(el('span', null, hint)); }
-  return box;
-}
-
 function skeleton(nameText) {
   const rail = newRail();
   rail.head(nameText || '正在读取…', '元数据通常在一秒内到齐');
@@ -616,8 +608,9 @@ function bandTable(bands) {
 }
 
 function layerTable(layers) {
+  // 每一列都左对齐：要素数是字符串混排里的数字，右对齐会把四列推得参差
   return gridTable(['图层', '要素数', '几何类型', '坐标系'],
-    layers.map((l, i) => [l.name || ('图层 ' + (i + 1)), [count(l.feature_count), 'num'],
+    layers.map((l, i) => [l.name || ('图层 ' + (i + 1)), count(l.feature_count),
       l.error ? '读取失败' : (l.geometry_type_label || '—'),
       prettyCrsName(l.crs && (l.crs.name || l.crs.label)) || '未记录']), 'layer-table');
 }
@@ -690,7 +683,7 @@ function railRaster(rail, d) {
   if (band.statistics) rail.many(statRows(band.statistics));
   else rail.loading('统计值');
   if (band.statistics_mismatch) {
-    rail.node(notice('warn', '统计值与实测分布不一致', band.statistics_mismatch));
+    showErrToast('统计值与实测分布不一致', band.statistics_mismatch);
   }
 
   rail.sec('波段');
@@ -916,7 +909,9 @@ function sidecarText(side) {
    这里不能再收——"已开图层 + 新文件打不开"的回滚也走这个函数，
    在这儿收会把刚弹出来的错误卡片又立刻抹掉 */
 async function renderResult(data, path, opts) {
-  renderRail(data);
+  /* notes：这次渲染要不要把文件自带的提示/警告弹出来。打开新文件要，重新渲染
+     （切波段、改单位、打不开时回滚到上一个文件）不要——同一条提示用户已经看过一遍 */
+  renderRail(data, !(opts && opts.quiet));
   if (window.GisMap) GisMap.closePopup();   // 换文件时上一个识别弹窗别留着
 
   if (!data.ok) {
@@ -956,7 +951,7 @@ async function renderResult(data, path, opts) {
 }
 
 /* 右栏那张长表：单位写法之类的设置一改，只重画这一块，地图不动 */
-function renderRail(data) {
+function renderRail(data, notes) {
   const rail = newRail();
   const f = (data && data.file) || {};
   const path = (current && current.path) || '';
@@ -971,18 +966,21 @@ function renderRail(data) {
   else if (data.kind === 'archive') railArchive(rail, data);
   else if (data.kind === 'json') railJson(rail, data);
   else rail.row('格式', data.driver_label || '未知');
-  if (data.kind === 'vector' && (data.layers || []).some((l) => l.error)) {
-    data.layers.filter((l) => l.error).forEach((l) => {
-      rail.node(notice('warn', '图层 ' + (l.name || '未命名') + ' 读取失败', l.error));
-    });
-  }
-  if (data.warning) rail.node(notice('warn', '提示', data.warning));
-  if (data.kind === 'vector' && (data.layers || [])[0] && data.layers[0].warning) {
-    rail.node(notice('warn', '提示', data.layers[0].warning));
-  }
-  if (data.kind === 'tileset') {
-    rail.node(notice('warn', '这是切片缓存不是单一数据文件',
-      '瓦片按视野需要逐张读取，已在地图上按级显示；要素的精确统计请回到原始矢量数据查看。'));
+  if (notes) {
+    if (data.kind === 'vector' && (data.layers || []).some((l) => l.error)) {
+      data.layers.filter((l) => l.error).forEach((l) => {
+        showErrToast('图层 ' + (l.name || '未命名') + ' 读取失败', l.error);
+      });
+    }
+    /* 提示、警告一律走全局浮层：信息栏只放数据本身，不留说明性文字 */
+    if (data.warning) showErrToast('提示', data.warning);
+    if (data.kind === 'vector' && (data.layers || [])[0] && data.layers[0].warning) {
+      showErrToast('提示', data.layers[0].warning);
+    }
+    if (data.kind === 'tileset') {
+      showErrToast('这是切片缓存不是单一数据文件',
+        '瓦片按视野需要逐张读取，已在地图上按级显示；要素的精确统计请回到原始矢量数据查看。');
+    }
   }
   rail.render($('rail'));
 }
@@ -1175,6 +1173,9 @@ async function setupRaster(d) {
     renderLegend(res);
   }
   d.style = raster.style;
+  /* 单波段首屏要算一遍值分布，等待期间挂过指示。正常打开时遮罩流程（veilHold）
+     负责收；回滚重画没有那一层，这里自己收，不然它会一直转下去 */
+  if (!veilHold) loadTip(false);
 }
 
 function bandLabel(v) {
@@ -1880,6 +1881,7 @@ function wireQuickKeys() {
     const typing = !!(t && t.closest && t.closest('input, textarea, select, .combo'));
     const combo = comboOf(e);
     if (combo && combo === keyOf('key_close')) {
+      if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
       if (!$('recentPop').hidden) { hideRecent(); return; }
       if (!$('pickPop').hidden) { hidePickPop(); return; }
       if (!$('layerPop').hidden) { hideLayerPop(); return; }
@@ -1991,9 +1993,14 @@ function refreshAttr() {
     attrShown = null;
     body.textContent = '';
     body.appendChild(el('div', 'attr-empty', '这份文件里没有可以画到地图上的要素'));
+    const t0 = document.querySelector('.attr-title');
+    if (t0) t0.textContent = '属性表';
     return;
   }
   const L = layers[attrLayer];
+  // 标题带上图层名：多图层文件里一眼知道这张表是谁的属性
+  const titleEl = document.querySelector('.attr-title');
+  if (titleEl) titleEl.textContent = '属性表 · ' + (L.name || ('图层 ' + (attrLayer + 1)));
   const key = attrKeyOf(L);
   let c = attrCache[key];
   if (!c) {
@@ -2240,9 +2247,10 @@ function toastMs() {
    没有关闭按钮：点卡片本身就关，不点的话到设定时间自己收走 */
 let errToastTimer = 0;
 
-function showErrToast(title, detail, hint) {
+function showErrToast(title, detail, hint, kind) {
   const box = $('errToast');
   if (!box) return;
+  box.classList.toggle('info', kind === 'info');
   $('errTitle').textContent = title || '出了点问题';
   $('errDetail').textContent = detail || '';
   $('errDetail').hidden = !detail;
@@ -2270,6 +2278,41 @@ function renderError(title, detail, hint) {
   setChip(null);
   if (window.GisMap) GisMap.clear();
   showErrToast(title, detail, hint);
+}
+
+/* ---------- 关闭确认：点右上角 × 时先问一句"继续运行吗" ---------- */
+
+function showCloseAsk() {
+  const box = $('closeAsk');
+  if (!box) return;
+  $('caRemember').checked = false;
+  box.hidden = false;
+}
+
+function hideCloseAsk() {
+  const box = $('closeAsk');
+  if (box) box.hidden = true;
+}
+
+function wireCloseAsk() {
+  const cancel = () => { hideCloseAsk(); toShell('closechoice:cancel'); };
+  const act = async (choice, closeAct) => {
+    /* 勾了"不再询问"：这次的选法就是以后的默认，写进配置再让壳动手。
+       退出要把配置先落盘，不然壳一关，请求还没到引擎 */
+    if ($('caRemember').checked) {
+      config.close_ask = false;
+      config.close_act = closeAct;
+      $('cfgCloseAsk').checked = false;
+      $('cfgCloseAct').value = closeAct;
+      await commitConfig();
+    }
+    hideCloseAsk();
+    toShell('closechoice:' + choice);
+  };
+  $('caCancel').addEventListener('click', cancel);
+  $('caExit').addEventListener('click', () => act('exit', 'exit'));
+  $('caTray').addEventListener('click', () => act('tray', 'min'));
+  $('closeAsk').addEventListener('click', (e) => { if (e.target === $('closeAsk')) cancel(); });
 }
 
 /* 遮罩不能只等元数据：矢量还要再取一次要素才算真画完，那一步在几十万要素的文件上要十几秒。
@@ -2303,6 +2346,10 @@ function releaseVeil() {
 async function inspectPath(path) {
   const prev = current;
   const hadLayer = !!prev && !!prev.data && prev.data.ok;
+  /* 开始打开新文件就把浮窗收掉：快捷键/拖放/最近打开都会走到这里，
+     路径框那边不该还挂着一块"最近打开"盖在地图上 */
+  hideRecent();
+  hidePickPop();
   current = { path, data: null };
   mouseOn = false;
   openFrom = Date.now();
@@ -2339,7 +2386,11 @@ async function inspectPath(path) {
     loadTip(false);
     showErrToast(err.title || '这个文件打不开', err.detail, err.hint);
     current = prev;
-    renderResult(prev.data, prev.path).catch(() => { /* 回滚渲染不出来也就算了，浮层已经说明原因 */ });
+    /* 回滚重画走的是正常渲染路径，没有下面那个 finally 管它：栅格首屏算配色时
+       会把加载指示重新挂起来，收尾必须自己收，否则屏幕上一直转圈、看着像还在读 */
+    renderResult(prev.data, prev.path, { quiet: true })
+      .catch(() => { /* 回滚渲染不出来也就算了，浮层已经说明原因 */ })
+      .finally(() => { loadTip(false); });
     return;
   }
   current = { path, data };
@@ -2780,6 +2831,7 @@ function fillSettings() {
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
   $('cfgCloseAct').value = config.close_act === 'exit' ? 'exit' : 'min';
+  $('cfgCloseAsk').checked = config.close_ask !== false;
   // 早先存过 "boot"（开机就查），这一版改成打开后延迟查，读到老值直接换算过去
   $('cfgUpdFreq').value = config.upd_freq === 'boot' ? 'open' : (config.upd_freq || 'open');
   fillFontSelects();
@@ -2946,6 +2998,7 @@ window.GisHost = function (name, value) {
   }
   if (name === 'update') { paintUpdate(value); return; }
   if (name === 'notice') { showErrToast((value && value.title) || '提示', (value && value.detail) || ''); return; }
+  if (name === 'askClose') { showCloseAsk(); return; }
   if (name === 'drag') { showDropVeil(value === 'true'); return; }
   if (name === 'maximized') { document.body.classList.toggle('maxed', value === 'on'); return; }
   if (name === 'frame') {
@@ -3271,12 +3324,15 @@ async function applySettings() {
   config.theme = $('cfgTheme').value;   // 主题也在设置里能选，和顶栏那颗按钮同一份配置
   config.unit_lang = $('cfgUnitLang').value === 'zh' ? 'zh' : 'en';
   config.close_act = $('cfgCloseAct').value === 'exit' ? 'exit' : 'min';
+  config.close_ask = $('cfgCloseAsk').checked;
   toShell('closeact:' + config.close_act);   // 关按钮的行为由壳执行，改完就告诉它
+  toShell('closeask:' + (config.close_ask ? 'on' : 'off'));
   config.upd_freq = $('cfgUpdFreq').value;
   config.restore_last = $('cfgRestore').checked;
   config.open_dir = $('cfgOpenDir').value.trim();
   toShell('opendir:' + config.open_dir);     // 起始目录由壳执行，改完就告诉它
   config.recent_max = Number($('cfgRecentMax').value) || 5;
+  renderRecent();   // 条数改了浮窗里的列表当场跟着变，不用重开文件
   config.toast_sec = Number($('cfgToastSec').value) || 5;
   config.cache_dir = $('cfgCache').value.trim();
   config.keep_hours = Number($('cfgKeepHours').value);
@@ -3501,6 +3557,7 @@ function init() {
   $('cfgClose').addEventListener('click', () => { settleHotkey(); $('settings').hidden = true; });
   // 浮层卡片没有关闭按钮：点卡片任意处即关（自动到点收走的逻辑在 showErrToast 里）
   $('errToast').addEventListener('click', hideErrToast);
+  wireCloseAsk();
   
 /* 设置页每项标签挂提示图标：只挂一次，图标里说的话见 SETTING_TIPS */
 
@@ -3697,6 +3754,7 @@ function init() {
     const mainEl = $('drop');
     if (mainEl && window.ResizeObserver) new ResizeObserver(reportDropArea).observe(mainEl);
     toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
+    toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
     toShell('ready');
     maybeCheckUpdate();
     const params = new URLSearchParams(location.search);

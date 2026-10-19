@@ -7,6 +7,7 @@
   let vecInFlight = false;   // 上一次取数还没回来
   let vecPending = false;    // 取数期间视野又变了：回来后补一次
   let lastLimitToast = 0;    // 上次弹"超上限"提示的时刻：6 秒内不重复
+  let localNoteShown = false;   // "坐标按米临时摆放"每个文件只说明一次
   const TILE_PALETTE = ['#d9781f', '#2f6fed', '#2e9e5b', '#a24bd8', '#c94f4f', '#0f9b8e'];
 
   let map = null;
@@ -43,21 +44,12 @@
     box.textContent = lastNote ? (elapsed ? elapsed + ' · ' + lastNote : lastNote) : '';
   }
 
-  /* 全局提示（toast）：钉在屏幕上沿中间，几秒后自己消失。
-     地图底部的状态栏是"看着地图顺手读"的地方，超上限这种要人注意的事不挤在那里说 */
-  let toastTimer = 0;
-  function toast(text) {
-    let box = document.getElementById('gisToast');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'gisToast';
-      box.hidden = true;
-      document.body.appendChild(box);
-    }
-    box.textContent = text;
-    box.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { box.hidden = true; }, 4200);
+  /* 全局提示统一走页面上那套浮层卡片（showErrToast）：位置、样式、停留时间
+     全软件只有一处定义。地图这边只在拿不到它时退回控制台。
+     kind='info' 去掉警告图标——"超过上限，先画这些"不是出错，是说明 */
+  function toast(title, detail, kind) {
+    if (typeof window.showErrToast === 'function') window.showErrToast(title, detail || '', '', kind || '');
+    else console.warn(title, detail || '');
   }
 
   function setElapsed(text) {
@@ -67,7 +59,7 @@
 
   function fail(where, err) {
     const msg = err && err.message ? err.message : String(err);
-    note('地图显示失败（' + where + '）：' + msg.slice(0, 180));
+    toast('地图显示失败', where + '：' + msg.slice(0, 180));
   }
 
   function guard(where, fn) {
@@ -358,7 +350,7 @@
       settle();
       if (mine !== token || data !== wanted) return;
       if (!res.ok) {
-        note(baseNote() + ((res.error || {}).title || '要素读取失败'));
+        toast('要素读取失败', (res.error || {}).title || '');
         emit('gis:drawn', { kind: 'vector' });
         return;
       }
@@ -380,19 +372,26 @@
       if (m.field_count != null) parts.push(m.field_count + ' 个字段');
       if (m.layer_total != null) parts.push('共 ' + m.layer_total + ' 个要素');
       if (m.in_bbox != null) parts.push('视野内 ' + m.in_bbox + ' 个');
-      else if (m.truncated) parts.push('视野内超过单次上限');
       parts.push('已绘制 ' + feats.length + ' 个');
       if (res.cached) parts.push('缓存命中');
-      if (m.assumed_local) parts.push('这个图层没有坐标系，按原始坐标当作米临时摆放，仅供预览，底图与注记已暂时收起');
-      else if (m.reprojected) parts.push('显示坐标已转到经纬度');
+      /* 状态栏只留事实：没有坐标系这件事在这里写一句短的，
+         为什么要这样摆、底图去哪了，交给全局浮层说一次 */
+      if (m.assumed_local) {
+        parts.push('坐标按米临时摆放');
+        if (!localNoteShown) {
+          localNoteShown = true;
+          toast('这个图层没有坐标系',
+            '按原始坐标当作米临时摆放，只用于看清图形；底图与注记已暂时收起。');
+        }
+      } else if (m.reprojected) parts.push('显示坐标已转到经纬度');
       note(baseNote() + parts.join(' · '));
-      // 超上限改用全局提示说：什么原因、画了多少、下一步怎么办。
+      // 超上限只在全局浮层里说一次：什么原因、画了多少、下一步怎么办。
       // 移动、缩放会连着触发，6 秒内不重复弹，免得一路拖动一路弹窗
       if (m.truncated) {
         const now = Date.now();
         if (now - lastLimitToast > 6000) {
           lastLimitToast = now;
-          toast('视野内超过单次上限，已绘制 ' + feats.length + ' 个，移动、缩放后继续加载');
+          toast('视野内超过单次上限', '已绘制 ' + feats.length + ' 个，移动、缩放后继续加载。', 'info');
         }
       }
       const src = map.getSource('gis-data');
@@ -409,7 +408,7 @@
       emit('gis:drawn', { kind: 'vector' });
     }).catch((err) => {
       settle();
-      if (mine === token) note(baseNote() + '要素读取失败：' + err.message);
+      if (mine === token) toast('要素读取失败', err.message);
       emit('gis:drawn', { kind: 'vector' });
     });
   }
@@ -437,7 +436,7 @@
     // 栅格能定位就说明坐标是真实的，底图恢复显示
     setBaseHidden(false);
     if (!t.wgs && !t.corners) {
-      note('这个栅格没有坐标系，无法定位到地图上');
+      toast('这个栅格没有坐标系', '无法定位到地图上，右侧信息栏仍可查看它的数值与分布。');
       emit('gis:drawn', { kind: 'skip' });
       return;
     }
@@ -446,9 +445,11 @@
     emit('gis:drawn', { kind: 'raster' });
     if (!keepView) fitTo(t.wgs || boxFromRing(t.ring));
     const box = t.band ? '第 ' + t.band + ' 波段' : '前 ' + (t.bands || 1) + ' 个波段合成';
+    /* 状态栏只写事实：波段、分级数、拉伸区间。为什么这样画属于"提示"，
+       不该长期挂在底栏上占一行 */
     note(box + (t.edges && t.edges.length > 2
-      ? ' · 分 ' + (t.edges.length - 1) + ' 级设色' + (t.scheme ? '（' + t.scheme + '）' : '') + '，无数据处透明，色块颜色只代表数值区间'
-      : ' · 按 512 像元降采样、2%~98% 分位拉伸，色阶不代表原始数值'));
+      ? ' · 分 ' + (t.edges.length - 1) + ' 级设色' + (t.scheme ? '（' + t.scheme + '）' : '')
+      : ' · 2%~98% 拉伸'));
   }
 
   function drawVector(t, keepView) {
@@ -474,7 +475,7 @@
     // 切片自带覆盖范围，同样是真实坐标，底图恢复显示
     setBaseHidden(false);
     if (!t.wgs) {
-      note('瓦片编号算不出覆盖范围，只能看信息');
+      toast('瓦片编号算不出覆盖范围', '只能查看信息，无法在地图上定位。');
       emit('gis:drawn', { kind: 'skip' });
       return;
     }
@@ -519,7 +520,7 @@
       pending = t;
       setTimeout(() => {
         if (pending === t && !live()) {
-          note('地图样式还没加载完，稍等会自动出现；下面这些信息不受影响');
+          toast('地图还没准备好', '样式还在加载，稍等会自动出现；信息栏不受影响。');
         }
       }, 2500);
       return;
@@ -554,7 +555,7 @@
           t.band_count = res.band_count;
           t.bands = Math.min(3, res.band_count || 1);
           drawRaster(t, keepView);
-        }).catch(() => note('变量信息读取失败'));
+        }).catch(() => toast('变量信息读取失败', '这个多变量文件的缩略图与范围没能补上。'));
         return;
       }
       drawRaster(t, keepView);
@@ -669,9 +670,9 @@
       activeTarget = 0;
       if (!list.length) {
         clear();
-        if (d.kind === 'json') note('这份 JSON 里没有可定位的地理要素');
-        else if (d.kind === 'archive') note('压缩包里没有找到可绘制的数据');
-        else note('这类数据没有可在地图上显示的空间信息');
+        if (d.kind === 'json') toast('这份 JSON 里没有可定位的地理要素', '信息栏里仍可查看它的结构与字段。');
+        else if (d.kind === 'archive') toast('压缩包里没有找到可绘制的数据', '信息栏里列出了包内文件的构成。');
+        else toast('这类数据没有可在地图上显示的空间信息', '信息栏里仍可查看它的元数据。');
         emit('gis:drawn', { kind: 'skip' });
         emitLayers();
         return;
@@ -693,6 +694,7 @@
     lastVec = null;
     targets = [];
     activeTarget = 0;
+    localNoteShown = false;
     emitLayers();
     const src = map.getSource('gis-data');
     if (src) src.setData({ type: 'FeatureCollection', features: [] });
@@ -755,7 +757,7 @@
   function ensureMap() {
     if (map) return true;
     if (typeof maplibregl === 'undefined') {
-      note('地图组件加载失败，请确认 web/vendor 里有 maplibre-gl.js');
+      toast('地图组件加载失败', '请确认 web/vendor 里有 maplibre-gl.js');
       return false;
     }
     map = new maplibregl.Map({

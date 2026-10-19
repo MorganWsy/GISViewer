@@ -709,8 +709,19 @@ table.chip-table td {
 }
 .legend-head { display: flex; align-items: center; gap: 4px; }
 .legend-head .fold-btn { margin-left: auto; }
-.legend-head .combo { flex: none; width: 96px; min-width: 0; }
-.legend-head .combo-btn { padding: 3px 22px 3px 8px; font-size: 13px; background: none; }
+.legend-head .combo { flex: none; width: 124px; min-width: 0; }
+/* 图例这颗下拉平时就是一行字加箭头：不要边框、压扁内边距，展开时才描边；
+   宽度够放下"波段200"与"三波段合成"，不再截字 */
+.legend-head .combo-btn {
+  min-height: 0;
+  padding: 2px 18px 2px 4px;
+  font-size: 13px;
+  border-color: transparent;
+  background: none;
+}
+.legend-head .combo-btn::after { right: 5px; width: 6px; height: 6px; }
+.legend-head .combo-btn:hover:not(:disabled) { border-color: transparent; background: var(--panel-alt); }
+.legend-head .combo.open .combo-btn { border-color: var(--accent); background: none; }
 .legend-head .combo-list { top: auto; bottom: calc(100% + 4px); padding: 3px; }
 /* 图例那颗下拉是缩小版：按钮紧凑，展开列表的选项边距也跟着收一档 */
 .legend-head .combo-list .combo-opt { padding: 4px 8px; }
@@ -948,6 +959,9 @@ table.chip-table td {
 
 .attr-ico { flex: none; width: 19px; height: 19px; color: var(--accent); }
 .attr-title { flex: none; font-size: 14px; font-weight: 700; }
+/* 双击行是"回到要素"，不是选词：表体不许选文本，免得双击落下蓝色选区。
+   表头的整列复制走 Ctrl+C 与右键，不受这里影响 */
+.attr-body td { user-select: none; }
 
 /* 复制成功的提示：一闪而过，不占位置 */
 .attr-toast {
@@ -1226,11 +1240,11 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 .idp-measure { padding-top: 4px; margin-top: 3px; border-top: 1px solid var(--line); }
 .idp-body {
   max-height: min(46vh, 380px);
-  /* 自绘滚动条本身占 11px。滚动条两侧都要有缝：右外边距吃掉弹窗 5px 内边距，
-     滚动条离弹窗边只剩 5px，不再是一大片空白；右内边距 8px 让值列和滚动条不贴着 */
+  /* 自绘滚动条本身占 11px：右外边距吃掉弹窗 10px 内边距里的 8px，
+     滚动条距弹窗边框只剩 3px；右内边距 8px 让值列和滚动条不贴着 */
   overflow-y: auto;
   padding-right: 8px;
-  margin-right: -5px;
+  margin-right: -8px;
 }
 /* 字段一多，一列拉得老长，超过六行就两列并排 */
 .idp-body.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
@@ -1322,12 +1336,14 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
    单行文案不加圆点，维持原来的整段样式 */
 .tip-bubble.tip-multi { padding: 9px 11px; }
 .tip-bubble.tip-multi .tip-li { display: flex; align-items: flex-start; gap: 7px; }
-.tip-bubble.tip-multi .tip-li + .tip-li { margin-top: 5px; }
+/* 分点之间留半行：半行是给段落感的，一整行会把几条拧成一堆 */
+.tip-bubble.tip-multi .tip-li + .tip-li { margin-top: 2px; }
+/* 圆点与首行文字垂直居中对齐：行高 1.6×12px = 19.2px，圆点 5px，上偏 7px */
 .tip-bubble.tip-multi .tip-dot {
   flex: none;
   width: 5px;
   height: 5px;
-  margin-top: 6.5px;
+  margin-top: 7px;
   border-radius: 50%;
   background: currentColor;
   opacity: 0.55;
@@ -2004,6 +2020,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   from { opacity: 0.35; transform: translateX(-50%) translateY(-7px); }
 }
 
+/* 纯提示（不是报错）：不挂警告图标，卡片留白收一点 */
+.err-toast.info .et-ico { display: none; }
+.err-toast.info { padding-left: 18px; }
+
 /* 填充的感叹号三角：比原来大一号，颜色单独给，浅色深色两套都看得清 */
 .err-toast .et-ico { flex: none; width: 26px; height: 26px; color: var(--warn-ico); }
 .err-toast .et-main { min-width: 0; }
@@ -2019,13 +2039,22 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 
 /* 关于页：版本和仓库跟标签同一行；介绍和版权在底部收成一小块 */
 .ver-num { font-family: var(--font-num); font-size: 13px; color: var(--text); }
-.repo-link {
-  font-family: var(--font-num);
+/* 仓库入口做成胶囊按钮：GitHub 图标 + 文字，一眼认出是外部链接 */
+.repo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 11px;
   font-size: 13px;
-  color: var(--accent);
+  font-weight: 600;
+  color: var(--text);
   text-decoration: none;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
-.repo-link:hover { text-decoration: underline; }
+.repo-btn svg { width: 16px; height: 16px; flex: none; }
+.repo-btn:hover { border-color: var(--accent); color: var(--text); }
 .icon-btn2 {
   width: 34px;
   height: 34px;
@@ -2056,12 +2085,86 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .about-note li b { color: var(--text); font-weight: 600; }
 .about-note .copyright { margin-top: 8px; color: var(--text-dim); opacity: 0.85; }
 
+/* 第三方声明：说明文字 + 一张组件/许可证/项目的小表 */
+.third-party { margin-top: 14px; }
+.third-party h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.third-party p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.7; color: var(--text-dim); }
+.third-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+.third-table th, .third-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.third-table th {
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--line);
+}
+.third-table th:nth-child(1) { width: 32%; }
+.third-table th:nth-child(2) { width: 28%; }
+.third-table th:nth-child(3) { width: 40%; }
+.third-table td { color: var(--text); }
+.third-table a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.third-table a:hover { text-decoration: underline; }
+
+/* 关闭确认框：取消 / 退出 / 保持在托盘 三个选择 */
+.close-card {
+  width: 400px;
+  max-width: calc(100vw - 40px);
+  padding: 20px 22px 18px;
+  gap: 0;
+}
+.close-card h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.close-card .ca-text {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+.close-card .ca-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.close-card .ca-remember input { width: 16px; height: 16px; accent-color: var(--accent); }
+.close-card .ca-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.close-card .ca-actions .btn { min-width: 84px; padding: 7px 16px; font-size: 13px; }
+
 /* 最近打开：每条右侧一枚删除图标 */
 .rp-text { min-width: 0; flex: 1; }
 .rp-del {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  /* 内边距清零：按钮带默认内边距时 18px 的图标会被挤成 10px，
+     看起来就跟没放大一样 */
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2075,15 +2178,16 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* 删除按钮尺寸不变，图标放大一档才看得清，悬停仍是警告红 */
 .rp-item:hover .rp-del { opacity: 1; }
 .rp-del:hover { color: #d64545; background: var(--panel-alt); }
-.rp-del svg { width: 15px; height: 15px; }
+.rp-del svg { width: 18px; height: 18px; }
 
-/* 地图右上角：移动/缩放后重新取数的小提示，转圈时别让人觉得没反应 */
+/* 移动/缩放后重新取数的小胶囊：钉在右下角"位置读数"组件的正上方，
+   和它同一条右边线；属性表弹出来时跟着抬高 */
 #vecBusy {
   position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
+  /* 读数条右边距 4px，这里跟它对齐；竖直方向留 6px，正好压在它上面 */
+  right: 4px;
+  bottom: 43px;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -2095,6 +2199,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 999px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 }
+.map-stage.attr-on #vecBusy { bottom: calc(var(--attr-h, 260px) + 43px); }
 #vecBusy[hidden] { display: none; }
 #vecBusy::before {
   content: "";
@@ -2105,25 +2210,4 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 50%;
   animation: vecspin 0.8s linear infinite;
 }
-
-/* 全局提示（toast）：视野内到达单次上限这类"一次说明白"的事，
-   钉在顶栏下方的地图上沿，几秒后自己消失，不再占用地图底部的状态栏 */
-#gisToast {
-  position: fixed;
-  top: 56px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 60;
-  max-width: min(70vw, 520px);
-  padding: 8px 16px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text);
-  background: var(--overlay);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
-  pointer-events: none;
-}
-#gisToast[hidden] { display: none; }
 @keyframes vecspin { to { transform: rotate(360deg); } }
