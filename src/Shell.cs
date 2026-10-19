@@ -7,6 +7,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Automation;
 using System.Windows.Forms;
@@ -787,11 +788,27 @@ namespace GISViewer
 
         void OpenExplorerSelection()
         {
+            Stopwatch sw = Stopwatch.StartNew();
             string[] paths = ExplorerSelection();
+            Log("选中即开读完选中项，用时 " + sw.ElapsedMilliseconds + " ms");
             ShowFromTray();
             if (paths.Length == 0)
             {
                 Log("按了选中即开，但资源管理器里没有选中的文件");
+                if (_frontNotFileManager)
+                {
+                    Push("notice", "{title:" + Json("快捷键要在资源管理器或桌面上用") + ",detail:" +
+                        Json("先在资源管理器窗口或桌面点选文件，焦点留在那里时按快捷键。" +
+                             "现在最前面的是别的程序，看不出你想打开哪个文件，就不猜了。") + "}");
+                    return;
+                }
+                if (_comFailed)
+                {
+                    Push("notice", "{title:" + Json("这次没读到选中项") + ",detail:" +
+                        Json("系统这一下没把资源管理器的选中内容给出来，再按一次快捷键；" +
+                             "连着几次都这样，就把资源管理器窗口关掉重开。") + "}");
+                    return;
+                }
                 if (_sawVirtualPick)
                 {
                     /* 停在"此电脑"、"回收站"这类位置时给的是 ::{GUID} 壳路径，
@@ -802,9 +819,9 @@ namespace GISViewer
                              "点选文件（比如 .tif、.shp、.gdb）后再按快捷键。") + "}");
                     return;
                 }
-                Push("notice", "{title:" + Json("没拿到选中的文件") + ",detail:" +
-                    Json("请先在资源管理器里点选一个文件或文件夹（比如 .tif、.shp、.gdb），" +
-                         "再按 Ctrl+Alt+空格。") + "}");
+                Push("notice", "{title:" + Json("没有选中文件") + ",detail:" +
+                    Json("先在资源管理器或桌面点选一个文件（比如 .tif、.shp、.gdb），" +
+                         "再按快捷键。") + "}");
                 return;
             }
             Log("选中即开拿到 " + paths.Length + " 项：" + string.Join(" | ", paths));
@@ -813,22 +830,60 @@ namespace GISViewer
 
         /* 资源管理器开着的每个窗口都挂在 Shell.Application 的 Windows() 上，
            窗口自己的 Document.SelectedItems() 就是当前选中的那几项，Path 是真实路径。
-           取哪一扇窗的顺序：前台优先，其次屏幕层级最上、确实有选中项的那一扇。
+           开了标签页的窗口里，每个标签在这个表里各占一条、共用同一个 HWND，
+           所以多标签时要先用窗口标题认出哪一条是眼前这个标签。
 
-           但 Shell.Application 有两处靠不住（本轮实测踩到）：
-             1. 窗口开了标签页时，Document 报的是整个窗口里第一个标签的位置，
-                当前标签里选的文件根本看不到（日志里显示"此电脑，选中 0 项"）；
-             2. 在桌面上选文件时根本没有资源管理器窗口，只有 Progman/WorkerW。
-           所以每个候选窗口先问 COM，问不出东西再用 UI Automation 直接读眼前这个窗口的
-           地址栏和列表——UIA 读的是当前标签的可见内容，不受上面两条影响。 */
+           桌面不在这个表里：桌面上选文件时根本没有资源管理器窗口，只有 Progman/WorkerW，
+           图标列表是一个独立的 SysListView32，从它自己的句柄读。 */
         bool _sawVirtualPick;
+        bool _frontNotFileManager;
+        bool _comFailed;
         string _lastFolderSeen = "";
 
         string[] ExplorerSelection()
         {
             _sawVirtualPick = false;
+            _frontNotFileManager = false;
+            _comFailed = false;
             _lastFolderSeen = "";
-            List<dynamic> all = new List<dynamic>();
+
+            /* 只认眼前这一处。用户是在"当前看得到的窗口或桌面"里选的，问它才准。
+               早先的版本先扫所有资源管理器窗口，桌面上选了文件却翻出某个后台窗口
+               早先的选中项——实测把桌面的 China2019.zip 开成了另一个目录里的 png。
+               GetForegroundWindow 拿到的是顶层窗口，按了热键不会改变它，所以这个
+               判断和用户按下热键那一刻看到的界面是一致的 */
+            IntPtr fg = Native.GetForegroundWindow();
+            string fgCls = Native.ClassName(fg);
+            bool fgDesktop = fgCls == "Progman" || fgCls == "WorkerW";
+            bool fgExplorer = fgCls == "CabinetWClass";
+            Log("选中即开时前台窗口类是 " + fgCls);
+            if (!fgDesktop && !fgExplorer)
+            {
+                _frontNotFileManager = true;
+                Log("前台不是资源管理器或桌面，不去猜别的窗口");
+                return new string[0];
+            }
+
+            /* 桌面：图标列表是独立的 SysListView32，从它自己的句柄读选中项，
+               既不问 COM，也不扫整棵树 */
+            if (fgDesktop)
+            {
+                string[] desk = DesktopSelection();
+                if (desk.Length > 0)
+                {
+                    Log("选中即开用的是桌面上选中的文件");
+                    return desk;
+                }
+                Log("前台是桌面，但桌面上没有选中项");
+                return new string[0];
+            }
+
+            /* 资源管理器：Shell.Application 的 Windows() 里，一个标签一条，
+               同一个窗口的几条共用一个 HWND，各自报自己那个标签的文件夹和选中项。
+               热键回调里建 COM 偶尔会被输入同步挡住（RPC_E_CANTCALLOUT_ININPUTSYNCCALL），
+               那就当系统这次没给，如实说读不到，不去猜别的窗口 */
+            List<dynamic> same = new List<dynamic>();
+            bool comOk = false;
             try
             {
                 Type t = Type.GetTypeFromProgID("Shell.Application");
@@ -836,153 +891,143 @@ namespace GISViewer
                 {
                     dynamic shell = Activator.CreateInstance(t);
                     dynamic windows = shell.Windows();
+                    comOk = true;
                     if (windows != null)
                         for (int i = 0; i < (int)windows.Count; i++)
                         {
                             dynamic w = windows.Item(i);
-                            try { int dummy = (int)w.HWND; all.Add(w); }
+                            try
+                            {
+                                if ((int)w.HWND != fg.ToInt32()) continue;
+                                same.Add(w);
+                            }
                             catch { continue; }
                         }
                 }
             }
             catch (Exception ex) { Log("问资源管理器失败：" + ex.Message); }
-
-            /* 开了标签页的窗口在 Shell.Application 里对应多个条目（同一个 HWND，
-               每个标签一个 Document），所以不能按 HWND 只留最后一个——那样留下的
-               往往不是眼前这个标签。这里逐个问，谁报出了选中项就用谁。
-               优先级：当前标签 > 前台窗口 > 其它。
-               "当前标签"靠窗口标题认：标题以文件夹名开头（"samples 和 3 个其他选项卡"） */
-            IntPtr fg = Native.GetForegroundWindow();
-            List<dynamic> ws = new List<dynamic>();
-            List<int> scores = new List<int>();
-            foreach (dynamic w in all)
+            if (!comOk || same.Count == 0)
             {
-                int hwnd;
-                try { hwnd = (int)w.HWND; } catch { continue; }
-                string folder = "";
-                try { folder = (string)w.Document.Folder.Self.Path; } catch { }
-                string name = string.IsNullOrEmpty(folder) ? "" : Path.GetFileName(folder.TrimEnd('\\'));
-                bool active = name.Length > 0 &&
-                    Native.WindowText(new IntPtr(hwnd)).StartsWith(name, StringComparison.OrdinalIgnoreCase);
-                ws.Add(w);
-                scores.Add((active ? 2 : 0) + (hwnd == fg.ToInt32() ? 1 : 0));
-            }
-            for (int want = 3; want >= 0; want--)
-            {
-                for (int i = 0; i < ws.Count; i++)
-                {
-                    if (scores[i] != want) continue;
-                    string[] hit = ReadSelection(ws[i]);
-                    if (hit.Length > 0)
-                    {
-                        Log("选中即开用的是 Shell.Application 条目（优先级 " + want + "）");
-                        return hit;
-                    }
-                }
+                _comFailed = true;
+                Log("Shell.Application 没给出前台这扇窗");
+                return new string[0];
             }
 
-            List<IntPtr> order = new List<IntPtr>();
-            if (fg != IntPtr.Zero) order.Add(fg);
-            foreach (IntPtr h in Native.VisibleExplorers())
-                if (!order.Contains(h)) order.Add(h);
-
-            foreach (IntPtr h in order)
+            /* 只开着一个标签：窗口报的就是眼前这个文件夹，直接用 */
+            if (same.Count == 1)
             {
-                if (!UiaWorthy(h)) continue;
-                string[] hit = SelectionByUia(h);
+                string[] hit = ReadSelection(same[0]);
                 if (hit.Length > 0)
                 {
-                    Log("选中即开用的是 UIA（hwnd=" + h.ToInt32() + "）");
+                    Log("选中即开用的是前台资源管理器窗口");
                     return hit;
                 }
             }
+            else
+            {
+                /* 开了多个标签：每条报的是自己标签的内容，先认出哪条是当前标签。
+                   窗口标题第一段就是当前标签的文件夹名（"samples 和 2 个其他选项卡"），
+                   拿它跟各条报的文件夹名对；名字太长时标题会被截断，比前 12 个字 */
+                string title = Native.WindowText(fg);
+                Log("前台窗口开了 " + same.Count + " 个标签，标题是 " + title);
+                foreach (dynamic w in same)
+                {
+                    string folder = "";
+                    try { folder = (string)w.Document.Folder.Self.Path; } catch { }
+                    string name = string.IsNullOrEmpty(folder)
+                        ? "" : Path.GetFileName(folder.TrimEnd('\\'));
+                    if (name.Length == 0) continue;
+                    string probe = name.Length > 12 ? name.Substring(0, 12) : name;
+                    if (!title.StartsWith(probe, StringComparison.OrdinalIgnoreCase)) continue;
+                    Log("认出当前标签是 " + folder);
+                    string[] hit = ReadSelection(w);
+                    if (hit.Length > 0) return hit;
+                    break;
+                }
+                Log("多标签窗口里没认出当前标签，或者它没有选中项");
+            }
 
-            /* 都没读到：如果眼前这扇窗停在 .gdb 这类以文件夹形式存在的数据上，就打开它 */
+            /* 没选中：如果眼前这扇窗停在 .gdb 这类以文件夹形式存在的数据上，就打开它 */
             if (!string.IsNullOrEmpty(_lastFolderSeen) &&
                 _lastFolderSeen.TrimEnd('\\').EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
             {
                 Log("没有选中项，打开当前所在的 .gdb 文件夹：" + _lastFolderSeen);
                 return new string[] { _lastFolderSeen };
             }
-            Log("没找到带选中项的资源管理器窗口（候选 " + order.Count + " 扇）");
+            Log("前台这扇窗里没有选中项");
             return new string[0];
         }
 
-        /* 只有资源管理器窗口和桌面值得用 UIA 去翻：别的窗口（尤其 WebView2）元素树太大 */
-        static bool UiaWorthy(IntPtr h)
+        /* 桌面图标那一层：Progman > SHELLDLL_DefView > SysListView32。
+           Win10/11 上有时挂到某个 WorkerW 下面，所以两条路都找一遍 */
+        static IntPtr DesktopListView()
         {
-            string cls = Native.ClassName(h);
-            return cls == "CabinetWClass" || cls == "Progman" || cls == "WorkerW";
+            IntPtr progman = Native.FindWindow("Progman", null);
+            if (progman != IntPtr.Zero)
+            {
+                IntPtr def = Native.FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (def != IntPtr.Zero)
+                {
+                    IntPtr lv = Native.FindWindowEx(def, IntPtr.Zero, "SysListView32", null);
+                    if (lv != IntPtr.Zero) return lv;
+                }
+            }
+            IntPtr hit = IntPtr.Zero;
+            Native.EnumWindows(delegate(IntPtr h, IntPtr l)
+            {
+                StringBuilder cls = new StringBuilder(64);
+                Native.GetClassName(h, cls, cls.Capacity);
+                if (cls.ToString() != "WorkerW") return true;
+                IntPtr def = Native.FindWindowEx(h, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (def == IntPtr.Zero) return true;
+                IntPtr lv = Native.FindWindowEx(def, IntPtr.Zero, "SysListView32", null);
+                if (lv != IntPtr.Zero) { hit = lv; return false; }
+                return true;
+            }, IntPtr.Zero);
+            return hit;
         }
 
-        string[] SelectionByUia(IntPtr hwnd)
+        string[] DesktopSelection()
         {
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            IntPtr lv = DesktopListView();
+            if (lv == IntPtr.Zero)
+            {
+                Log("找不到桌面图标列表窗口");
+                return new string[0];
+            }
             List<string> found = new List<string>();
+            Log("桌面图标列表 hwnd=" + lv.ToInt32());
             try
             {
-                AutomationElement root = AutomationElement.FromHandle(hwnd);
-                if (root == null) return found.ToArray();
-                string folder = UiaFolder(root, hwnd);
-                if (string.IsNullOrEmpty(folder)) return found.ToArray();
-                Condition listCond = new PropertyCondition(
-                    AutomationElement.ControlTypeProperty, ControlType.List);
-                foreach (AutomationElement list in root.FindAll(TreeScope.Descendants, listCond))
+                AutomationElement list = AutomationElement.FromHandle(lv);
+                object pat;
+                if (list == null || !list.TryGetCurrentPattern(SelectionPattern.Pattern, out pat))
                 {
-                    object pat;
-                    if (!list.TryGetCurrentPattern(SelectionPattern.Pattern, out pat)) continue;
-                    AutomationElement[] sel;
-                    try { sel = ((SelectionPattern)pat).Current.GetSelection(); }
-                    catch { continue; }
-                    foreach (AutomationElement item in sel)
+                    Log("桌面图标列表不支持选中项接口");
+                    return new string[0];
+                }
+                AutomationElement[] sel;
+                try { sel = ((SelectionPattern)pat).Current.GetSelection(); }
+                catch (Exception ex) { Log("读桌面选中项失败：" + ex.Message); return new string[0]; }
+                foreach (AutomationElement item in sel)
+                {
+                    string name = item.Current.Name;
+                    if (string.IsNullOrEmpty(name)) continue;
+                    string p = Path.Combine(desktop, name);
+                    if (File.Exists(p) || Directory.Exists(p)) { found.Add(p); continue; }
+                    /* 资源管理器藏了扩展名时，显示名不带 .tif 这类后缀，按前缀找一次 */
+                    try
                     {
-                        string name = item.Current.Name;
-                        if (string.IsNullOrEmpty(name)) continue;
-                        string p = Path.Combine(folder, name);
-                        if (File.Exists(p) || Directory.Exists(p)) { found.Add(p); continue; }
-                        /* 资源管理器藏了扩展名时，显示名不含 .tif 这类后缀，按前缀找一次 */
-                        try
-                        {
-                            foreach (string f in Directory.EnumerateFiles(folder, name + ".*"))
-                            { found.Add(f); break; }
-                        }
-                        catch { }
+                        foreach (string f in Directory.EnumerateFiles(desktop, name + ".*"))
+                        { found.Add(f); break; }
                     }
-                    if (found.Count > 0) break;
+                    catch { }
+                    if (!found.Contains(p)) _sawVirtualPick = true;   // 回收站、此电脑这类
                 }
-                if (found.Count > 0) Log("UIA 在 " + folder + " 里读到 " + found.Count + " 项");
             }
-            catch (Exception ex) { Log("UIA 读选中项失败：" + ex.Message); }
+            catch (Exception ex) { Log("读桌面选中项失败：" + ex.Message); }
             return found.ToArray();
-        }
-
-        /* UIA 里怎么找"这个窗口现在在哪个文件夹"：
-             1. 地址栏那个编辑框的值就是完整路径（最直接）；
-             2. 桌面上没有地址栏，按窗口类名认出来，直接用桌面目录。 */
-        string UiaFolder(AutomationElement root, IntPtr hwnd)
-        {
-            try
-            {
-                Condition editCond = new PropertyCondition(
-                    AutomationElement.ControlTypeProperty, ControlType.Edit);
-                foreach (AutomationElement e in root.FindAll(TreeScope.Descendants, editCond))
-                {
-                    object pat;
-                    if (!e.TryGetCurrentPattern(ValuePattern.Pattern, out pat)) continue;
-                    string v;
-                    try { v = ((ValuePattern)pat).Current.Value; } catch { continue; }
-                    if (string.IsNullOrEmpty(v)) continue;
-                    if (v.Length > 2 && v[1] == ':' || v.StartsWith("\\\\"))
-                        if (Directory.Exists(v)) return v;
-                }
-                string cls = Native.ClassName(hwnd);
-                if (cls == "Progman" || cls == "WorkerW")
-                {
-                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-                    if (Directory.Exists(desktop)) return desktop;
-                }
-            }
-            catch (Exception ex) { Log("UIA 读文件夹失败：" + ex.Message); }
-            return "";
         }
 
         string[] ReadSelection(dynamic w)

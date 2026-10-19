@@ -1781,6 +1781,10 @@ function attrShell(c) {
   tb.addEventListener('dblclick', (e) => {
     const tr = e.target && e.target.closest ? e.target.closest('tr') : null;
     if (!tr || tr.parentNode !== tb) return;
+    /* 浏览器双击会顺手选中一个词，留下一条蓝底：这不是选词操作，立刻撤掉。
+       真要复制单元格文字，按住拖动或点表头选整列都行 */
+    const sel = window.getSelection && window.getSelection();
+    if (sel) sel.removeAllRanges();
     locateAttrRow(c, Array.prototype.indexOf.call(tb.children, tr));
   });
 
@@ -2247,6 +2251,19 @@ function toastMs() {
    没有关闭按钮：点卡片本身就关，不点的话到设定时间自己收走 */
 let errToastTimer = 0;
 
+/* 提示卡的水平中心跟着地图元素走：右侧还有信息栏，按整个窗口居中会落在偏右的位置。
+   地图还没立起来（初始界面、图层已关）就退回窗口中心 */
+function placeErrToast() {
+  const box = $('errToast');
+  if (!box || box.hidden) return;
+  const map = $('map');
+  const r = map ? map.getBoundingClientRect() : null;
+  const cx = (r && r.width > 120)
+    ? Math.round(r.left + r.width / 2)
+    : Math.round(window.innerWidth / 2);
+  box.style.left = cx + 'px';
+}
+
 function showErrToast(title, detail, hint, kind) {
   const box = $('errToast');
   if (!box) return;
@@ -2257,6 +2274,7 @@ function showErrToast(title, detail, hint, kind) {
   $('errHint').textContent = hint || '';
   $('errHint').hidden = !hint;
   box.hidden = false;
+  placeErrToast();
   // 连着弹同一条时也要有"又来了"的动静：去掉类、强制重排、再加回去
   box.classList.remove('pop');
   void box.offsetWidth;
@@ -2303,7 +2321,7 @@ function wireCloseAsk() {
       config.close_ask = false;
       config.close_act = closeAct;
       $('cfgCloseAsk').checked = false;
-      $('cfgCloseAct').value = closeAct;
+      segSet('cfgCloseAct', closeAct);
       await commitConfig();
     }
     hideCloseAsk();
@@ -2350,6 +2368,11 @@ async function inspectPath(path) {
      路径框那边不该还挂着一块"最近打开"盖在地图上 */
   hideRecent();
   hidePickPop();
+  /* 快捷键/拖放开门时，顶栏输入框往往还是上一次留下的焦点：
+     从托盘唤回窗口时浏览器会把焦点还给上次那个控件，光标就一直闪在路径框里。
+     打开动作本身就是"输入结束"，这里统一交还焦点（没焦点时 blur 是空操作） */
+  const pIn = $('pathInput');
+  if (pIn) pIn.blur();
   current = { path, data: null };
   mouseOn = false;
   openFrom = Date.now();
@@ -2468,7 +2491,7 @@ const SETTING_TIPS = {
   cfgToastSec: '错误提示卡片与地图上那条"已定位到…"停留多久后自动收起；点一下卡片可以立即关掉',
   cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。留空就用上次打开文件所在的文件夹；也可以点"选择…"固定一个目录',
   cachePath: '读取结果的缓存文件夹：打开过的文件的元数据、直方图与缩略图都在这里。清空只会让下次读取变慢，不会动源文件',
-  cfgCloseAct: '点击窗口右上角关闭按钮时的行为：收进托盘（任务栏不再保留按钮），或直接退出软件。收进托盘后可通过托盘图标或快捷键重新唤出',
+  cfgCloseAct: '点击窗口右上角关闭按钮时的行为：驻留托盘（任务栏不再保留按钮，可从托盘或快捷键唤回），或直接退出软件',
   cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
   cfgUpdFreq: '检查新版本的频率。检查时仅访问发布页一次，其余时间不联网',
@@ -2495,7 +2518,9 @@ function mountSettingTips() {
     lab.appendChild(i);
   };
   Object.keys(SETTING_TIPS).forEach((id) => {
-    put(root.querySelector('label[for="' + id + '"]'), SETTING_TIPS[id]);
+    /* 控件不是可标注元素时（两态开关那样的 div），标签用 <id>Lab 认领 */
+    put(root.querySelector('label[for="' + id + '"]') || document.getElementById(id + 'Lab'),
+      SETTING_TIPS[id]);
   });
   root.querySelectorAll('.field > label, .field.inline > label').forEach((lab) => {
     put(lab, SETTING_LABEL_TIPS[lab.textContent.trim()]);
@@ -2527,11 +2552,20 @@ function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 function renderRecent() {
   const pop = $('recentPop');
   if (!pop) return;
-  const list = (config.recent || []).filter(Boolean).slice(0, recentMax());
+  const all = (config.recent || []).filter(Boolean);
+  const list = all.slice(0, recentMax());
   pop.textContent = '';
   if (!list.length) { pop.hidden = true; return; }
   const head = el('div', 'rp-head');
-  head.appendChild(el('span', null, '最近打开'));
+  /* 标题后面缀一个数字：这里列着几条。条数上限之外还存着更多时，
+     鼠标停在数字上能看到"这里显示几条、一共几条"——数字和下面的行数对得上，
+     不会出现"写着 15 却只列了 12 条"这种看着像出错的情况 */
+  const title = el('span', 'rp-title', '最近打开');
+  title.appendChild(el('b', 'rp-num', String(list.length)));
+  title.title = all.length > list.length
+    ? '这里显示最近 ' + list.length + ' 条，一共存着 ' + all.length + ' 条'
+    : '一共 ' + all.length + ' 条';
+  head.appendChild(title);
   const clear = el('button', 'rp-clear');
   clear.type = 'button';
   clear.textContent = '清空';
@@ -2805,6 +2839,22 @@ async function loadConfig() {
   trySyncHotkey();
 }
 
+/* 两态开关（.seg）：值写在哪个按钮带 .on 上，读写的接口跟原来的下拉一样简单 */
+function segGet(id) {
+  const box = $(id);
+  const on = box && box.querySelector('button.on');
+  return on ? on.dataset.val : '';
+}
+
+function segSet(id, val) {
+  const box = $(id);
+  if (!box) return;
+  box.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.val === val);
+    b.setAttribute('aria-pressed', b.dataset.val === val ? 'true' : 'false');
+  });
+}
+
 /* 把 config 摊到设置页的各控件上；控件都是自绘的，摊完要再同步一次 */
 function fillSettings() {
   $('cfgBasemap').value = config.basemap || 'tianditu_img';
@@ -2830,7 +2880,7 @@ function fillSettings() {
   $('aboutVer').textContent = 'v' + ((document.title || '图览').replace('图览', '').trim() || '0.1');
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
-  $('cfgCloseAct').value = config.close_act === 'exit' ? 'exit' : 'min';
+  segSet('cfgCloseAct', config.close_act === 'exit' ? 'exit' : 'min');
   $('cfgCloseAsk').checked = config.close_ask !== false;
   // 早先存过 "boot"（开机就查），这一版改成打开后延迟查，读到老值直接换算过去
   $('cfgUpdFreq').value = config.upd_freq === 'boot' ? 'open' : (config.upd_freq || 'open');
@@ -3323,7 +3373,7 @@ async function applySettings() {
   config.panel_alpha = Number($('cfgAlpha').value);
   config.theme = $('cfgTheme').value;   // 主题也在设置里能选，和顶栏那颗按钮同一份配置
   config.unit_lang = $('cfgUnitLang').value === 'zh' ? 'zh' : 'en';
-  config.close_act = $('cfgCloseAct').value === 'exit' ? 'exit' : 'min';
+  config.close_act = segGet('cfgCloseAct') === 'exit' ? 'exit' : 'min';
   config.close_ask = $('cfgCloseAsk').checked;
   toShell('closeact:' + config.close_act);   // 关按钮的行为由壳执行，改完就告诉它
   toShell('closeask:' + (config.close_ask ? 'on' : 'off'));
@@ -3594,6 +3644,13 @@ function init() {
     if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
     node.addEventListener('change', applySettings);
   });
+  /* 关闭按钮行为是两态开关，不是下拉：点哪边就是哪边，点完立刻生效 */
+  $('cfgCloseAct').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-val]');
+    if (!b || b.classList.contains('on')) return;
+    segSet('cfgCloseAct', b.dataset.val);
+    applySettings();
+  });
   $('cfgVectorColor').addEventListener('change', () => {
     $('cfgColorSwatch').style.background = $('cfgVectorColor').value;
   });
@@ -3753,6 +3810,9 @@ function init() {
     window.addEventListener('resize', reportDropArea);
     const mainEl = $('drop');
     if (mainEl && window.ResizeObserver) new ResizeObserver(reportDropArea).observe(mainEl);
+    /* 地图宽度会被分栏拖动、信息栏收放改掉：提示卡跟着重新居中 */
+    const mapEl = $('map');
+    if (mapEl && window.ResizeObserver) new ResizeObserver(placeErrToast).observe(mapEl);
     toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
     toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
     toShell('ready');

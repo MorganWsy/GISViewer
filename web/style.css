@@ -952,16 +952,15 @@ table.chip-table td {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px 3px;
+  gap: 7px;
+  padding: 0 10px 3px;
   border-bottom: 1px solid var(--line);
 }
 
 .attr-ico { flex: none; width: 19px; height: 19px; color: var(--accent); }
 .attr-title { flex: none; font-size: 14px; font-weight: 700; }
-/* 双击行是"回到要素"，不是选词：表体不许选文本，免得双击落下蓝色选区。
-   表头的整列复制走 Ctrl+C 与右键，不受这里影响 */
-.attr-body td { user-select: none; }
+/* 表体文字可以正常拖选、复制；双击那一下由脚本清掉选区——
+   双击是"回到这个要素"，不是选词 */
 
 /* 复制成功的提示：一闪而过，不占位置 */
 .attr-toast {
@@ -1020,6 +1019,8 @@ table.attr-table thead th {
   font-weight: 600;
   color: var(--text);
   background: var(--panel-alt);
+  /* 表头点一下选中整列：手指光标把这件事说出来 */
+  cursor: pointer;
 }
 
 /* 表头第二行是字段的类型和宽度：信息栏里不再单列一张字段表 */
@@ -1382,8 +1383,8 @@ table.rail-table tr.sec.folded th::after { transform: rotate(-45deg) translateY(
 table.rail-table tr.sec-off { display: none; }
 
 table.rail-table tr.sec th {
-  padding: 12px 13px 4px;
-  font-size: 13px;
+  padding: 9px 12px 3px;
+  font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-align: left;
@@ -1391,8 +1392,8 @@ table.rail-table tr.sec th {
 }
 
 table.rail-table tr:not(.sec):not(.wide) th {
-  padding: 6px 6px 6px 13px;
-  font-size: 13px;
+  padding: 4px 6px 4px 12px;
+  font-size: 12.5px;
   font-weight: 500;
   text-align: left;
   vertical-align: top;
@@ -1401,8 +1402,8 @@ table.rail-table tr:not(.sec):not(.wide) th {
 }
 
 table.rail-table tr:not(.sec):not(.wide) td {
-  padding: 6px 13px 6px 6px;
-  font-size: 13px;
+  padding: 4px 12px 4px 6px;
+  font-size: 12.5px;
   vertical-align: top;
   word-break: break-word;
   font-family: var(--font-num);
@@ -1416,7 +1417,7 @@ table.rail-table tr:not(.sec) th, table.rail-table tr:not(.sec) td {
   border-bottom: 1px solid var(--line);
 }
 
-table.rail-table tr.wide > td { padding: 4px 13px 10px; }
+table.rail-table tr.wide > td { padding: 3px 12px 8px; }
 table.rail-table tr.wide .grid { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 table.rail-table tr.wide .grid th, table.rail-table tr.wide .grid td {
   padding: 5px 6px;
@@ -1522,11 +1523,11 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   border-right: 1px solid var(--line);
 }
 .set-nav button {
-  height: 32px;
-  padding: 0 9px;
+  height: 29px;
+  padding: 0 8px;
   text-align: left;
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-dim);
   background: none;
   border: 0;
@@ -1656,10 +1657,42 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .upd-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .upd-row .hint { margin: 0; }
 
-.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 9px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
 /* 标签只占文字那么宽：以前是整行宽，鼠标划到这一行右边的空白也会弹出提示气泡 */
-.field label { font-size: 14px; font-weight: 600; align-self: flex-start; }
+.field label { font-size: 13px; font-weight: 600; align-self: flex-start; }
+/* 一行里标签和右边控件同一中线：标签贴着顶边会显得比控件高半行 */
+.field.inline > label { align-self: center; }
+
+/* 两态开关：两段并排，选中的一段浮起来。替代"关闭按钮行为"那只下拉，
+   少一次点击，当前状态也一眼看得见 */
+.seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.seg button {
+  padding: 2px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.seg button:hover { color: var(--text); }
+.seg button.on {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
 
 /* 设置项标签后面的提示图标：沿用右栏那枚圆形叹号，挨着标签排 */
 .field label .tip-ico { margin-left: 5px; vertical-align: -2px; }
@@ -1667,9 +1700,9 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 /* 设置页里所有控件同高同圆角：下拉、输入框、按钮排在一起时边线才对得上 */
 .field select, .field input[type="text"], .field input[type="password"] {
-  height: 36px;
-  padding: 0 10px;
-  font-size: 14px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
   font-family: inherit;
   color: var(--text);
   background: var(--panel-alt);
@@ -1884,6 +1917,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   font-size: 12px;
   color: var(--text-dim);
 }
+.recent-pop .rp-title { display: inline-flex; align-items: center; gap: 5px; }
+/* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力 */
+.recent-pop .rp-num {
+  padding: 1px 5px;
+  font-family: var(--font-num);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+  border-radius: 999px;
+}
 
 .recent-pop .rp-clear {
   padding: 1px 6px;
@@ -1996,56 +2041,59 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
    没有关闭按钮：点卡片本身马上关，不点的话自己到点消失 */
 .err-toast {
   position: fixed;
+  /* 左边界由 showErrToast 按地图元素的水平中心算出来（右侧还有信息栏，
+     按窗口居中会偏右）；这里的 50% 只是脚本没跑到时的兜底 */
   left: 50%;
-  top: 84px;
+  top: 54px;
   transform: translateX(-50%);
   z-index: 80;
   display: flex;
   /* 图标和整块文字垂直居中：标题、说明、建议三段高矮不一也不会偏 */
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   width: max-content;
-  max-width: min(560px, calc(100vw - 32px));
-  padding: 13px 16px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 9px 13px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3), 0 2px 10px rgba(0, 0, 0, 0.18);
+  border-radius: 9px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
   cursor: pointer;
 }
 
 /* 每次重新弹出来轻轻跳一下，让人注意到是新的一条 */
 .err-toast.pop { animation: et-pop 0.18s ease-out; }
 @keyframes et-pop {
-  from { opacity: 0.35; transform: translateX(-50%) translateY(-7px); }
+  from { opacity: 0.35; transform: translateX(-50%) translateY(-6px); }
 }
 
 /* 纯提示（不是报错）：不挂警告图标，卡片留白收一点 */
 .err-toast.info .et-ico { display: none; }
-.err-toast.info { padding-left: 18px; }
+.err-toast.info { padding-left: 13px; }
 
 /* 填充的感叹号三角：比原来大一号，颜色单独给，浅色深色两套都看得清 */
-.err-toast .et-ico { flex: none; width: 26px; height: 26px; color: var(--warn-ico); }
+.err-toast .et-ico { flex: none; width: 20px; height: 20px; color: var(--warn-ico); }
 .err-toast .et-main { min-width: 0; }
-.err-toast .et-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.err-toast .et-title { font-size: 13px; font-weight: 700; color: var(--text); }
 .err-toast .et-detail {
-  margin-top: 2px;
+  margin-top: 1px;
   font-size: 12.5px;
   color: var(--text-dim);
   /* 长路径、长报错信息按需折行，不许把卡片撑破 */
   overflow-wrap: anywhere;
 }
-.err-toast .et-hint { margin-top: 3px; font-size: 12.5px; color: var(--text-dim); }
+.err-toast .et-hint { margin-top: 2px; font-size: 12.5px; color: var(--text-dim); }
 
 /* 关于页：版本和仓库跟标签同一行；介绍和版权在底部收成一小块 */
 .ver-num { font-family: var(--font-num); font-size: 13px; color: var(--text); }
-/* 仓库入口做成胶囊按钮：GitHub 图标 + 文字，一眼认出是外部链接 */
+/* 仓库入口做成胶囊按钮：GitHub 图标 + 文字，一眼认出是外部链接。
+   尺寸压到跟标签同一档，右边与"版本"那行对齐 */
 .repo-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px 6px 11px;
-  font-size: 13px;
+  gap: 6px;
+  padding: 3px 11px 3px 9px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
@@ -2053,7 +2101,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.repo-btn svg { width: 16px; height: 16px; flex: none; }
+.repo-btn svg { width: 14px; height: 14px; flex: none; }
 .repo-btn:hover { border-color: var(--accent); color: var(--text); }
 .icon-btn2 {
   width: 34px;
@@ -2072,21 +2120,21 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .icon-btn2 svg { width: 16px; height: 16px; }
 .about-note {
   margin-top: 4px;
-  padding: 8px 10px;
+  padding: 7px 9px;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--text-dim);
   background: var(--panel-alt);
   border-radius: 6px;
 }
 .about-note p { margin: 0; }
-.about-note ul { margin: 6px 0 0; padding-left: 14px; }
-.about-note li { margin: 3px 0; }
+.about-note ul { margin: 5px 0 0; padding-left: 14px; }
+.about-note li { margin: 2px 0; }
 .about-note li b { color: var(--text); font-weight: 600; }
 .about-note .copyright { margin-top: 8px; color: var(--text-dim); opacity: 0.85; }
 
 /* 第三方声明：说明文字 + 一张组件/许可证/项目的小表 */
-.third-party { margin-top: 14px; }
+.third-party { margin-top: 12px; }
 .third-party h4 {
   margin: 0 0 6px;
   font-size: 13px;
@@ -2101,7 +2149,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   table-layout: fixed;
 }
 .third-table th, .third-table td {
-  padding: 7px 10px;
+  padding: 5px 9px;
   text-align: left;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
@@ -2119,42 +2167,77 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .third-table a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
 .third-table a:hover { text-decoration: underline; }
 
-/* 关闭确认框：取消 / 退出 / 保持在托盘 三个选择 */
+/* 关闭确认框：取消 / 退出 / 驻留在托盘 三个选择 */
 .close-card {
-  width: 400px;
+  width: 380px;
   max-width: calc(100vw - 40px);
-  padding: 20px 22px 18px;
+  padding: 15px 17px 13px;
   gap: 0;
 }
 .close-card h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
 }
 .close-card .ca-text {
-  margin: 10px 0 0;
+  margin: 7px 0 0;
   font-size: 12.5px;
-  line-height: 1.7;
+  line-height: 1.65;
   color: var(--text-dim);
 }
+/* 软件里的名词加粗：说"去设置里改"时，设置、系统这些是界面上的字，认得出才找得到 */
+.close-card .ca-text b { font-weight: 600; color: var(--text); }
 .close-card .ca-remember {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  font-size: 13px;
-  color: var(--text);
+  gap: 6px;
+  margin-top: 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
   cursor: pointer;
 }
-.close-card .ca-remember input { width: 16px; height: 16px; accent-color: var(--accent); }
+/* 全局的复选框是"开关"样式（42×22 药丸），放在这里会被读成开/关状态；
+   这一处按普通复选框画：15px 圆角方块，选中时打勾 */
+.close-card .ca-remember input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.close-card .ca-remember input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 4.5px;
+  width: 3.5px;
+  height: 7px;
+  background: none;
+  border: solid var(--panel);
+  border-width: 0 1.6px 1.6px 0;
+  border-radius: 0;
+  transform: rotate(45deg) scale(0.6);
+  opacity: 0;
+  transition: opacity 0.14s, transform 0.14s;
+}
+.close-card .ca-remember input:checked { background: var(--accent); border-color: var(--accent); }
+.close-card .ca-remember input:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
 .close-card .ca-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 8px;
+  margin-top: 13px;
 }
-.close-card .ca-actions .btn { min-width: 84px; padding: 7px 16px; font-size: 13px; }
+.close-card .ca-actions .btn { min-width: 76px; padding: 5px 13px; font-size: 12.5px; }
 
 /* 最近打开：每条右侧一枚删除图标 */
 .rp-text { min-width: 0; flex: 1; }

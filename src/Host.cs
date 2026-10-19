@@ -20,7 +20,6 @@ namespace GISViewer
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
-        [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr p);
         [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
         [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool join);
@@ -129,23 +128,6 @@ namespace GISViewer
             return found;
         }
 
-        /* 所有可见、没最小化的资源管理器窗口，顺序就是屏幕层级（最上面那个在前） */
-        public static List<IntPtr> VisibleExplorers()
-        {
-            List<IntPtr> list = new List<IntPtr>();
-            StringBuilder cls = new StringBuilder(160);
-            EnumWindows(delegate(IntPtr h, IntPtr l)
-            {
-                if (!IsWindowVisible(h) || IsIconic(h)) return true;
-                cls.Length = 0;
-                GetClassName(h, cls, cls.Capacity);
-                string c = cls.ToString();
-                if (c == "CabinetWClass" || c == "ExploreWClass") list.Add(h);
-                return true;
-            }, IntPtr.Zero);
-            return list;
-        }
-
         /* 从别的进程把窗口抢到前台：光调 SetForegroundWindow 经常被系统挡下来 */
         public static void ForceForeground(IntPtr hWnd)
         {
@@ -164,6 +146,12 @@ namespace GISViewer
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
 
         public delegate bool EnumWindowsProc(IntPtr h, IntPtr l);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string cls, string title);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
 
         [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr l);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]

@@ -172,8 +172,8 @@
 
 <div id="closeAsk" class="modal" hidden>
   <div class="modal-card close-card" role="dialog" aria-modal="true" aria-labelledby="caTitle">
-    <h3 id="caTitle">让 图览 继续运行吗？</h3>
-    <p class="ca-text">保留在托盘中时，全局快捷键与"选中即开"可以继续使用。<br>之后可以在 设置 → 系统 中更改。</p>
+    <h3 id="caTitle">让图览继续运行吗？</h3>
+    <p class="ca-text">驻留在托盘中时，<b>全局快捷键</b>与<b>选中即开</b>可以继续使用；<br>之后可在<b>设置 → 系统</b>中更改。</p>
     <label class="ca-remember">
       <input type="checkbox" id="caRemember">
       <span>不再询问</span>
@@ -181,7 +181,7 @@
     <div class="ca-actions">
       <button id="caCancel" class="btn ghost" type="button">取消</button>
       <button id="caExit" class="btn ghost" type="button">退出</button>
-      <button id="caTray" class="btn" type="button">保持在托盘</button>
+      <button id="caTray" class="btn" type="button">驻留在托盘</button>
     </div>
   </div>
 </div>
@@ -413,11 +413,11 @@
         <input id="cfgDeskLnk" type="checkbox">
       </div>
       <div class="field inline">
-        <label for="cfgCloseAct">关闭按钮行为</label>
-        <select id="cfgCloseAct">
-          <option value="min">收进托盘</option>
-          <option value="exit">直接退出软件</option>
-        </select>
+        <label id="cfgCloseActLab">关闭按钮行为</label>
+        <div class="seg" id="cfgCloseAct" role="group" aria-labelledby="cfgCloseActLab">
+          <button type="button" data-val="min">驻留托盘</button>
+          <button type="button" data-val="exit">直接退出</button>
+        </div>
       </div>
       <div class="field inline">
         <label for="cfgCloseAsk">关闭时询问</label>
