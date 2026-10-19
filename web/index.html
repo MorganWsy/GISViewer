@@ -132,7 +132,6 @@
         <div class="attr-head">
           <svg class="attr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg>
           <span class="attr-title">属性表</span>
-          <span class="attr-toast" id="attrToast" hidden></span>
           <!-- 查找框整体贴在这一行的最右边：计数在输入框左边，
                结果数变来变去时输入框的位置也不动 -->
           <div class="attr-find-box">
@@ -214,11 +213,14 @@
           <option value="amap">高德影像</option>
         </select>
       </div>
-      <div class="field inline">
+      <!-- 底图不同，要不要密钥、有没有注记都不一样：这行小字照当前底图说清楚，
+           下面的密钥与注记也按底图显隐（见 app.js 的 paintBasemapFields） -->
+      <p class="hint bm-hint" id="bmHint"></p>
+      <div class="field inline" id="cfgAnnotationField">
         <label for="cfgAnnotation">天地图注记</label>
         <input id="cfgAnnotation" type="checkbox" checked>
       </div>
-      <div class="field">
+      <div class="field" id="cfgKeyField">
         <label for="cfgKey">天地图密钥</label>
         <div class="key-row">
           <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">

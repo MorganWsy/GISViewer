@@ -100,11 +100,16 @@
     }
   }
 
+  /* 注记层：天地图两种底图各有自己的注记瓦片；Esri 影像本身没有地名，
+     叠一层天地图矢量注记（两边同为 Web 墨卡托，位置对得上），代价是要有天地图密钥。
+     OpenStreetMap 的瓦片自带注记，再叠一层就成了两套字；高德是 GCJ-02 基准，
+     叠天地图注记会整体偏出几百米——这两种不给叠 */
   function annotationSources() {
     const key = (config.tianditu_key || '').trim();
     if (!key || !config.annotation) return [];
     if (config.basemap === 'tianditu_img') return [rasterSource('bm-note', td('cia_w', key), '天地图', 18)];
     if (config.basemap === 'tianditu_vec') return [rasterSource('bm-note', td('cva_w', key), '天地图', 18)];
+    if (config.basemap === 'esri') return [rasterSource('bm-note', td('cva_w', key), '天地图', 18)];
     return [];
   }
 
@@ -351,6 +356,8 @@
       if (mine !== token || data !== wanted) return;
       if (!res.ok) {
         toast('要素读取失败', (res.error || {}).title || '');
+        // 取数失败也算这一轮画完：等定位的提示得有个着落，不能一直挂着
+        if (pendingFocus) flushFocus();
         emit('gis:drawn', { kind: 'vector' });
         return;
       }
@@ -380,8 +387,10 @@
         parts.push('坐标按米临时摆放');
         if (!localNoteShown) {
           localNoteShown = true;
-          toast('这个图层没有坐标系',
-            '按原始坐标当作米临时摆放，只用于看清图形；底图与注记已暂时收起。');
+          toast('这个图层没有坐标系', [
+            '按原始坐标当作米临时摆放，只用于看清图形',
+            '底图与注记已暂时收起',
+          ]);
         }
       } else if (m.reprojected) parts.push('显示坐标已转到经纬度');
       note(baseNote() + parts.join(' · '));
@@ -391,7 +400,8 @@
         const now = Date.now();
         if (now - lastLimitToast > 6000) {
           lastLimitToast = now;
-          toast('视野内超过单次上限', '已绘制 ' + feats.length + ' 个，移动、缩放后继续加载。', 'info');
+          toast('视野内超过单次上限',
+            ['已绘制 ' + feats.length + ' 个', '移动、缩放后继续加载'], 'info');
         }
       }
       const src = map.getSource('gis-data');
@@ -405,10 +415,13 @@
         if (b) fitTo(b, data.reserveAttr);
       }
       emit('gis:vector', lastVec);
+      // 属性表双击定位的要素如果刚才还没画出来，这一批里有了就补上高亮
+      if (pendingFocus) flushFocus();
       emit('gis:drawn', { kind: 'vector' });
     }).catch((err) => {
       settle();
       if (mine === token) toast('要素读取失败', err.message);
+      if (pendingFocus) flushFocus();
       emit('gis:drawn', { kind: 'vector' });
     });
   }
@@ -535,6 +548,8 @@
     addLayers();
     data = t;
     lastVec = null;
+    // 换了图层：上一条"等绘制完再高亮"的待办已经不属于眼前这个文件了
+    pendingFocus = null;
     if (popup) popup.remove();
     const btn = document.getElementById('attrBtn');
     if (btn) btn.hidden = t.kind !== 'vector';
@@ -992,6 +1007,50 @@
     map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: pad, maxZoom: 17, duration: 450 });
   }
 
+  /* ---------- 属性表双击定位 ----------
+     两件事：把视图框到这个要素的范围上，再把它描一圈。
+     范围由属性表随行带过来（服务端读那几行时几何已经解析过，取包络是顺手的事），
+     所以定位不在服务端再扫一遍文件，按下就是瞬时的。
+     要素还没画出来时（绘制没完、或超出单次绘制上限）先画一个范围框顶着，
+     把要素编号记在这里；下一次绘制完成自动补成要素高亮，用户不必再双击一次 */
+  let pendingFocus = null;
+
+  function boxRing(b) {
+    const w = b[0], s = b[1], e = b[2], n = b[3];
+    // 用线不用面：面会连高亮底色一起铺满整个范围，看着像选中了一大片
+    return { type: 'LineString', coordinates: [[w, s], [e, s], [e, n], [w, n], [w, s]] };
+  }
+
+  /* 试着把待高亮的要素描上；描上了就清掉待办，并告诉界面"好了"。
+     这一轮画完还是没有它（超出单次绘制上限、或几何为空），也说一声"没画出来"，
+     让界面把"正在等"换成结果——但待办留着，往后平移放大再画时还能补上 */
+  function flushFocus() {
+    if (!pendingFocus) return false;
+    const fid = pendingFocus.fid;
+    const f = fid === null ? null : ((lastVec && lastVec.features) || []).find((x) => fidOf(x) === fid);
+    if (f) {
+      setHighlight([f]);
+      pendingFocus = null;
+      emit('gis:focus', { fid: fid, ok: true });
+      return true;
+    }
+    setHighlight([{ geometry: boxRing(pendingFocus.box) }]);
+    if (fid === null) { pendingFocus = null; return false; }
+    /* 视图可能还没走到目标位置（定位是带动画的）：这一轮画的是旧视野，
+       不能拿它下结论，等视图到位那一轮再说 */
+    try {
+      const b = map.getBounds();
+      if (!b.contains([(pendingFocus.box[0] + pendingFocus.box[2]) / 2,
+                       (pendingFocus.box[1] + pendingFocus.box[3]) / 2])) return false;
+    } catch (err) { /* 拿不到视野就照常往下走 */ }
+    // 只在这一轮画完时说一次；之后每次平移缩放都再报一遍就成了骚扰
+    if (!pendingFocus.told) {
+      pendingFocus.told = true;
+      emit('gis:focus', { fid: fid, ok: false });
+    }
+    return false;
+  }
+
   /* 坐标定位用的十字标记：一个不带气泡的标记点，再定位或关掉图层就撤 */
   let pin = null;
 
@@ -1397,14 +1456,13 @@
       return { active: activeTarget, items: targets.map((t, i) => ({
         label: t.label, kind: t.kind, key: targetKey(t), index: i })) };
     },
-    /* 给"输入经纬度定位"和"属性表双击定位到要素"用 */
+    /* 输入经纬度定位：落一个十字标记 */
     goTo(lngLat, zoom) {
       if (!live()) return false;
       map.easeTo({ center: lngLat, zoom: zoom || Math.max(map.getZoom(), 12), duration: 500 });
       dropPin(lngLat);
       return true;
     },
-    zoomToBBox(b) { if (live()) fitBBox(b); },
     /* Esc 收识别弹窗：关掉弹窗顺带撤掉那一圈高亮，返回有没有东西可关 */
     closePopup() {
       const had = !!popup;
@@ -1421,13 +1479,25 @@
       const v = Number(n);
       if (Number.isFinite(v) && v >= 500) drawLimit = Math.min(v, 200000);
     },
-    /* 属性表双击过来的高亮：按 fid 找已绘制的要素描一圈；找到返回 true */
-    highlightFid(fid) {
-      if (!live() || fid === null || fid === undefined) return false;
-      const f = ((lastVec && lastVec.features) || []).find((x) => fidOf(x) === fid);
-      if (!f) { setHighlight([]); return false; }
-      setHighlight([f]);
-      return true;
+    /* 属性表双击过来的定位：frame 是该要素的范围（读表时服务端随行带回）。
+       返回 'feature'（已高亮）、'box'（要素还没画出来，先用范围框顶着，等下一次绘制补）
+       或 'none'（地图没起来）。 */
+    focusFid(fid, box) {
+      if (!live()) return 'none';
+      const b = box && box.length >= 4 ? box.map(Number) : null;
+      const n = (fid === null || fid === undefined || !Number.isFinite(Number(fid))) ? null : Number(fid);
+      if (!b || !isFinite(b[0]) || !isFinite(b[1]) || !isFinite(b[2]) || !isFinite(b[3])) return 'none';
+      pendingFocus = { fid: n, box: b };
+      // 框过去会和要素高亮一起发生：视图动画 450 毫秒，画完这一批再补高亮
+      fitBBox(b);
+      const f = n === null ? null : ((lastVec && lastVec.features) || []).find((x) => fidOf(x) === n);
+      if (f) {
+        setHighlight([f]);
+        pendingFocus = null;
+        return 'feature';
+      }
+      setHighlight([{ geometry: boxRing(b) }]);
+      return 'box';
     },
     fullExtent() {
       if (!live() || !data) return;

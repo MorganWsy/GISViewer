@@ -962,15 +962,8 @@ table.chip-table td {
 /* 表体文字可以正常拖选、复制；双击那一下由脚本清掉选区——
    双击是"回到这个要素"，不是选词 */
 
-/* 复制成功的提示：一闪而过，不占位置 */
-.attr-toast {
-  flex: none;
-  padding: 2px 9px;
-  font-size: 12px;
-  color: var(--text);
-  background: var(--accent-soft);
-  border-radius: 999px;
-}
+/* 属性表里的短提示（复制成功、正在定位）不再在这里显示：
+   统一走顶部的全局浮层，见 app.js 里的 attrToast */
 
 /* 图层选择：永远显示，只有一个图层也在 */
 /* 查找框占了自动外边距，图层下拉紧跟在它右边 */
@@ -1507,6 +1500,10 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
    分组从七个并成五个，靠导航切换，不再靠一路往下滚 */
 .set-card { width: 620px; height: min(78vh, 660px); padding: 8px 0 6px; }
 .set-card .card-title { margin-bottom: 6px; padding: 0 12px 7px; font-size: 15px; }
+/* 设置卡片的标题条是拖动把手：拖它挪的是卡片自己，不是软件窗口。
+   手指光标明确表示"这里能拖"，文字本身不参与选择 */
+.set-card > .card-title { cursor: move; user-select: none; }
+.set-card.dragging { cursor: move; box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3); }
 .set-main {
   flex: 1;
   min-height: 0;
@@ -1625,6 +1622,13 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   color: var(--text-dim);
   padding-left: 7px;
   border-left: 2px solid var(--accent-soft);
+}
+/* 底图下面那行说明：它是紧跟下拉的选择说明，不是某一段的批注，
+   所以不画左边那道竖线，也不往里缩 */
+#settings .bm-hint {
+  margin: -2px 0 9px;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .hint.bad { color: #c0392b; }
@@ -1921,15 +1925,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
    不是各自文字的基线——基线对法在字号不同时看着就是一高一低 */
 .recent-pop .rp-title { display: inline-flex; align-items: center; gap: 5px; height: 16px; }
 /* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力。
-   写死高度并让数字在里面居中，跟标题同一根中线 */
+   字号和标题一样是 12px——两个并排的东西字号不同，看着就是一个大一个小 */
 .recent-pop .rp-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 15px;
-  padding: 0 5px;
+  height: 16px;
+  padding: 0 6px;
   font-family: var(--font-num);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   color: var(--text-dim);
@@ -2094,6 +2098,17 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .err-toast .et-hint { margin-top: 2px; font-size: 12.5px; color: var(--text-dim); }
+/* 分点写的提示：几条并列的事一行一条，前面挂个小圆点。
+   行距比正文松一点，几条之间的边界才看得出来 */
+.err-toast .et-list {
+  margin: 3px 0 0;
+  padding-left: 14px;
+  list-style: disc;
+}
+.err-toast .et-list li { margin: 0; }
+.err-toast .et-list li + li { margin-top: 2px; }
+/* 圆点压暗一点：它是分隔符，不是内容 */
+.err-toast .et-list li::marker { color: var(--text-dim); }
 
 /* 关于页：版本和仓库跟标签同一行；介绍和版权在底部收成一小块 */
 .ver-num { font-family: var(--font-num); font-size: 13px; color: var(--text); }
@@ -2179,10 +2194,12 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .third-table a:hover { text-decoration: underline; }
 
 /* 关闭确认框：取消 / 退出 / 驻留在托盘 三个选择 */
+/* 紧凑只收外圈留白：padding 从 20/22/18 压到 12/15/11。
+   正文的行高不动——行距压了，一段话就挤成一坨，读起来比多几个像素的边距难受得多 */
 .close-card {
   width: 368px;
   max-width: calc(100vw - 40px);
-  padding: 11px 14px 10px;
+  padding: 12px 15px 11px;
   gap: 0;
 }
 .close-card h3 {
@@ -2193,9 +2210,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   color: var(--text);
 }
 .close-card .ca-text {
-  margin: 5px 0 0;
+  margin: 6px 0 0;
   font-size: 12.5px;
-  line-height: 1.55;
+  /* 回到 1.7：收内边距是为了省地方，行距一压，三行说明会黏成一块 */
+  line-height: 1.7;
   color: var(--text-dim);
 }
 /* 软件里的名词加粗：说"去设置里改"时，设置、系统这些是界面上的字，认得出才找得到 */
@@ -2204,8 +2222,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
-  /* 行高压到 1.2：文字盒子和 15px 的方框一样高，两者中线才对得齐 */
+  margin-top: 9px;
+  /* 行高压到 1.2：文字盒子和 15px 的方框一样高，两者中线才对得齐。
+     这里的行高管的是"一行字和方框对齐"，不是段落的行距 */
   font-size: 12.5px;
   line-height: 1.2;
   color: var(--text-dim);
@@ -2249,9 +2268,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   justify-content: flex-end;
   gap: 7px;
-  margin-top: 10px;
+  /* 按钮组和上面那段之间留得比正文行距宽一点：它是动作区，不属于说明段落 */
+  margin-top: 13px;
 }
-.close-card .ca-actions .btn { min-width: 72px; padding: 4px 12px; font-size: 12.5px; }
+.close-card .ca-actions .btn { min-width: 74px; padding: 5px 13px; font-size: 12.5px; }
 
 /* 最近打开：每条右侧一枚删除图标 */
 .rp-text { min-width: 0; flex: 1; }

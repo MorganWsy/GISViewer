@@ -1603,13 +1603,10 @@ function attrKeyOf(L) {
   return L.target + '\u0000' + L.index;
 }
 
+/* 属性表里的提示统一走全局浮层：面板里另挂一条小气泡时，
+   字号、位置、停留时间都跟全局提示不一致，同一件事在两处出现还容易看漏 */
 function attrToast(text, sticky) {
-  const box = $('attrToast');
-  box.textContent = text;
-  box.hidden = false;
-  clearTimeout(box.__timer);
-  // sticky：整列复制这种要跑十几秒的操作，提示得一直挂着，不能 1.4 秒就消失
-  if (!sticky) box.__timer = setTimeout(() => { box.hidden = true; }, 1400);
+  showErrToast(text, null, null, 'info', sticky);
 }
 
 /* 表头那格：字段名 + 类型宽度；悬停时气泡解释类型和长度的含义 */
@@ -1846,6 +1843,10 @@ function appendAttrRows(c, feats) {
     c.rows.push(props);
     // 双击某一行要能定位回要素，得把要素号按行存着
     if (c.ids) c.ids[start + i] = f.fid === undefined ? null : f.fid;
+    /* 要素范围也在取数时一并带回来（服务端读这一行时几何已经解析过，
+       顺手取个包络几乎不花时间）。双击定位就不必再回原文件按编号找一遍——
+       十万要素的 GeoJSON 上，那一下要扫好几秒 */
+    if (c.boxes) c.boxes[start + i] = f.bbox || null;
   });
   c.tbody.appendChild(frag);
   applyAttrFind();   // 续读进来的新行也要跟着当前的查找条件
@@ -1874,23 +1875,30 @@ function applyAttrFind() {
   if (count) { count.textContent = '命中 ' + hit + ' / ' + rows.length; count.hidden = false; }
 }
 
-/* 双击某一行：问引擎要这个要素的范围，把地图框过去 */
+/* 属性表双击定位的收尾：刚双击的那一行如果当时还没画出来，
+   等地图画完这一批再弹一句"高亮好了"。中间又双击了别的行就只认最后一次 */
+let locateFid = null;
+
+/* 双击某一行：把地图框到这要素的范围上，再把它描一圈高亮。
+   范围读表时就已经拿到了（服务端随行带回 bbox），这一下是瞬时的，
+   不再为了一个包围盒回原文件按编号扫一遍——wuningGEP.json 十万要素，那一下要等七八秒。
+   要素还没画出来时（绘制未完成、或超出单次绘制上限）先框住范围、用范围框代替高亮，
+   绘制一结束自动补成要素高亮，不用再双击第二次 */
 function locateAttrRow(c, i) {
   const fid = c && c.ids ? c.ids[i] : null;
-  if (fid === null || fid === undefined) { attrToast('这一行定位不了'); return; }
-  const url = '/api/measure?path=' + encodeURIComponent(c.target) +
-    '&layer=' + (c.index || 0) + '&fid=' + fid;
-  attrToast('正在定位…');
-  fetch(url).then((r) => r.json()).then((res) => {
-    if (!res || !res.ok || !res.bbox) { attrToast((res && res.error && res.error.title) || '定位失败'); return; }
-    if (window.GisMap) {
-      GisMap.zoomToBBox(res.bbox);
-      if (!GisMap.highlightFid(fid)) attrToast('该要素不在当前视野，未高亮');
-      else attrToast('已定位并高亮');
-      return;
-    }
-    attrToast('已定位到该要素');
-  }).catch(() => attrToast('定位失败'));
+  const box = c && c.boxes ? c.boxes[i] : null;
+  if (!window.GisMap) return;
+  if (!box) {
+    attrToast(fid === null || fid === undefined ? '这一行定位不了' : '这一行没有可定位的几何范围');
+    return;
+  }
+  locateFid = fid === null || fid === undefined ? null : Number(fid);
+  const state = GisMap.focusFid(fid, box);
+  if (state === 'none') { attrToast('地图还没准备好，稍后再试'); return; }
+  if (state === 'feature') { attrToast('已定位并高亮该要素'); return; }
+  /* 要素不在已画出来的那批里：地图正往那儿去，画完由 gis:focus 收尾。
+     这一条挂着不自动走——它说的是"正在进行"，不是"已经完成" */
+  toastNote('正在定位到该要素', '地图正把视图移过去，画完会自动高亮', null, true);
 }
 
 function setAttrMore(c, busy) {
@@ -2031,7 +2039,7 @@ function refreshAttr() {
   if (!c) {
     c = {
       key: key, target: L.target, index: L.index, layer: L, fields: L.fields || [],
-      keys: (L.fields || []).map((f) => f.name), rows: [], ids: [], total: null,
+      keys: (L.fields || []).map((f) => f.name), rows: [], ids: [], boxes: [], total: null,
       done: false, loading: false, built: false, error: '', tok: 0,
     };
     attrCache[key] = c;
@@ -2288,15 +2296,33 @@ function placeErrToast() {
   box.style.left = cx + 'px';
 }
 
-function showErrToast(title, detail, hint, kind) {
+/* 说明和建议都能写成多条：传数组就是分点，传字符串就是一句话。
+   分点比一整段话好读——"哪里不对"和"该怎么办"本来就该分成两行 */
+function fillToastText(box, value) {
+  if (!box) return;
+  const lines = Array.isArray(value) ? value.filter((v) => v !== null && v !== '') : [];
+  box.textContent = '';
+  if (lines.length > 1) {
+    const ul = el('ul', 'et-list');
+    lines.forEach((line) => ul.appendChild(el('li', null, String(line))));
+    box.appendChild(ul);
+    box.hidden = false;
+    return;
+  }
+  const one = lines.length ? lines[0] : (value == null ? '' : String(value));
+  box.textContent = one;
+  box.hidden = !one;
+}
+
+/* sticky：正在做的事（定位、整列复制）不该到点自己消失，
+   做完再换成结果那一条；默认按设置里的秒数自动收走 */
+function showErrToast(title, detail, hint, kind, sticky) {
   const box = $('errToast');
   if (!box) return;
   box.classList.toggle('info', kind === 'info');
   $('errTitle').textContent = title || '出了点问题';
-  $('errDetail').textContent = detail || '';
-  $('errDetail').hidden = !detail;
-  $('errHint').textContent = hint || '';
-  $('errHint').hidden = !hint;
+  fillToastText($('errDetail'), detail);
+  fillToastText($('errHint'), hint);
   box.hidden = false;
   placeErrToast();
   // 连着弹同一条时也要有"又来了"的动静：去掉类、强制重排、再加回去
@@ -2305,7 +2331,12 @@ function showErrToast(title, detail, hint, kind) {
   box.classList.add('pop');
   // 每次弹出来都把自动收走的钟重新拨一遍，新消息不会刚出现就被上一条的钟收走
   clearTimeout(errToastTimer);
-  errToastTimer = setTimeout(hideErrToast, toastMs());
+  if (!sticky) errToastTimer = setTimeout(hideErrToast, toastMs());
+}
+
+/* 只是说一句发生了什么：不挂警告图标，也不打断手上的事 */
+function toastNote(title, detail, hint, sticky) {
+  showErrToast(title, detail, hint, 'info', sticky);
 }
 
 function hideErrToast() {
@@ -2497,9 +2528,9 @@ function rememberLast(path, data) {
 /* 按控件 id 挂提示；一两句话把"这是什么、调了会怎样"说清楚。
    这些内容原来是各设置项下面的小字说明，统一改挂在气泡里，措辞从简、从正式 */
 const SETTING_TIPS = {
-  cfgBasemap: '地图底层使用的地图服务。天地图影像与天地图矢量需要下方配置密钥；选择"无底图"时背景为纯色',
-  cfgAnnotation: '在天地图底图上叠加地名、路名等注记，仅在选择天地图底图时生效',
-  cfgKey: '到天地图开放平台申请一个"浏览器端"类型的密钥，只保存在本机配置里；软件以本机网页方式运行，与授权域名无关',
+  cfgBasemap: '地图底层使用的地图服务。天地图影像与天地图矢量需要密钥，Esri 影像、OpenStreetMap 与高德影像都不需要；选择"无底图"时背景为纯色',
+  cfgAnnotation: '在底图上叠加地名、路名等注记。天地图两种底图自带注记层可单独开关；Esri 影像本身没有注记，勾选后叠天地图的注记，需要密钥；OpenStreetMap 瓦片自带注记，高德影像是 GCJ-02 基准、与天地图注记对不上，这两种底图不提供该项',
+  cfgKey: '天地图密钥。到天地图开放平台申请"浏览器端"类型的密钥，只保存在本机配置里；软件以本机网页方式运行，与授权域名无关',
   cfgRamp: '单色分级显示影像时使用的颜色系列，由低值到高值依次取色；下拉选项即实际配色效果',
   cfgClassCount: '分级上色时将数值范围划分的档数；档数越多层次越细，过密时画面容易显得破碎',
   cfgNodata: '数值等于 NoData 的像元按何种方式绘制：透出底图、涂黑或涂白',
@@ -2512,7 +2543,7 @@ const SETTING_TIPS = {
   cfgUnitLang: '量算结果与坐标读数使用的单位写法：符号（m、km）或中文（米、千米）',
   cfgZoom: '仅缩放界面文字与面板，地图画布不参与缩放，因此不影响坐标取点的精度',
   cfgAlpha: '浮在地图上的面板的不透明度；顶栏与右侧信息栏始终保持不透明',
-  cfgToastSec: '错误提示卡片与地图上那条"已定位到…"停留多久后自动收起；点一下卡片可以立即关掉',
+  cfgToastSec: '错误与提示浮层停留多久后自动收起；正在进行的操作（定位、整列复制）不会中途消失，做完或出错就换成结果那一条。点一下浮层可以立即关掉',
   cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。留空就用上次打开文件所在的文件夹；也可以点"选择…"固定一个目录',
   cachePath: '读取结果的缓存文件夹：打开过的文件的元数据、直方图与缩略图都在这里。清空只会让下次读取变慢，不会动源文件',
   cfgCloseAct: '点击窗口右上角关闭按钮时的行为：驻留托盘（任务栏不再保留按钮，可从托盘或快捷键唤回），或直接退出软件',
@@ -2531,6 +2562,59 @@ const SETTING_LABEL_TIPS = {
   '唤出快捷键': '在任何程序中按下都可将窗口唤到前台；点按钮后按下新的组合键即可修改',
   '选中即开快捷键': '在资源管理器或桌面上选中文件后按下，直接在图览中打开；空格单独按下被系统占用，需要搭配修饰键',
 };
+
+/* ---------- 设置卡片：按住标题条拖动 ---------- */
+
+/* 拖的是卡片本身，不是软件窗口。卡片 620 宽、七成屏高，把顶栏和地图都盖住，
+   想把它挪开看看后面的地图时得有个地方能抓。
+   这一版之前用的是壳的窗口拖动（titlebar:drag），一拖整个软件跟着走，那是另一回事 */
+function resetSetPos() {
+  const card = document.querySelector('.set-card');
+  if (!card) return;
+  card.style.position = '';
+  card.style.left = '';
+  card.style.top = '';
+  card.style.margin = '';
+}
+
+function wireSetDrag() {
+  const card = document.querySelector('.set-card');
+  if (!card) return;
+  const head = card.querySelector('.card-title');
+  if (!head) return;
+  let drag = null;
+  head.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    // 标题右边那颗关闭按钮（以后可能还有别的控件）：按下时仍然是它们的事
+    if (e.target.closest('button, a, input, label, select')) return;
+    const r = card.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, w: r.width, h: r.height };
+    // 改成 fixed 才跟手：卡片平时是弹性居中的，没有可写的坐标
+    card.style.position = 'fixed';
+    card.style.margin = '0';
+    card.style.left = r.left + 'px';
+    card.style.top = r.top + 'px';
+    card.classList.add('dragging');
+    try { head.setPointerCapture(e.pointerId); } catch (err) { /* 捕获不上也照样能拖 */ }
+    e.preventDefault();
+  });
+  head.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    // 至少留 8 像素在视野里：拖出屏幕回不来的卡片，比不能拖更麻烦
+    const left = Math.min(Math.max(8, e.clientX - drag.dx), Math.max(8, window.innerWidth - drag.w - 8));
+    const top = Math.min(Math.max(8, e.clientY - drag.dy), Math.max(8, window.innerHeight - drag.h - 8));
+    card.style.left = left + 'px';
+    card.style.top = top + 'px';
+  });
+  const end = (e) => {
+    if (!drag) return;
+    drag = null;
+    card.classList.remove('dragging');
+    try { head.releasePointerCapture(e.pointerId); } catch (err) { /* 已经松开了 */ }
+  };
+  head.addEventListener('pointerup', end);
+  head.addEventListener('pointercancel', end);
+}
 
 function mountSettingTips() {
   const root = $('settings');
@@ -2910,11 +2994,40 @@ function segSet(id, val) {
   });
 }
 
+/* 底图这几项跟着底图变：密钥只对用得上的底图出现，注记开关只对能叠注记的底图出现。
+   底下那行小字说明当前底图要不要密钥、注记从哪来——换底图后为什么少了两项，看这行就明白 */
+const BM_NOTES = {
+  none: '不用在线底图，背景为纯色，只显示数据本身',
+  tianditu_img: '天地图影像需要密钥。影像与注记是两层，注记可以单独开关',
+  tianditu_vec: '天地图矢量需要密钥。地图文字本身就是注记，另有独立的注记图层可叠加',
+  esri: 'Esri 卫星影像不需要密钥，影像本身没有地名注记；可勾选天地图注记叠上去（需要天地图密钥）',
+  osm: 'OpenStreetMap 不需要密钥，瓦片自带地名与路网注记',
+  amap: '高德影像不需要密钥；瓦片是 GCJ-02 基准，叠天地图注记会整体偏移，所以没有注记开关',
+};
+
+function paintBasemapFields() {
+  const sel = $('cfgBasemap');
+  const bm = String((sel && sel.value) || config.basemap || 'none');
+  const tdt = bm === 'tianditu_img' || bm === 'tianditu_vec';
+  const noteBox = $('cfgAnnotation');
+  const noteOn = noteBox ? noteBox.checked : config.annotation === true;
+  // 能叠注记的：天地图两种（自带注记层）、Esri 影像（本身无注记）
+  const canNote = tdt || bm === 'esri';
+  const noteField = $('cfgAnnotationField');
+  const keyField = $('cfgKeyField');
+  if (noteField) noteField.hidden = !canNote;
+  // 密钥：天地图必须；Esri 只在要叠天地图注记时才需要
+  if (keyField) keyField.hidden = !(tdt || (bm === 'esri' && noteOn));
+  const hint = $('bmHint');
+  if (hint) hint.textContent = BM_NOTES[bm] || '';
+}
+
 /* 把 config 摊到设置页的各控件上；控件都是自绘的，摊完要再同步一次 */
 function fillSettings() {
   $('cfgBasemap').value = config.basemap || 'tianditu_img';
   $('cfgAnnotation').checked = config.annotation === true;
   $('cfgKey').value = config.tianditu_key || '';
+  paintBasemapFields();
   $('cfgRamp').value = config.ramp || 'viridis';
   $('cfgClassCount').value = String(config.class_count || 5);
   $('cfgNodata').value = config.nodata_view || 'transparent';
@@ -3414,6 +3527,8 @@ async function applySettings() {
   config.basemap = $('cfgBasemap').value;
   config.annotation = $('cfgAnnotation').checked;
   config.tianditu_key = $('cfgKey').value.trim();
+  // 换了底图要立刻换掉下面那几项：密钥留空不删，切回天地图还用得上
+  paintBasemapFields();
   config.ramp = $('cfgRamp').value;
   config.class_count = Number($('cfgClassCount').value);
   config.nodata_view = $('cfgNodata').value;
@@ -3661,15 +3776,12 @@ function init() {
     fillSettings();
     $('settings').hidden = false;
   });
-  $('cfgClose').addEventListener('click', () => { settleHotkey(); $('settings').hidden = true; });
-  /* 设置页顶部也能拖窗口：设置面板铺满大半个画面，顶栏又被它挡住，
-     想把窗口挪开时没有可抓的地方，按住标题这一条就交给系统拖动循环 */
-  const setHead = document.querySelector('.set-card > .card-title');
-  if (setHead) setHead.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    if (e.target.closest('button, a, input, label, select')) return;
-    toShell('titlebar:drag');
+  $('cfgClose').addEventListener('click', () => {
+    settleHotkey();
+    $('settings').hidden = true;
+    resetSetPos();   // 下次打开还是居中，不会停在上一回拖到的角落
   });
+  wireSetDrag();
   // 浮层卡片没有关闭按钮：点卡片任意处即关（自动到点收走的逻辑在 showErrToast 里）
   $('errToast').addEventListener('click', hideErrToast);
   wireCloseAsk();
@@ -3817,6 +3929,20 @@ function init() {
     localCoords = !!(e.detail && e.detail.assumedLocal);
   });
   $('map').addEventListener('gis:mouse', paintPos);
+  /* 属性表双击的那一行画出来了：把"等绘制"换成结果，用户不用再双击一次。
+     这一轮画完仍然没有它（超出单次绘制上限、几何为空）也要说一句，
+     否则那条"正在等"会一直挂着 */
+  $('map').addEventListener('gis:focus', (e) => {
+    const d = e.detail || {};
+    if (d.fid === null || d.fid === undefined) return;
+    if (locateFid !== null && Number(d.fid) !== locateFid) return;
+    if (d.ok === false) {
+      toastNote('已框到该要素的范围',
+        ['视野内还没有画出这个要素，可能是超出了单次绘制上限', '范围框先标出它的位置，放大后会补上高亮']);
+      return;
+    }
+    attrToast('已定位并高亮该要素');
+  });
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);
   });

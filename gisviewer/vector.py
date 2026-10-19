@@ -678,6 +678,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
             fid_now = -1
         msr_area = None
         msr_len = None
+        row_box = None
         if with_geometry:
             if geom is None:
                 no_geometry += 1
@@ -720,8 +721,26 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
                 failed += 1
                 continue
         else:
+            # 只要属性。但属性表双击定位要用这一行要素的范围，而这里的几何
+            # 本来就已经解析过了——顺手取个包络，比双击时回原文件按编号扫一遍便宜得多
             if geom is None:
                 no_geometry += 1
+            else:
+                try:
+                    # 空几何的包络是 0,0,0,0，照它定位会跳到几内亚湾去，宁可不给范围
+                    env = None if geom.IsEmpty() else geom.GetEnvelope()
+                    if env is not None:
+                        if ct is not None:
+                            # 只转两个对角：坐标变换下矩形不会保持矩形，但包围盒够用了
+                            p1 = ct.TransformPoint(env[0], env[2])
+                            p2 = ct.TransformPoint(env[1], env[3])
+                            env = (min(p1[0], p2[0]), max(p1[0], p2[0]),
+                                   min(p1[1], p2[1]), max(p1[1], p2[1]))
+                        if all(v is not None for v in env):
+                            row_box = [float(env[0]), float(env[2]),
+                                       float(env[1]), float(env[3])]
+                except Exception:
+                    row_box = None
             geom = None   # 只要属性，几何不序列化
         try:
             # 等价于绑定里的 feat.ExportToJson()，但几何让 C 层直接导、属性按字段
@@ -741,8 +760,9 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
             if fid_now is not None and fid_now >= 0:
                 item["id"] = fid_now
             if not with_geometry:
-                # 属性表要能按行定位回要素，得带上 FID
+                # 属性表要能按行定位回要素，得带上 FID 和这一行的经纬度范围
                 item["fid"] = fid_now
+                item["bbox"] = row_box
             elif msr_area is not None or msr_len is not None:
                 # 下划线开头：属性表、识别弹窗都不把它当业务字段显示
                 if msr_area is not None:
