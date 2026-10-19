@@ -1917,17 +1917,26 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   font-size: 12px;
   color: var(--text-dim);
 }
-.recent-pop .rp-title { display: inline-flex; align-items: center; gap: 5px; }
-/* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力 */
+/* 标题和计数并排：两个都用 flex 对齐，靠的是整块盒子的中线，
+   不是各自文字的基线——基线对法在字号不同时看着就是一高一低 */
+.recent-pop .rp-title { display: inline-flex; align-items: center; gap: 5px; height: 16px; }
+/* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力。
+   写死高度并让数字在里面居中，跟标题同一根中线 */
 .recent-pop .rp-num {
-  padding: 1px 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 15px;
+  padding: 0 5px;
   font-family: var(--font-num);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1;
   color: var(--text-dim);
   background: var(--panel-alt);
   border-radius: 999px;
+  /* 数字等宽，条数变化时胶囊不会忽宽忽窄 */
+  font-variant-numeric: tabular-nums;
 }
 
 .recent-pop .rp-clear {
@@ -2044,7 +2053,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   /* 左边界由 showErrToast 按地图元素的水平中心算出来（右侧还有信息栏，
      按窗口居中会偏右）；这里的 50% 只是脚本没跑到时的兜底 */
   left: 50%;
-  top: 54px;
+  top: 66px;
   transform: translateX(-50%);
   z-index: 80;
   display: flex;
@@ -2057,7 +2066,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 9px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+  /* 浮层要"离开"页面才有层次感：投影分三层，近处一层贴边、远处一层散开 */
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 4px 10px rgba(0, 0, 0, 0.14),
+    0 1px 2px rgba(0, 0, 0, 0.10);
   cursor: pointer;
 }
 
@@ -2169,21 +2180,22 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 
 /* 关闭确认框：取消 / 退出 / 驻留在托盘 三个选择 */
 .close-card {
-  width: 380px;
+  width: 368px;
   max-width: calc(100vw - 40px);
-  padding: 15px 17px 13px;
+  padding: 11px 14px 10px;
   gap: 0;
 }
 .close-card h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 700;
+  line-height: 1.35;
   color: var(--text);
 }
 .close-card .ca-text {
-  margin: 7px 0 0;
+  margin: 5px 0 0;
   font-size: 12.5px;
-  line-height: 1.65;
+  line-height: 1.55;
   color: var(--text-dim);
 }
 /* 软件里的名词加粗：说"去设置里改"时，设置、系统这些是界面上的字，认得出才找得到 */
@@ -2192,8 +2204,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 11px;
+  margin-top: 8px;
+  /* 行高压到 1.2：文字盒子和 15px 的方框一样高，两者中线才对得齐 */
   font-size: 12.5px;
+  line-height: 1.2;
   color: var(--text-dim);
   cursor: pointer;
 }
@@ -2234,10 +2248,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .close-card .ca-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 13px;
+  gap: 7px;
+  margin-top: 10px;
 }
-.close-card .ca-actions .btn { min-width: 76px; padding: 5px 13px; font-size: 12.5px; }
+.close-card .ca-actions .btn { min-width: 72px; padding: 4px 12px; font-size: 12.5px; }
 
 /* 最近打开：每条右侧一枚删除图标 */
 .rp-text { min-width: 0; flex: 1; }

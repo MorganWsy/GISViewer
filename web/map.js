@@ -973,13 +973,23 @@
       ? [minX, minY, maxX, maxY] : null;
   }
 
+  /* 属性表开着时画面下半截被它盖住：定位要素要把它让出来，
+     否则要素正好落在面板背后，看着像"没定位过去" */
+  function attrPad() {
+    const p = document.getElementById('attrPanel');
+    if (!p || p.hidden) return 0;
+    const h = p.getBoundingClientRect().height;
+    return h > 0 ? h + 12 : 0;
+  }
+
   function fitBBox(b) {
     if (!b || b.length < 4) return;
+    const pad = { top: 80, bottom: 80 + attrPad(), left: 80, right: 80 };
     if (b[2] - b[0] < 1e-7 && b[3] - b[1] < 1e-7) {
-      map.easeTo({ center: [b[0], b[1]], zoom: Math.max(map.getZoom(), 16), duration: 450 });
+      map.easeTo({ center: [b[0], b[1]], zoom: Math.max(map.getZoom(), 16), padding: pad, duration: 450 });
       return;
     }
-    map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 80, maxZoom: 17, duration: 450 });
+    map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: pad, maxZoom: 17, duration: 450 });
   }
 
   /* 坐标定位用的十字标记：一个不带气泡的标记点，再定位或关掉图层就撤 */

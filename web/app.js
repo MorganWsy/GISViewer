@@ -1520,22 +1520,43 @@ function attrOpen() {
   return !$('attrPanel').hidden;
 }
 
+/* 开合是两段动画：展开时先建元素再撤 .shrunk，收起时先加 .shrunk 再延时藏。
+   收起那段如果只看"定时器到点时还有没有 .shrunk"，会踩到一个坑：切图层的瞬间
+   先 closeAttr() 再 showAttr(true)，可主线程正忙着画新图层，请求到的两帧回调迟迟
+   不跑，.shrunk 还在，定时器到点就把刚打开的面板又藏了——而 attr-on 已经加上，
+   于是位置组件往上让了位、属性表却不见。改成记住"现在到底开着没有"，
+   定时器到点只看这个状态 */
+let attrWantOpen = false;
+let attrHideTimer = 0;
+
 function showAttr(on) {
   const panel = $('attrPanel');
   const stage = document.querySelector('.map-stage');
+  attrWantOpen = on;
   $('attrBtn').classList.toggle('on', on);
   $('attrBtn').setAttribute('aria-expanded', on ? 'true' : 'false');
   if (on) {
+    clearTimeout(attrHideTimer);
     if (stage) stage.classList.add('attr-on');
     panel.hidden = false;
     panel.classList.add('shrunk');
-    requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.remove('shrunk')));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (attrWantOpen) panel.classList.remove('shrunk');
+    }));
     return;
   }
-  if (panel.hidden) return;
+  if (panel.hidden) {
+    /* 已经收着了：顺手把残留的 attr-on 清掉，别让地图上的位置组件一直悬在半空 */
+    if (stage) stage.classList.remove('attr-on');
+    clearTimeout(attrHideTimer);
+    return;
+  }
   panel.classList.add('shrunk');
   if (stage) stage.classList.remove('attr-on');
-  setTimeout(() => { if (panel.classList.contains('shrunk')) panel.hidden = true; }, 200);
+  clearTimeout(attrHideTimer);
+  attrHideTimer = setTimeout(() => {
+    if (!attrWantOpen) panel.hidden = true;
+  }, 200);
 }
 
 /* 收起只是藏起来：缓存不动，再打开是瞬时的 */
@@ -2226,6 +2247,9 @@ function closeLayer() {
   current = null;
   mouseOn = false;
   resetRasterView();
+  /* 文件都关了，属性表不能还挂着一份旧行；缓存留着，同一个文件再打开是瞬时的 */
+  closeAttr();
+  attrShown = null;
   if (window.GisMap) GisMap.clear();
   $('rail').textContent = '';
   $('panels').hidden = true;
@@ -2492,6 +2516,7 @@ const SETTING_TIPS = {
   cfgOpenDir: '点"打开文件"或"打开文件夹"时，系统对话框从哪个目录起步。留空就用上次打开文件所在的文件夹；也可以点"选择…"固定一个目录',
   cachePath: '读取结果的缓存文件夹：打开过的文件的元数据、直方图与缩略图都在这里。清空只会让下次读取变慢，不会动源文件',
   cfgCloseAct: '点击窗口右上角关闭按钮时的行为：驻留托盘（任务栏不再保留按钮，可从托盘或快捷键唤回），或直接退出软件',
+  cfgCloseAsk: '勾选后每次点关闭按钮都先问一句：驻留托盘还是直接退出；不勾选就按上面选的行为直接执行',
   cfgAutoStart: '开机后自动启动并驻留托盘：不弹出窗口，任务栏也不显示按钮，通过托盘图标或快捷键唤出',
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
   cfgUpdFreq: '检查新版本的频率。检查时仅访问发布页一次，其余时间不联网',
@@ -2539,6 +2564,7 @@ function recentMax() {
 }
 
 function rememberRecent(p) {
+  p = tidyPath(p);
   /* 同一条路径换个写法（斜杠、大小写）不该重复出现：按归一化后的形式去重 */
   const key = (x) => String(x).replace(/[\\/]+/g, '/').toLowerCase();
   const list = (config.recent || []).filter((x) => x && key(x) !== key(p));
@@ -2549,6 +2575,24 @@ function rememberRecent(p) {
 
 function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 
+/* 一条路径在界面上只该有一种写法：斜杠统一成反斜杠、连续分隔符压成一个、
+   从 Git Bash 粘来的 /d/xxx 折回 D:\。拖放、粘贴、命令行传参的写法各不相同，
+   不收敛的话同一个文件会以 D:////a////b.tif 这种样子留在路径框和最近打开里。
+   GDAL 的 /vsi 虚拟路径内部本来就用正斜杠，原样留着 */
+function tidyPath(raw) {
+  let s = String(raw == null ? '' : raw).trim();
+  s = s.replace(/^["']+|["']+$/g, '');
+  if (!s) return '';
+  if (s.toLowerCase().startsWith('file://')) s = s.slice(7);
+  if (/^\/vsi/i.test(s)) return s;
+  /* /d/data/x.tif：Git Bash、MSYS 的写法，先折成盘符，否则下面的反斜杠替换会把它变成 \d\data */
+  if (/^\/[A-Za-z](\/|$)/.test(s)) s = s[1].toUpperCase() + ':' + s.slice(2);
+  const unc = /^[\\/]{2}[^\\/]/.test(s);   // \\server\share 的前导双斜杠要留住
+  s = s.replace(/[\\/]+/g, '\\');
+  if (unc) s = '\\' + s;
+  return s;
+}
+
 function renderRecent() {
   const pop = $('recentPop');
   if (!pop) return;
@@ -2557,14 +2601,13 @@ function renderRecent() {
   pop.textContent = '';
   if (!list.length) { pop.hidden = true; return; }
   const head = el('div', 'rp-head');
-  /* 标题后面缀一个数字：这里列着几条。条数上限之外还存着更多时，
-     鼠标停在数字上能看到"这里显示几条、一共几条"——数字和下面的行数对得上，
-     不会出现"写着 15 却只列了 12 条"这种看着像出错的情况 */
+  /* 标题后面缀一枚计数："列着几条/设置里的上限"。写成分数形式，
+     一眼能看出还没到上限还是已经满了；悬停时说明记录池里还存着多少 */
   const title = el('span', 'rp-title', '最近打开');
-  title.appendChild(el('b', 'rp-num', String(list.length)));
+  title.appendChild(el('b', 'rp-num', list.length + '/' + recentMax()));
   title.title = all.length > list.length
-    ? '这里显示最近 ' + list.length + ' 条，一共存着 ' + all.length + ' 条'
-    : '一共 ' + all.length + ' 条';
+    ? '这里显示最近 ' + list.length + ' 条，共用上限 ' + recentMax() + ' 条，记录池里存着 ' + all.length + ' 条'
+    : '这里显示 ' + list.length + ' 条，上限 ' + recentMax() + ' 条';
   head.appendChild(title);
   const clear = el('button', 'rp-clear');
   clear.type = 'button';
@@ -2778,6 +2821,7 @@ window.GisDropPaths = function (paths) {
 };
 
 function openDropped(path) {
+  path = tidyPath(path);
   $('pathInput').value = path;
   inspectPath(path);
 }
@@ -2819,6 +2863,17 @@ async function loadConfig() {
     const res = await fetch('/api/config');
     const data = await res.json();
     if (data.ok) config = Object.assign(config, data.config);
+    /* 早先版本可能把 D:////a////b.tif 这种写法存进了最近打开，读配置时统一洗一遍，
+       顺带按归一化后的形式去重 */
+    if (Array.isArray(config.recent)) {
+      const seen = new Set();
+      config.recent = config.recent.filter(Boolean).map(tidyPath).filter((p) => {
+        const k = p.replace(/[\\/]+/g, '/').toLowerCase();
+        if (!p || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    }
     if (data.ramps) paintRampSwatches(data.ramps);
     if (data.version) {
       // 版本号不在界面上露脸了，只留给标题栏和更新检查
@@ -3576,8 +3631,10 @@ function init() {
 
   $('pathForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    const value = $('pathInput').value.trim();
+    /* 手输的路径两种斜杠都认（服务端同样会归一化），这里先把写法收敛一下再交给下面 */
+    const value = tidyPath($('pathInput').value);
     if (!value) return;
+    $('pathInput').value = value;
     /* 顶栏这一个框两用：像经纬度就先当坐标定位，否则当文件路径去读 */
     const ll = parseLonLat(value);
     if (ll) { gotoLonLat(ll); return; }
@@ -3605,6 +3662,14 @@ function init() {
     $('settings').hidden = false;
   });
   $('cfgClose').addEventListener('click', () => { settleHotkey(); $('settings').hidden = true; });
+  /* 设置页顶部也能拖窗口：设置面板铺满大半个画面，顶栏又被它挡住，
+     想把窗口挪开时没有可抓的地方，按住标题这一条就交给系统拖动循环 */
+  const setHead = document.querySelector('.set-card > .card-title');
+  if (setHead) setHead.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, a, input, label, select')) return;
+    toShell('titlebar:drag');
+  });
   // 浮层卡片没有关闭按钮：点卡片任意处即关（自动到点收走的逻辑在 showErrToast 里）
   $('errToast').addEventListener('click', hideErrToast);
   wireCloseAsk();
@@ -3833,14 +3898,16 @@ function init() {
     }
     const given = params.get('path');
     if (given) {
-      $('pathInput').value = given;
-      inspectPath(given);
+      const clean = tidyPath(given);
+      $('pathInput').value = clean;
+      inspectPath(clean);
       return;
     }
     fetch('/api/preload').then((r) => r.json()).then((d) => {
       if (d.ok && d.paths && d.paths.length) {
-        $('pathInput').value = d.paths[0];
-        inspectPath(d.paths[0]);
+        const clean = tidyPath(d.paths[0]);
+        $('pathInput').value = clean;
+        inspectPath(clean);
       }
     }).catch(() => {});
   });
