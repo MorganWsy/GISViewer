@@ -32,19 +32,180 @@ _XY_OPEN_OPTIONS = [
 ]
 
 
+# 这些格式的坐标按规范就是 WGS 84 经纬度，文件里不写坐标系也照样能画
+DEFAULT_WGS84_DRIVERS = {"TopoJSON", "GeoJSON", "GeoJSONSeq", "tj2", "JSON"}
+
+# 表格驱动（CSV/XLSX 这类）里没有声明坐标系的几何就是经纬度：
+# XY 列、WKT 列认出来的坐标本来就是度，不能再走"本地坐标当作米"的兜底
+_TABLE_WGS84_DRIVERS = DEFAULT_WGS84_DRIVERS | {"CSV", "XLSX", "XLS", "ODS"}
+
+# XY 补几何只对电子表格驱动做：CSV 驱动自己就认上面的打开选项。
+# 限制驱动是防止别的格式里恰好有叫 x/y 的普通数值列被误当坐标
+_XY_SHEET_DRIVERS = {"XLSX", "XLS", "ODS"}
+
+_X_FIELD_NAMES = ("lon", "lng", "long", "longitude", "x", "经度")
+_Y_FIELD_NAMES = ("lat", "latitude", "y", "纬度")
+_WKT_FIELD_NAMES = ("wkt", "the_geom", "geom", "geometry", "shape", "wkb_geometry")
+
+# 补几何的内存数据源把原始驱动名记在这条元数据里，对外仍按来源驱动上报
+_SOURCE_DRIVER_KEY = "TULAN_SOURCE_DRIVER"
+
+
+def _driver_name(ds):
+    name = ds.GetDriver().ShortName
+    if name == "Memory":
+        try:
+            name = (ds.GetMetadata() or {}).get(_SOURCE_DRIVER_KEY) or name
+        except Exception:
+            pass
+    return name
+
+
+def _driver_long(ds):
+    short = _driver_name(ds)
+    if ds.GetDriver().ShortName == "Memory" and short != "Memory":
+        try:
+            other = ogr.GetDriverByName(short)
+            if other is not None:
+                return other.LongName
+        except Exception:
+            pass
+    return ds.GetDriver().LongName
+
+
+def _field_index(defn, names):
+    """按列名找字段序号（去空格转小写后比对），找不到返回 -1。"""
+    table = {}
+    for k in range(defn.GetFieldCount()):
+        table.setdefault(defn.GetFieldDefn(k).GetName().strip().lower(), k)
+    for n in names:
+        if n in table:
+            return table[n]
+    return -1
+
+
+def _xy_number(feat, idx):
+    """把字段读成数值；文本列里的"116.4"也能认，认不出的行不当坐标。"""
+    if not feat.IsFieldSetAndNotNull(idx):
+        return None
+    t = feat.GetFieldDefnRef(idx).GetType()
+    if t in (ogr.OFTInteger, ogr.OFTInteger64, ogr.OFTReal):
+        return feat.GetFieldAsDouble(idx)
+    s = feat.GetFieldAsString(idx).strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _xy_upgrade(ds):
+    """XLSX 这类表格驱动不认 XY 猜测的打开选项（CSV 认），打开后依旧没有几何。
+
+    哪张表同时有经纬度两列（或带 WKT 列），就在内存里补出几何图层，
+    后面读要素、画图、属性表、量算全都照常走；一列有效值都凑不齐就整体
+    退回原样，同名的普通文本列不会被误当坐标。补出的几何不带坐标系定义，
+    表格驱动的无坐标系几何按经纬度画，与 CSV 的 XY 列同一条路。"""
+    try:
+        if ds is None or ds.GetLayerCount() == 0:
+            return ds
+        if ds.GetDriver().ShortName not in _XY_SHEET_DRIVERS:
+            return ds
+        plans = []
+        for i in range(ds.GetLayerCount()):
+            lyr = ds.GetLayerByIndex(i)
+            if lyr is None or lyr.GetGeomType() != ogr.wkbNone:
+                continue
+            defn = lyr.GetLayerDefn()
+            xi = _field_index(defn, _X_FIELD_NAMES)
+            yi = _field_index(defn, _Y_FIELD_NAMES)
+            wi = _field_index(defn, _WKT_FIELD_NAMES)
+            if (xi >= 0 and yi >= 0) or wi >= 0:
+                plans.append((i, xi, yi, wi))
+        if not plans:
+            return ds
+        mem = ogr.GetDriverByName("Memory").CreateDataSource("xy")
+        if mem is None:
+            return ds
+        mem.SetMetadata({_SOURCE_DRIVER_KEY: ds.GetDriver().ShortName})
+        plan_map = {p[0]: p for p in plans}
+        made_any = False
+        for i in range(ds.GetLayerCount()):
+            src = ds.GetLayerByIndex(i)
+            if src is None:
+                continue
+            if i not in plan_map:
+                mem.CopyLayer(src, src.GetName())
+                continue
+            _i, xi, yi, wi = plan_map[i]
+            out = mem.CreateLayer(src.GetName(), None,
+                                  ogr.wkbUnknown if wi >= 0 else ogr.wkbPoint)
+            src_defn = src.GetLayerDefn()
+            for k in range(src_defn.GetFieldCount()):
+                out.CreateField(src_defn.GetFieldDefn(k))
+            src.ResetReading()
+            while True:
+                feat = src.GetNextFeature()
+                if feat is None:
+                    break
+                # 个别单元格是坏值只跳过那一行，不放弃整张表
+                try:
+                    if wi >= 0:
+                        raw = feat.GetFieldAsString(wi).strip() if feat.IsFieldSetAndNotNull(wi) else ""
+                        geom = None
+                        if raw:
+                            try:
+                                geom = ogr.CreateGeometryFromWkt(raw)
+                            except Exception:
+                                geom = None
+                            if geom is None:
+                                try:
+                                    geom = ogr.CreateGeometryFromWkb(bytes.fromhex(raw))
+                                except Exception:
+                                    geom = None
+                    else:
+                        xv = _xy_number(feat, xi)
+                        yv = _xy_number(feat, yi)
+                        geom = None
+                        if xv is not None and yv is not None:
+                            geom = ogr.Geometry(ogr.wkbPoint)
+                            geom.AddPoint_2D(xv, yv)
+                    if geom is None:
+                        continue
+                    dup = ogr.Feature(out.GetLayerDefn())
+                    dup.SetFrom(feat)
+                    dup.SetGeometry(geom)
+                    out.CreateFeature(dup)
+                    made_any = True
+                except Exception:
+                    continue
+            src.ResetReading()
+        if not made_any:
+            return ds
+        return mem
+    except Exception:
+        return ds
+
+
 def _open_vector(target):
     """优先带 XY 猜测打开，失败再按默认方式打开一次。
 
-    OpenEx 在 gdal 模块上（ogr 没有），XY 选项对 CSV/XLSX 生效，
-    其他驱动不认识这些选项会忽略。"""
+    OpenEx 在 gdal 模块上（ogr 没有）。XY 选项只有 CSV 驱动认，别的驱动
+    收到会告警"不支持该选项"，所以只对 .csv 传；XLSX 哪条路都拿不到几何，
+    打开后再补一次（见 _xy_upgrade）。"""
+    options = _XY_OPEN_OPTIONS if str(target).lower().endswith(".csv") else None
     try:
         ds = gdal.OpenEx(target, gdal.OF_VECTOR | gdal.OF_READONLY,
-                         open_options=_XY_OPEN_OPTIONS)
+                         open_options=options)
         if ds is not None:
-            return ds
+            return _xy_upgrade(ds)
     except Exception:
         pass
-    return ogr.Open(target)
+    ds = ogr.Open(target)
+    if ds is None:
+        return None
+    return _xy_upgrade(ds)
 
 
 def _serialized(fn):
@@ -62,9 +223,6 @@ MAX_FEATURES_PER_REQUEST = 50000
 _Z_FLAG = 0x80000000
 _M_FLAG = 0x40000000
 _SRID_FLAG = 0x20000000
-
-# 这些格式的坐标按规范就是 WGS 84 经纬度，文件里不写坐标系也照样能画
-DEFAULT_WGS84_DRIVERS = {"TopoJSON", "GeoJSON", "GeoJSONSeq", "tj2", "JSON"}
 
 
 def read_target(path):
@@ -225,8 +383,9 @@ def _layer_info(lyr, index, fallback_epsg=None, quick=False):
 
     srs = lyr.GetSpatialRef()
     wkt = srs.ExportToWkt() if srs else ""
-    if not wkt and fallback_epsg:
-        # TopoJSON 之类不写坐标系，但规范规定坐标就是 WGS 84 经纬度
+    if not wkt and fallback_epsg and base != 100:
+        # TopoJSON 之类不写坐标系，规范规定坐标就是 WGS 84 经纬度；
+        # 表格驱动的 XY/WKT 列同理（无几何的纯表格不挂这套说法）
         crs = describe(fallback_epsg)
         crs["note"] = "文件没带坐标系定义，按格式规范默认 WGS 84 经纬度"
         wkt = crs.get("wkt") or ""
@@ -308,8 +467,9 @@ def inspect(target, quick=False):
     if ds is None:
         raise ValueError("没有可识别的矢量图层")
 
-    driver = ds.GetDriver().ShortName
-    fallback = 4326 if driver in DEFAULT_WGS84_DRIVERS else None
+    driver = _driver_name(ds)
+    # 表格驱动补出的几何与 GeoJSON 同权：没写坐标系就按规范默认 WGS 84
+    fallback = 4326 if driver in _TABLE_WGS84_DRIVERS else None
     total = ds.GetLayerCount()
     layers = []
     for i in range(min(total, MAX_LAYERS)):
@@ -327,7 +487,7 @@ def inspect(target, quick=False):
         "quick": bool(quick),
         "driver": driver,
         "driver_label": labels.driver(driver),
-        "driver_long": ds.GetDriver().LongName,
+        "driver_long": _driver_long(ds),
         "layer_count": total,
         "layers": layers,
         "dataset_metadata": ds.GetMetadata() or {},
@@ -430,8 +590,9 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     wkt = srs.ExportToWkt() if srs else ""
     assumed_local = False
     if not wkt:
-        # TopoJSON 一类不写坐标系，但格式规范规定它的坐标就是 WGS 84 经纬度，直接按经纬度画
-        if ds.GetDriver().ShortName in DEFAULT_WGS84_DRIVERS:
+        # TopoJSON 一类不写坐标系，格式规范规定坐标就是 WGS 84 经纬度；表格驱动的
+        # XY/WKT 列补出来的几何同理，坐标本来就是度，直接按经纬度画
+        if _driver_name(ds) in _TABLE_WGS84_DRIVERS:
             src = dst = ct = None
         else:
             # 没有坐标系的情况（多为 CAD 图纸、本地坐标）：把原始坐标当作米、
@@ -717,7 +878,7 @@ def _measure_layer(target, layer_index):
     srs = lyr.GetSpatialRef()
     # 和 read_features 里"本地坐标当作米"的约定保持一致，量算才不会把米当度算
     assume_local = (not (srs and srs.ExportToWkt())) and \
-        ds.GetDriver().ShortName not in DEFAULT_WGS84_DRIVERS
+        _driver_name(ds) not in _TABLE_WGS84_DRIVERS
     _MEASURE_SRC.clear()
     _MEASURE_SRC.update({"key": key, "ds": ds, "lyr": lyr, "index": index,
                          "assume_local": assume_local})

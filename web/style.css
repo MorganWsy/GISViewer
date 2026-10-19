@@ -711,7 +711,9 @@ table.chip-table td {
 .legend-head .fold-btn { margin-left: auto; }
 .legend-head .combo { flex: none; width: 96px; min-width: 0; }
 .legend-head .combo-btn { padding: 3px 22px 3px 8px; font-size: 13px; background: none; }
-.legend-head .combo-list { top: auto; bottom: calc(100% + 4px); }
+.legend-head .combo-list { top: auto; bottom: calc(100% + 4px); padding: 3px; }
+/* 图例那颗下拉是缩小版：按钮紧凑，展开列表的选项边距也跟着收一档 */
+.legend-head .combo-list .combo-opt { padding: 4px 8px; }
 .legend-body { margin-top: 6px; max-height: 34vh; overflow-y: auto; }
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
@@ -1224,8 +1226,11 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 .idp-measure { padding-top: 4px; margin-top: 3px; border-top: 1px solid var(--line); }
 .idp-body {
   max-height: min(46vh, 380px);
-  /* 自绘滚动条本身占 11px，不再额外加右侧留白，没有滚动条时值和关闭按钮右对齐 */
+  /* 自绘滚动条本身占 11px。滚动条两侧都要有缝：右外边距吃掉弹窗 5px 内边距，
+     滚动条离弹窗边只剩 5px，不再是一大片空白；右内边距 8px 让值列和滚动条不贴着 */
   overflow-y: auto;
+  padding-right: 8px;
+  margin-right: -5px;
 }
 /* 字段一多，一列拉得老长，超过六行就两列并排 */
 .idp-body.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
@@ -1312,6 +1317,22 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   border-left: 1px solid var(--line);
   border-top: 1px solid var(--line);
 }
+
+/* 分点说明：文案里有换行时按行拆开，每行前面一枚小圆点；
+   单行文案不加圆点，维持原来的整段样式 */
+.tip-bubble.tip-multi { padding: 9px 11px; }
+.tip-bubble.tip-multi .tip-li { display: flex; align-items: flex-start; gap: 7px; }
+.tip-bubble.tip-multi .tip-li + .tip-li { margin-top: 5px; }
+.tip-bubble.tip-multi .tip-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 6.5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.tip-bubble.tip-multi .tip-txt { min-width: 0; }
 
 .tip-bubble a.tip-link {
   display: block;
@@ -1852,14 +1873,15 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   padding: 1px 6px;
   font: inherit;
   font-size: 11.5px;
-  color: var(--text-dim);
+  /* 清空删的是全部记录，常驻警告色提醒这一下不可挽回 */
+  color: #d64545;
   background: none;
   border: 1px solid var(--line);
   border-radius: 4px;
   cursor: pointer;
 }
 
-.recent-pop .rp-clear:hover { color: var(--accent); border-color: var(--accent); }
+.recent-pop .rp-clear:hover { color: #fff; background: #d64545; border-color: #d64545; }
 .recent-pop .rp-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
 .recent-pop .rp-item:hover { background: var(--accent-soft); }
 .recent-pop .rp-name { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -2050,9 +2072,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   cursor: pointer;
   opacity: 0;
 }
+/* 删除按钮尺寸不变，图标放大一档才看得清，悬停仍是警告红 */
 .rp-item:hover .rp-del { opacity: 1; }
 .rp-del:hover { color: #d64545; background: var(--panel-alt); }
-.rp-del svg { width: 12px; height: 12px; }
+.rp-del svg { width: 15px; height: 15px; }
 
 /* 地图右上角：移动/缩放后重新取数的小提示，转圈时别让人觉得没反应 */
 #vecBusy {
@@ -2082,4 +2105,25 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 50%;
   animation: vecspin 0.8s linear infinite;
 }
+
+/* 全局提示（toast）：视野内到达单次上限这类"一次说明白"的事，
+   钉在顶栏下方的地图上沿，几秒后自己消失，不再占用地图底部的状态栏 */
+#gisToast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(70vw, 520px);
+  padding: 8px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--overlay);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+  pointer-events: none;
+}
+#gisToast[hidden] { display: none; }
 @keyframes vecspin { to { transform: rotate(360deg); } }

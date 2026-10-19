@@ -40,3 +40,6 @@ if ($code -ge 8) { throw "robocopy 失败，退出码 $code" }
 Get-ChildItem -Path $Dst -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
 $bytes = (Get-ChildItem $Dst -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Write-Host ("runtime 已生成：{0}  ({1:N0} MB)" -f $Dst, ($bytes / 1MB))
+# robocopy 的退出码留在 $LASTEXITCODE 里（1 = 有文件复制，不是失败），
+# 不显式清零会让 build.ps1 的退出码检查误判
+exit 0

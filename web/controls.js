@@ -76,6 +76,10 @@
       list.style.left = Math.round(r.left) + 'px';
       list.style.width = Math.round(r.width) + 'px';
       list.style.right = 'auto';
+      // bottom 必须一起清掉：图例的列表在 CSS 里写着 bottom（旧版的向上展开规则），
+      // 固定定位下 top、bottom 同时生效会把列表撑成"按钮到屏幕底边"的剩余高度——
+      // 图例在地图底部，那几像素就是全部展开高度，看起来就是"下拉框只展开一条缝"
+      list.style.bottom = 'auto';
       list.style.top = Math.round(r.bottom + 4) + 'px';
       const lh = list.getBoundingClientRect().height;
       if (r.bottom + 4 + lh > window.innerHeight - 8) {

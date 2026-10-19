@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# 体检的对象是打包产物：解释器在 dist\runtime 里时，把 dist 排到 sys.path 最前，
+# 保证 import 的是 dist\gisviewer 而不是源码树；用源码解释器跑则回退到源码树
+RUNTIME_ROOT = Path(sys.executable).resolve().parent.parent
+sys.path.insert(0, str(RUNTIME_ROOT if (RUNTIME_ROOT / "gisviewer").is_dir() else ROOT))
 # 样例数据在源码树之外（见 PLAN §11），换位置时用 TULAN_DATA 指过去
 DATA = Path(os.environ.get("TULAN_DATA") or ROOT.parent / "GISViewer-data")
 SAMPLE = Path(sys.argv[1]) if len(sys.argv) > 1 else DATA / "samples"

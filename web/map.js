@@ -6,6 +6,7 @@
   let drawLimit = 5000;   // 视野内单次绘制的要素数（设置里可改）
   let vecInFlight = false;   // 上一次取数还没回来
   let vecPending = false;    // 取数期间视野又变了：回来后补一次
+  let lastLimitToast = 0;    // 上次弹"超上限"提示的时刻：6 秒内不重复
   const TILE_PALETTE = ['#d9781f', '#2f6fed', '#2e9e5b', '#a24bd8', '#c94f4f', '#0f9b8e'];
 
   let map = null;
@@ -40,6 +41,23 @@
     const box = document.getElementById('mapNote');
     if (!box) return;
     box.textContent = lastNote ? (elapsed ? elapsed + ' · ' + lastNote : lastNote) : '';
+  }
+
+  /* 全局提示（toast）：钉在屏幕上沿中间，几秒后自己消失。
+     地图底部的状态栏是"看着地图顺手读"的地方，超上限这种要人注意的事不挤在那里说 */
+  let toastTimer = 0;
+  function toast(text) {
+    let box = document.getElementById('gisToast');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'gisToast';
+      box.hidden = true;
+      document.body.appendChild(box);
+    }
+    box.textContent = text;
+    box.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { box.hidden = true; }, 4200);
   }
 
   function setElapsed(text) {
@@ -367,8 +385,16 @@
       if (res.cached) parts.push('缓存命中');
       if (m.assumed_local) parts.push('这个图层没有坐标系，按原始坐标当作米临时摆放，仅供预览，底图与注记已暂时收起');
       else if (m.reprojected) parts.push('显示坐标已转到经纬度');
-      note(baseNote() + parts.join(' · ') +
-        (m.truncated ? ' · 到达单次上限，放大后继续加载' : ''));
+      note(baseNote() + parts.join(' · '));
+      // 超上限改用全局提示说：什么原因、画了多少、下一步怎么办。
+      // 移动、缩放会连着触发，6 秒内不重复弹，免得一路拖动一路弹窗
+      if (m.truncated) {
+        const now = Date.now();
+        if (now - lastLimitToast > 6000) {
+          lastLimitToast = now;
+          toast('视野内超过单次上限，已绘制 ' + feats.length + ' 个，移动、缩放后继续加载');
+        }
+      }
       const src = map.getSource('gis-data');
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
       // 没有经纬度范围可框（无坐标系的本地坐标文件）：用第一屏要素自己的
