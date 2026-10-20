@@ -9,6 +9,7 @@ import time
 from . import __version__
 from . import inspect as engine
 from . import labels
+from . import report
 from . import verdict
 
 
@@ -302,42 +303,6 @@ def render(result):
     return [x for x in lines if x]
 
 
-def _jsonable(obj):
-    """清掉 NaN 和无穷，保证输出能被任何 JSON 解析器读。"""
-    if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_jsonable(v) for v in obj]
-    if isinstance(obj, float) and (obj != obj or obj in (float("inf"), float("-inf"))):
-        return None
-    return obj
-
-
-def _report(results):
-    """存成文件的体检报告：比结果本身多一层外壳，方便以后对比时认版本、认时间。"""
-    return {
-        "app": "图览 " + __version__,
-        "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "files": [_jsonable(r) for r in results],
-    }
-
-
-def _norm(path):
-    return str(path or "").replace("\\", "/").casefold()
-
-
-def _old_by_path(path):
-    """读一份以前存下的报告，按文件路径索引。"""
-    with open(path, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    files = data.get("files") if isinstance(data, dict) else data
-    out = {}
-    for item in files or []:
-        if isinstance(item, dict) and item.get("file"):
-            out[_norm(item["file"].get("path"))] = item
-    return out
-
-
 def _print_check(result, said):
     """一份文件打印一段结论：先是文件，再逐条"要紧程度 + 结论 + 说明 + 建议"。"""
     f = result.get("file") or {}
@@ -358,70 +323,6 @@ def _print_check(result, said):
             print(f"          {it['detail']}")
         if it.get("hint"):
             print(f"          建议：{it['hint']}")
-
-
-def _environment():
-    """诊断包里的环境部分：出问题时这几行最先要看。"""
-    import platform
-    rows = [("图览版本", __version__), ("操作系统", platform.platform()),
-            ("Python", sys.version.split()[0])]
-    try:
-        from osgeo import gdal, osr
-        rows.append(("GDAL", gdal.VersionInfo("RELEASE_NAME")))
-        rows.append(("PROJ", "%d.%d.%d" % (osr.GetPROJVersionMajor(),
-                                          osr.GetPROJVersionMinor(),
-                                          osr.GetPROJVersionMicro())))
-        rows.append(("GDAL 数据目录", gdal.GetConfigOption("GDAL_DATA") or ""))
-        rows.append(("PROJ 数据目录", ";".join(osr.GetPROJSearchPaths() or [])))
-    except Exception as exc:
-        rows.append(("GDAL", f"读不到：{exc}"))
-    try:
-        from . import cache
-        st = cache.stats()
-        rows.append(("缓存目录", str(st.get("path") or "")))
-        rows.append(("缓存占用", str(st.get("size_label") or "")))
-    except Exception:
-        pass
-    return "".join(f"{k}：{v}\n" for k, v in rows if v)
-
-
-def _write_zip(zip_path, results):
-    """诊断包：环境 + 完整结果 + 一句说明。日志不打包（引擎不落日志文件）。"""
-    import zipfile
-    payload = json.dumps(_jsonable(_report(results)), ensure_ascii=False, indent=2, default=str)
-    note = ("这个包里没有源数据，只有环境信息和图览读到的结果。\n"
-            "反馈问题时把整个 zip 发过来即可，里面不含你的文件内容。\n")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("环境.txt", _environment())
-        z.writestr("体检结果.json", payload)
-        z.writestr("说明.txt", note)
-    return zip_path
-
-
-def _expand(paths, limit=500):
-    """批量体检时把普通文件夹展开成里面的数据文件：要的是一份清单。
-    .gdb / .zarr 这类目录本身就是一份数据，不展开；伴生文件按 is_primary 排掉，
-    再排掉 .hdr / .ovr 这些"只是配件"的后缀。"""
-    skip = {".hdr", ".ovr", ".rrd"}
-    out = []
-    for raw in paths:
-        low = str(raw).lower().rstrip("/\\")
-        if os.path.isdir(raw) and not low.endswith((".gdb", ".zarr")):
-            hits = []
-            for root, dirs, names in os.walk(raw):
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
-                for n in sorted(names):
-                    full = os.path.join(root, n)
-                    if n.startswith(".") or os.path.splitext(n)[1].lower() in skip:
-                        continue
-                    if engine.is_primary(full):
-                        hits.append(full)
-                if len(hits) >= limit:
-                    break
-            out.extend(hits[:limit])
-        else:
-            out.append(raw)
-    return out
 
 
 def main(argv=None):
@@ -446,17 +347,19 @@ def main(argv=None):
     except Exception:
         pass
 
-    targets = _expand(args.paths) if args.check else args.paths
+    targets, truncated = report.expand_paths(args.paths) if args.check else (args.paths, False)
+    if truncated:
+        print("文件夹里的数据超过 %d 个，先体检前 %d 个" % (report.DIR_LIMIT, report.DIR_LIMIT))
     results = [engine.safe_inspect(raw, compute_stats=not args.no_stats)
                for raw in targets]
 
     if args.diff:
-        old = _old_by_path(args.diff)
+        old = report.load_by_path(args.diff)
         worst = 0
         for result in results:
             f = result.get("file") or {}
             name = f.get("name") or "（未命名）"
-            before = old.get(_norm(f.get("path")))
+            before = old.get(report.norm(f.get("path")))
             print(f"== {name} ==")
             if before is None:
                 print("  旧报告里没有这个文件，无法对比")
@@ -471,8 +374,7 @@ def main(argv=None):
         return worst
 
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            json.dump(_report(results), fh, ensure_ascii=False, indent=2, default=str)
+        report.save(report.build(results), args.out)
         print(f"已保存：{args.out}")
 
     if args.diagnose is not None:
@@ -480,8 +382,8 @@ def main(argv=None):
         if not target:
             first = results[0].get("file") or {}
             base = os.path.dirname(str(first.get("path") or "")) or os.getcwd()
-            target = os.path.join(base, "图览诊断包-%s.zip" % time.strftime("%Y%m%d-%H%M%S"))
-        _write_zip(target, results)
+            target = os.path.join(base, report.default_zip_name())
+        report.write_zip(results, target)
         print(f"诊断包：{target}")
 
     if args.check:
@@ -518,8 +420,8 @@ def main(argv=None):
         return 1 if any(v["level"] in ("bad", "warn") for v in said) else 0
 
     if args.json:
-        payload = results[0] if len(results) == 1 else [_jsonable(r) for r in results]
-        print(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, default=str))
+        payload = results[0] if len(results) == 1 else [report.jsonable(r) for r in results]
+        print(json.dumps(report.jsonable(payload), ensure_ascii=False, indent=2, default=str))
     else:
         for result in results:
             print("=" * 72)

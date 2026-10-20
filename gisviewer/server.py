@@ -572,7 +572,8 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/formats":
             return self._send(200, {"ok": True, "raster": sorted(formats.RASTER_EXT),
                                     "vector": sorted(formats.VECTOR_EXT),
-                                    "archive": sorted(formats.ZIP_LIKE)})
+                                    "archive": sorted(formats.ZIP_LIKE),
+                                    "menu": sorted(formats.MENU_EXT)})
         if route == "/api/preload":
             raw = os.environ.get("GISVIEWER_PRELOAD")
             paths = json.loads(raw) if raw else []
@@ -660,7 +661,80 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "cache": cache.stats(),
                                     "data_dir": str(config_dir()),
                                     "cache_dir": str(config_dir() / "cache")})
+        if route == "/api/check":
+            return self._check(self._json_body())
+        if route == "/api/diagnose":
+            return self._diagnose(self._json_body())
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})
+
+    def _check(self, body):
+        """批量体检：文件夹展开成逐个文件，出结论，并与上一次的报告对比。
+
+        每跑一次就把这份结果存成"上次报告"，下一次自动和它比——命令行的
+        --check / --out / --diff 三件事在这里合成一次请求，界面与命令行同一份实现。
+        """
+        from . import report, verdict
+        paths = body.get("paths") or []
+        if isinstance(paths, str):
+            paths = [paths]
+        paths = [str(p).strip() for p in paths if str(p).strip()]
+        if not paths:
+            return self._send(400, {"ok": False, "error": {
+                "title": "没有指定文件或文件夹",
+                "hint": "填一个文件夹，软件会把里面支持的数据逐个体检。"}})
+        started = time.time()
+        targets, truncated = report.expand_paths(paths)
+        results = [engine.safe_inspect(p, compute_stats=False, histograms=False)
+                   for p in targets]
+        folder = config_dir() / "checks"
+        prev_path = folder / "last.json"
+        prev = report.load(str(prev_path))
+        old = report.load_by_path(str(prev_path))
+        files = []
+        summary = {"bad": 0, "warn": 0, "note": 0, "ok": 0}
+        for r in results:
+            v = verdict.judge(r)
+            summary[v["level"]] = summary.get(v["level"], 0) + 1
+            f = r.get("file") or {}
+            path = f.get("path") or r.get("input")
+            before = old.get(report.norm(path))
+            files.append({
+                "path": path,
+                "name": f.get("name") or (os.path.basename(str(path)) if path else "（未命名）"),
+                "kind": r.get("kind"),
+                "level": v["level"],
+                "items": v["items"],
+                "changes": verdict.compare(before, r) if before else None,
+            })
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            report.save(report.build(results), str(prev_path))
+        except OSError:
+            pass
+        return self._send(200, {
+            "ok": True, "elapsed_ms": round((time.time() - started) * 1000, 1),
+            "files": files, "summary": summary,
+            "truncated": truncated, "limit": report.DIR_LIMIT,
+            "prev_at": (prev or {}).get("generated"),
+            "report_path": str(prev_path),
+        })
+
+    def _diagnose(self, body):
+        """诊断包：环境 + 本次体检结果，打包成一个 zip，界面让资源管理器选中它。"""
+        from . import report
+        paths = body.get("paths") or []
+        if isinstance(paths, str):
+            paths = [paths]
+        paths = [str(p).strip() for p in paths if str(p).strip()]
+        results = [engine.safe_inspect(p, compute_stats=False, histograms=False)
+                   for p in report.expand_paths(paths)[0]] if paths else []
+        folder = config_dir() / "diag"
+        zip_path = report.write_zip_at(results, str(folder))
+        if not zip_path:
+            return self._send(500, {"ok": False, "error": {
+                "title": "诊断包没写出来", "hint": "确认磁盘还有空间，或换个位置再试。"}})
+        return self._send(200, {"ok": True, "path": zip_path,
+                                "size_label": labels.human_size(os.path.getsize(zip_path))})
 
     def _inspect(self, path, fast=False):
         if not path:

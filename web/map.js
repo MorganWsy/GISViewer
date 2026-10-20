@@ -383,6 +383,9 @@
       if (m.in_bbox != null) parts.push('视野内 ' + m.in_bbox + ' 个');
       parts.push('已绘制 ' + feats.length + ' 个');
       if (res.cached) parts.push('缓存命中');
+      /* 没有空间索引的大文件，引擎会在后台给这个文件建一份本地索引。
+         建好之前拖动还是慢的，这里得说一句，不然用户只看到"越拖越慢" */
+      if (m.indexing) parts.push('正在建索引，建好后拖动更快');
       /* 状态栏只留事实：没有坐标系这件事在这里写一句短的，
          为什么要这样摆、底图去哪了，交给全局浮层说一次 */
       if (m.assumed_local) {
@@ -1115,10 +1118,9 @@
       body.textContent = '';
       const props = f.properties || {};
       Object.keys(props).forEach((k) => {
-        /* OBJECTID 是数据源自己的主键，和软件里的行号、要素编号是同一件事，
-           放在识别结果里既占地方又容易让人以为它是业务字段；
-           下划线开头的是引擎随绘制一起带回来的量算值，不算属性 */
-        if (k.charAt(0) === '_' || /^objectid(_\d+)?$/i.test(k)) return;
+        /* 下划线开头的是引擎随绘制一起带回来的量算值，不算属性。
+           OBJECTID 这类主键要留着：属性表里有这一列，点选后靠它对上那一行 */
+        if (k.charAt(0) === '_') return;
         body.appendChild(row(k, fmtValue(props[k])));
       });
       body.scrollTop = 0;

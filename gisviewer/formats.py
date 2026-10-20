@@ -19,6 +19,15 @@ JSON_EXT = {".json", ".geojson", ".jsonl", ".ndjson", ".topojson", ".esrijson"}
 ZIP_LIKE = {".zip", ".kmz", ".gpkg.zip", ".shz"}
 HEAVY_ARCHIVE_EXT = {".gz", ".bz2", ".zst", ".7z", ".rar", ".tar"}
 
+# 资源管理器右键"用图览打开"挂在哪些后缀下。只挂主文件：.tfw、.hdr、.prj 这类
+# 附属文件自己不是数据，挂上去只会点开报错。.gdb 与瓦片目录是文件夹，另挂在
+# Directory 下，这里不列。压缩包里最常见的是 .zip，其余的不挂，免得右键菜单过长。
+MENU_EXT = {
+    ".shp", ".geojson", ".json", ".kml", ".kmz", ".gpx", ".gpkg", ".csv", ".gml",
+    ".dxf", ".dwg", ".mbtiles", ".pmtiles", ".fgb", ".tab", ".xlsx",
+    ".tif", ".tiff", ".img", ".nc", ".hdf", ".h5", ".jp2", ".grib", ".grib2", ".asc", ".zip",
+}
+
 # 分级设色的默认值，界面和引擎都从这里取
 CLASS_DEFAULT = 5
 RAMP_DEFAULT = "viridis"

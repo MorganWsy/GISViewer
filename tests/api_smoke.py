@@ -54,12 +54,18 @@ class Client:
 
     @staticmethod
     def _open(target):
-        with urllib.request.urlopen(target, timeout=180) as resp:
-            raw = resp.read()
+        # 4xx/5xx 也算响应：空路径这类用例要检查的是错误正文写得清不清楚，
+        # 而不是抛一个异常就算过。连接不通、服务没起仍然会抛
+        try:
+            raw = urllib.request.urlopen(target, timeout=180)
+        except urllib.error.HTTPError as exc:
+            raw = exc
+        with raw as resp:
+            body = resp.read()
             ctype = resp.headers.get("Content-Type", "")
             if "json" in ctype:
-                return resp.status, json.loads(raw.decode("utf-8")), ctype
-            return resp.status, raw, ctype
+                return resp.status, json.loads(body.decode("utf-8")), ctype
+            return resp.status, body, ctype
 
 
 def need(cond, msg):
@@ -117,6 +123,8 @@ def main(argv=None):
         status, data, _ = cli.get("/api/formats")
         need(status == 200 and data.get("ok"), "200/ok 不对")
         need(len(data.get("raster") or []) > 5 and len(data.get("vector") or []) > 5, "扩展名太少")
+        menu = data.get("menu") or []
+        need(len(menu) > 5 and all(m.startswith(".") for m in menu), "右键菜单的后缀清单不对")
 
     @check("config 读取并带色带端点色")
     def _(cli):
@@ -220,6 +228,35 @@ def main(argv=None):
         status, data, _ = cli.get("/api/inspect", path=str(SAMPLES / "没有这个文件.shp"))
         need(status == 200 and data.get("ok") is False, "居然成功了")
         need((data.get("error") or {}).get("title"), "没有错误标题")
+
+    @check("check 批量体检与两次对比")
+    def _(cli):
+        status, data, _ = cli.post("/api/check", {"paths": [str(gpkg)]})
+        need(status == 200 and data.get("ok"), "体检失败：%s" % data.get("error"))
+        files = data.get("files") or []
+        need(len(files) == 1, "文件数不对：%d" % len(files))
+        need(files[0].get("level") in ("bad", "warn", "note", "ok"), "级别不对：%s" % files[0].get("level"))
+        need(files[0].get("items"), "没有结论条目")
+        need(data.get("report_path"), "报告没落盘，下次没法对比")
+        # 再跑一次：上一次的报告当对照，这份数据没动就该比出"没变化"
+        _, again, _ = cli.post("/api/check", {"paths": [str(gpkg)]})
+        need(again.get("prev_at"), "第二次体检没有对照时间")
+        need((again["files"][0].get("changes") or []) == [], "数据没动却比出了差异")
+
+    @check("check 空路径给可读错误")
+    def _(cli):
+        status, data, _ = cli.post("/api/check", {"paths": []})
+        need(status == 400 and data.get("ok") is False, "空路径不该成功")
+        need((data.get("error") or {}).get("title"), "没有错误标题")
+
+    @check("diagnose 导出诊断包")
+    def _(cli):
+        status, data, _ = cli.post("/api/diagnose", {"paths": [str(tif)]})
+        need(status == 200 and data.get("ok"), "诊断包失败：%s" % data.get("error"))
+        zp = Path(data.get("path") or "")
+        need(zp.is_file(), "zip 没写出来：%s" % zp)
+        need(zp.stat().st_size > 100, "zip 太小，多半是空的")
+        need(data.get("size_label"), "没有大小标签")
 
     try:
         wait_ready(base)

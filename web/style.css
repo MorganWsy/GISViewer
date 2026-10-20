@@ -1931,7 +1931,16 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 }
 /* 标题和计数并排：两个都用 flex 对齐，靠的是整块盒子的中线，
    不是各自文字的基线——基线对法在字号不同时看着就是一高一低 */
-.recent-pop .rp-title { display: inline-flex; align-items: center; gap: 5px; height: 16px; }
+.recent-pop .rp-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 16px;
+  /* 行高与胶囊同高：文字的行盒和胶囊的盒子一样高，中线才对得上。
+     只写 height 不给 line-height 时，行盒由字号自带的行距决定，
+     中文标题会和数字胶囊差半个像素到一像素 */
+  line-height: 16px;
+}
 /* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力。
    字号和标题一样是 12px——两个并排的东西字号不同，看着就是一个大一个小 */
 .recent-pop .rp-num {
@@ -1943,7 +1952,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   font-family: var(--font-num);
   font-size: 12px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 16px;
   color: var(--text-dim);
   background: var(--panel-alt);
   border-radius: 999px;
@@ -2194,6 +2203,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* 紧凑只收外圈留白：padding 从 20/22/18 压到 12/15/11。
    正文的行高不动——行距压了，一段话就挤成一坨，读起来比多几个像素的边距难受得多 */
 .close-card {
+  /* 正文、勾选项、按钮共用一个字号：三者并排时字号不同就会看着一大一小，
+     上一轮把按钮单独放大是错的，这一轮把正文提到同一档 */
+  --ca-fs: 13.5px;
   width: 368px;
   max-width: calc(100vw - 40px);
   padding: 12px 15px 11px;
@@ -2208,7 +2220,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .close-card .ca-text {
   margin: 6px 0 0;
-  font-size: 12.5px;
+  font-size: var(--ca-fs);
   /* 回到 1.7：收内边距是为了省地方，行距一压，三行说明会黏成一块 */
   line-height: 1.7;
   color: var(--text-dim);
@@ -2222,7 +2234,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   margin-top: 9px;
   /* 行高压到 1.2：文字盒子和 15px 的方框一样高，两者中线才对得齐。
      这里的行高管的是"一行字和方框对齐"，不是段落的行距 */
-  font-size: 12.5px;
+  font-size: var(--ca-fs);
   line-height: 1.2;
   color: var(--text-dim);
   cursor: pointer;
@@ -2268,8 +2280,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   /* 按钮组和上面那段之间留得比正文行距宽一点：它是动作区，不属于说明段落 */
   margin-top: 13px;
 }
-/* 按钮：内边距极小、字大一号。三个字以上的按钮靠字撑开，不靠留白撑开 */
-.close-card .ca-actions .btn { min-width: 64px; padding: 3px 10px; font-size: 13.5px; }
+/* 按钮：内边距极小，字与正文同号（见 .close-card 的 --ca-fs）。
+   三个字以上的按钮靠字撑开，不靠留白撑开 */
+.close-card .ca-actions .btn { min-width: 64px; padding: 3px 10px; font-size: var(--ca-fs); }
 
 /* 最近打开：每条右侧一枚删除图标 */
 .rp-text { min-width: 0; flex: 1; }
@@ -2326,3 +2339,63 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   animation: vecspin 0.8s linear infinite;
 }
 @keyframes vecspin { to { transform: rotate(360deg); } }
+
+/* 数据体检结果卡：比关闭确认框宽一些，逐条结论要能读得开。
+   级别用左侧色条而不是整行铺色——整行铺色在长列表里太吵，
+   而且和"有问题/要留意/提一句"三档各自的字色抢视线 */
+.check-card { width: 560px; }
+.check-card .card-title { margin-bottom: 4px; padding: 0 12px 6px; font-size: 15px; }
+.chk-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  padding: 2px 14px 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+}
+.chk-sum b { font-family: var(--font-num); font-weight: 600; color: var(--text); }
+.chk-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 14px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.chk-file { display: flex; flex-direction: column; gap: 3px; }
+.chk-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* 级别圆点：三档颜色固定，别用主题色，红黄蓝在同一列表里一眼分得开 */
+.chk-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.chk-dot.bad { background: var(--err-line); }
+.chk-dot.warn { background: var(--warn-ico); }
+.chk-dot.note { background: var(--accent); }
+.chk-dot.ok { background: var(--line); }
+.chk-kind { font-weight: 400; font-size: 11.5px; color: var(--text-dim); }
+.chk-items { display: flex; flex-direction: column; gap: 2px; padding-left: 15px; }
+.chk-item {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.chk-item .t { flex: none; color: var(--text); }
+.chk-chg { padding-left: 15px; font-size: 12px; line-height: 1.55; color: var(--warn-ico); overflow-wrap: anywhere; }
+.check-card .ca-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 9px 14px 2px;
+}
+.check-card .ca-actions .btn { min-width: 64px; padding: 3px 10px; font-size: 13px; }

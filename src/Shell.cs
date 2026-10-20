@@ -13,6 +13,7 @@ using System.Windows.Automation;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Microsoft.Win32;
 
 namespace GISViewer
 {
@@ -42,7 +43,7 @@ namespace GISViewer
             {
                 if (!first)
                 {
-                    Handoff();
+                    Handoff(args);
                     return;
                 }
                 Application.Run(new Shell(args));
@@ -61,7 +62,7 @@ namespace GISViewer
             catch { /* 连日志都写不进去就只能放弃 */ }
         }
 
-        static void Handoff()
+        static void Handoff(string[] args)
         {
             IntPtr win = IntPtr.Zero;
             // 第一个进程可能还在建窗口，等它一会儿再放弃
@@ -71,6 +72,23 @@ namespace GISViewer
                 if (win == IntPtr.Zero) System.Threading.Thread.Sleep(100);
             }
             if (win == IntPtr.Zero) return;
+            // 带了文件就交给已经开着的那个打开（资源管理器右键"用图览打开"），没带只叫回窗口
+            string[] paths = Shell.CleanArgs(args);
+            if (paths.Length > 0)
+            {
+                byte[] data = System.Text.Encoding.Unicode.GetBytes(paths[0] + "\0");
+                Native.COPYDATASTRUCT cds = new Native.COPYDATASTRUCT();
+                cds.dwData = new IntPtr(0x544C4E31);   // 'TLN1'
+                cds.cbData = data.Length;
+                cds.lpData = Marshal.AllocHGlobal(data.Length);
+                try
+                {
+                    Marshal.Copy(data, 0, cds.lpData, data.Length);
+                    Native.SendMessage(win, Native.WM_COPYDATA, IntPtr.Zero, ref cds);
+                }
+                finally { Marshal.FreeHGlobal(cds.lpData); }
+                return;
+            }
             Native.PostMessage(win, Native.WM_TULAN_SHOW, IntPtr.Zero, IntPtr.Zero);
         }
     }
@@ -109,6 +127,9 @@ namespace GISViewer
         string _closeAction = "min";
         /* 关闭时是否先问一句（对话框画在页面里）：空串＝页面还没报，按旧行为直接办 */
         string _closeAsk = "";
+        // 上次注册右键菜单用过的扩展名清单：取消时要照着这份删，
+        // 只删文件夹那条会把 27 个扩展名的键留在注册表里
+        string _ctxExts = "";
 
         public Shell(string[] args)
         {
@@ -589,6 +610,36 @@ namespace GISViewer
                 else Log("要打开的目录不存在：" + target);
                 return;
             }
+            if (msg.StartsWith("revealfile:"))
+            {
+                // 诊断包生成完让资源管理器选中那个 zip，省得用户自己一层层找
+                string target = msg.Substring(11).Trim();
+                if (File.Exists(target))
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo("explorer.exe",
+                            "/select,\"" + target.Replace("\"", "") + "\"") { UseShellExecute = true });
+                    }
+                    catch (Exception ex) { Log("定位文件失败 " + ex.Message); }
+                }
+                else Log("要定位的文件不存在：" + target);
+                return;
+            }
+            if (msg.StartsWith("ctxmenu:"))
+            {
+                // 资源管理器右键"用图览打开"：扩展名清单由页面（引擎的 formats）给。
+                // 格式是 ctxmenu:on,后缀1,后缀2 / ctxmenu:off,同上——开和关带同一份清单，
+                // 这样取消时照着删得干净；万一页面没给，就用上次记下的那份
+                string body = msg.Substring(8);
+                bool on = body.StartsWith("on");
+                int at = body.IndexOf(',');
+                string exts = at >= 0 ? body.Substring(at + 1) : "";
+                if (exts.Length > 0) _ctxExts = exts;
+                else exts = _ctxExts;
+                ApplyContextMenu(on, exts);
+                return;
+            }
             if (msg.StartsWith("lastdir:"))
             {
                 /* 页面里打开的文件（路径框、最近打开）壳是不知道的，由页面报一声，
@@ -740,6 +791,20 @@ namespace GISViewer
                 Eval("window.GisHost && window.GisHost('hotkey2Failed', " + Json(_hk2Text) + ")");
             Eval("window.GisHost && window.GisHost('maximized', " +
                 Json(WindowState == FormWindowState.Maximized ? "on" : "off") + ")");
+            Eval("window.GisHost && window.GisHost('ctxmenu', " +
+                Json(ContextMenuOn() ? "on" : "off") + ")");
+        }
+
+        /* 右键菜单现在挂没挂，以注册表为准：配置文件可能没同步，也可能用户自己删过 */
+        bool ContextMenuOn()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(
+                    "Software\\Classes\\SystemFileAssociations\\.shp\\shell\\Tulan"))
+                    return k != null;
+            }
+            catch { return false; }
         }
 
         /* 拖进来的路径送进页面：这条通道给的是资源管理器里的原始路径 */
@@ -1097,6 +1162,51 @@ namespace GISViewer
             _earlyDrops.Clear();
             Log("补送启动期间拖入的 " + all.Count + " 项");
             SendPaths(all.ToArray());
+        }
+
+        /* ---------- 资源管理器右键"用图览打开" ---------- */
+        /* 只写 HKCU 下的键：不需要管理员权限，也只影响当前用户。
+           免安装包挪了位置后下一次启动会重写一遍（幂等），命令里的 exe 路径始终是当前这份 */
+
+        void ApplyContextMenu(bool on, string exts)
+        {
+            string exe = Application.ExecutablePath;
+            var list = (exts ?? "").Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string raw in list)
+            {
+                string ext = raw.Trim();
+                if (ext.Length < 2 || ext[0] != '.') continue;
+                string key = "Software\\Classes\\SystemFileAssociations\\" + ext + "\\shell\\Tulan";
+                if (on) WriteMenuKey(key, exe);
+                else DeleteMenuKey(key);
+            }
+            // 文件夹也挂一条：.gdb、瓦片金字塔在资源管理器里就是文件夹
+            string dirKey = "Software\\Classes\\Directory\\shell\\Tulan";
+            if (on) WriteMenuKey(dirKey, exe);
+            else DeleteMenuKey(dirKey);
+            Log("资源管理器右键菜单：" + (on ? "注册 " + list.Length + " 个扩展名 + 文件夹" : "已移除"));
+        }
+
+        void WriteMenuKey(string key, string exe)
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(key))
+                {
+                    if (k == null) return;
+                    k.SetValue(null, "用图览打开");
+                    k.SetValue("Icon", "\"" + exe + "\",0");
+                    using (RegistryKey c = k.CreateSubKey("command"))
+                        if (c != null) c.SetValue(null, "\"" + exe + "\" \"%1\"");
+                }
+            }
+            catch (Exception ex) { Log("右键菜单写入失败 " + key + "：" + ex.Message); }
+        }
+
+        void DeleteMenuKey(string key)
+        {
+            try { Registry.CurrentUser.DeleteSubKeyTree(key, false); }
+            catch (Exception ex) { Log("右键菜单删除失败 " + key + "：" + ex.Message); }
         }
 
         void Push(string name, string jsonValue)
@@ -1545,6 +1655,24 @@ namespace GISViewer
                 Log("又启动了一次，已有实例把窗口叫回来");
                 ShowFromTray();
                 return;
+            }
+            // 资源管理器右键"用图览打开"时软件已经开着：文件路径走这里交进来
+            if (m.Msg == Native.WM_COPYDATA)
+            {
+                Native.COPYDATASTRUCT cds = (Native.COPYDATASTRUCT)Marshal.PtrToStructure(
+                    m.LParam, typeof(Native.COPYDATASTRUCT));
+                if (cds.lpData != IntPtr.Zero && cds.cbData > 2)
+                {
+                    string path = Marshal.PtrToStringUni(cds.lpData, cds.cbData / 2).TrimEnd('\0').Trim();
+                    if (path.Length > 0)
+                    {
+                        Log("已有实例收到文件：" + path);
+                        ShowFromTray();
+                        SendPaths(new string[] { path }, false);
+                        m.Result = new IntPtr(1);
+                        return;
+                    }
+                }
             }
             base.WndProc(ref m);
         }

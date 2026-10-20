@@ -185,6 +185,20 @@
   </div>
 </div>
 
+<div id="checkPanel" class="modal" hidden>
+  <div class="modal-card check-card" role="dialog" aria-modal="true" aria-labelledby="chkTitle">
+    <div class="card-title">数据体检<button id="chkClose" class="modal-x" title="关闭">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg>
+    </button></div>
+    <div class="chk-sum" id="chkSum"></div>
+    <div class="chk-list" id="chkList"></div>
+    <div class="ca-actions">
+      <button id="chkDiag" class="btn ghost" type="button">导出诊断包</button>
+      <button id="chkDone" class="btn" type="button">完成</button>
+    </div>
+  </div>
+</div>
+
 <div id="settings" class="modal" hidden>
   <div class="modal-card set-card">
     <div class="card-title">设置
@@ -401,6 +415,24 @@
         <div class="upd-row">
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
+        </div>
+      </div>
+      <div class="field inline">
+        <label for="cfgCtxMenu">资源管理器右键"用图览打开"</label>
+        <input id="cfgCtxMenu" type="checkbox">
+      </div>
+      <div class="field">
+        <label for="checkPath">数据体检</label>
+        <div class="icon-row">
+          <input id="checkPath" type="text" spellcheck="false" placeholder="填文件或文件夹，留空则体检当前打开的">
+          <button id="checkPathPick" class="icon-btn" type="button" title="选择要体检的文件或文件夹">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+          </button>
+        </div>
+        <div class="upd-row">
+          <button id="checkRunBtn" class="btn ghost" type="button">开始体检</button>
+          <button id="checkDiagBtn" class="btn ghost" type="button">导出诊断包</button>
+          <span class="hint" id="checkHint">体检报告会自动留作下次对比</span>
         </div>
       </div>
       </section>

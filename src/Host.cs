@@ -35,6 +35,12 @@ namespace GISViewer
 
         /* 单实例：后启动的那个不要另开一套窗口和引擎，把已经在跑的叫回来 */
         public const int WM_TULAN_SHOW = 0x8000 + 17;
+        /* 交接文件：后启动的那个把命令行里的路径带给已经开着的实例（资源管理器右键"用图览打开"） */
+        public const int WM_COPYDATA = 0x004A;
+        [StructLayout(LayoutKind.Sequential)]
+        public struct COPYDATASTRUCT { public IntPtr dwData; public int cbData; public IntPtr lpData; }
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr w, ref COPYDATASTRUCT cds);
 
         [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr w, IntPtr l);

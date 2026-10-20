@@ -2387,6 +2387,10 @@ function wireCloseAsk() {
       $('cfgCloseAsk').checked = false;
       segSet('cfgCloseAct', closeAct);
       await commitConfig();
+      /* 壳只认自己手里那份开关（closeask:<on|off>），配置写盘不会自动同步过去。
+         少了这两行，勾了"不再询问"、选了驻留托盘之后，下次点 × 照样弹这个框 */
+      toShell('closeask:off');
+      toShell('closeact:' + closeAct);
     }
     hideCloseAsk();
     toShell('closechoice:' + choice);
@@ -2974,6 +2978,12 @@ async function loadConfig() {
       toShell('ver:' + data.version);
     }
   } catch (err) { /* 用默认值 */ }
+  // 右键菜单挂哪些后缀由引擎定，取回来备着；页面没起在壳里时这一步失败也无所谓
+  try {
+    const fr = await fetch('/api/formats');
+    const fd = await fr.json();
+    if (fd && fd.ok && Array.isArray(fd.menu)) host.menuExt = fd.menu;
+  } catch (err) { /* 壳那边收到空清单就不注册 */ }
   applyTheme(config.theme);
   paintThemeBtn();
   applyDataColor();
@@ -3095,6 +3105,10 @@ function paintCacheHint() {
    用户问过"缓存到底存在哪"，这里把话说明白，不再只是一句"记在本地" */
 let cacheDirShown = '';
 
+/* 壳的选目录框只有一个回传口（GisHost('dir')），谁点的就填回谁的框。
+   点"选择…"之前先记下目标，收到回传时按这个分发 */
+let dirPickTarget = '';
+
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
   const where = $('cachePath');
@@ -3105,6 +3119,133 @@ function paintCacheSize(info, dir) {
   hint.textContent = info.count
     ? '当前占用 ' + bytes(info.bytes) + '（' + count(info.count) + ' 项）'
     : '还没有缓存内容';
+}
+
+/* ---------- 数据体检：批量体检、两次对比、诊断包 ----------
+   命令行 --check / --diff / --diagnose 能做的，界面上也得能做：
+   选一个文件或文件夹 → 开结论清单，自动和上一次的报告比，诊断包一键导出。
+   报告由引擎存在配置目录的 checks/last.json，下一次体检自动拿它当对照 */
+
+const LEVEL_TEXT = { bad: '有问题', warn: '要留意', note: '提一句', ok: '没问题' };
+
+function openCheckPanel() { $('checkPanel').hidden = false; }
+function closeCheckPanel() { $('checkPanel').hidden = true; }
+
+function renderCheck(d) {
+  const sum = $('chkSum');
+  const list = $('chkList');
+  const s = d.summary || {};
+  const order = ['bad', 'warn', 'note', 'ok'];
+  sum.textContent = '';
+  order.forEach((k) => {
+    const n = s[k] || 0;
+    const span = document.createElement('span');
+    span.innerHTML = LEVEL_TEXT[k] + ' <b>' + n + '</b>';
+    sum.appendChild(span);
+  });
+  const el = document.createElement('span');
+  el.textContent = '共 ' + (d.files || []).length + ' 个' +
+    (d.prev_at ? '，与上次体检（' + String(d.prev_at).replace('T', ' ').slice(0, 16) + '）比' : '，这是第一次体检');
+  sum.appendChild(el);
+  // 文件夹里数据太多时引擎只体检前若干个，这里说清楚，免得用户以为就这么多
+  if (d.truncated) {
+    const cut = document.createElement('span');
+    cut.textContent = '超过 ' + d.limit + ' 个，只体检了前 ' + (d.files || []).length + ' 个';
+    sum.appendChild(cut);
+  }
+
+  list.textContent = '';
+  (d.files || []).forEach((f) => {
+    const box = document.createElement('div');
+    box.className = 'chk-file';
+    const head = document.createElement('div');
+    head.className = 'chk-head';
+    const dot = document.createElement('i');
+    dot.className = 'chk-dot ' + f.level;
+    head.appendChild(dot);
+    head.appendChild(document.createTextNode(f.name));
+    const kind = document.createElement('span');
+    kind.className = 'chk-kind';
+    kind.textContent = f.path || '';
+    head.appendChild(kind);
+    box.appendChild(head);
+
+    const items = document.createElement('div');
+    items.className = 'chk-items';
+    (f.items || []).forEach((it) => {
+      const row = document.createElement('div');
+      row.className = 'chk-item';
+      const t = document.createElement('span');
+      t.className = 't';
+      t.textContent = it.title || '';
+      row.appendChild(t);
+      const det = document.createElement('span');
+      det.textContent = it.detail || it.hint || '';
+      row.appendChild(det);
+      items.appendChild(row);
+    });
+    if (items.children.length) box.appendChild(items);
+
+    // 和上次比出来的差异：界面用"字段 旧值 → 新值"一行写完
+    (f.changes || []).forEach((c) => {
+      const ch = document.createElement('div');
+      ch.className = 'chk-chg';
+      const before = c.before === null || c.before === undefined ? '（无）'
+        : (Array.isArray(c.before) ? c.before.join('、') : String(c.before));
+      const after = c.after === null || c.after === undefined ? '（无）'
+        : (Array.isArray(c.after) ? c.after.join('、') : String(c.after));
+      ch.textContent = c.label + '：' + before + ' → ' + after;
+      box.appendChild(ch);
+    });
+    list.appendChild(box);
+  });
+}
+
+function runCheck() {
+  const input = $('checkPath');
+  const path = (input && input.value.trim()) || (current && current.path) || '';
+  if (!path) { $('checkHint').textContent = '先填一个文件或文件夹路径'; return; }
+  input.value = path;
+  $('checkHint').textContent = '正在体检…';
+  $('checkRunBtn').disabled = true;
+  fetch('/api/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths: [path] }),
+  }).then((r) => r.json()).then((d) => {
+    $('checkRunBtn').disabled = false;
+    if (!d || !d.ok) {
+      $('checkHint').textContent = (d && d.error && d.error.title) || '体检失败';
+      return;
+    }
+    const n = (d.files || []).length;
+    const bad = (d.summary && (d.summary.bad || 0)) + (d.summary && (d.summary.warn || 0));
+    $('checkHint').textContent = '体检了 ' + n + ' 个' + (bad ? '，其中 ' + bad + ' 个要留意' : '，都没发现问题');
+    renderCheck(d);
+    openCheckPanel();
+  }).catch(() => {
+    $('checkRunBtn').disabled = false;
+    $('checkHint').textContent = '体检失败，稍后再试';
+  });
+}
+
+function runDiagnose() {
+  const input = $('checkPath');
+  const path = (input && input.value.trim()) || (current && current.path) || '';
+  if (!path) { $('checkHint').textContent = '先填一个文件或文件夹路径'; return; }
+  $('checkHint').textContent = '正在打包诊断包…';
+  fetch('/api/diagnose', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths: [path] }),
+  }).then((r) => r.json()).then((d) => {
+    if (!d || !d.ok) {
+      $('checkHint').textContent = (d && d.error && d.error.title) || '诊断包没写出来';
+      return;
+    }
+    $('checkHint').textContent = '诊断包已导出（' + (d.size_label || '') + '），已在资源管理器里选中';
+    toShell('revealfile:' + d.path);
+  }).catch(() => { $('checkHint').textContent = '诊断包没写出来，稍后再试'; });
 }
 
 function refreshCacheSize() {
@@ -3162,7 +3303,7 @@ function toShell(msg) {
 }
 
 /* 字体、自启状态、快捷键、有没有新版，这四件事只有壳知道 */
-const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2: '' };
+const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2: '', menuExt: [] };
 let hkSynced = false;
 let configLoaded = false;
 
@@ -3173,13 +3314,21 @@ window.GisHost = function (name, value) {
     return;
   }
   if (name === 'dir') {
-    // 壳那边选完文件夹回传的路径：填进"打开文件框从哪开始"并落盘
-    const box = $('cfgOpenDir');
-    if (box) { box.value = String(value || ''); applySettings(); }
+    // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
+    const where = dirPickTarget === 'check' ? $('checkPath') : $('cfgOpenDir');
+    dirPickTarget = '';
+    if (where) { where.value = String(value || ''); if (where.id === 'cfgOpenDir') applySettings(); }
     return;
   }
   if (name === 'autoStart') { host.autoStart = value === 'on'; $('cfgAutoStart').checked = host.autoStart; return; }
   if (name === 'deskLnk') { host.deskLnk = value === 'on'; $('cfgDeskLnk').checked = host.deskLnk; return; }
+  // 壳回报右键菜单现在是不是挂着：开关要跟着注册表走，不能只信本地配置
+  if (name === 'ctxmenu') {
+    const on = value === 'on';
+    const box = $('cfgCtxMenu');
+    if (box) box.checked = on;
+    return;
+  }
   if (name === 'hotkey') {
     host.hotkey = String(value || '');
     paintHotkey();
@@ -3809,7 +3958,21 @@ function init() {
     if (cacheDirShown) toShell('openpath:' + cacheDirShown);
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
-  $('cfgOpenDirPick').addEventListener('click', () => toShell('pickdir'));
+  $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
+  // 数据体检：选目录、跑体检、导出诊断包
+  $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; toShell('pickdir'); });
+  $('checkRunBtn').addEventListener('click', runCheck);
+  $('checkDiagBtn').addEventListener('click', runDiagnose);
+  $('chkDiag').addEventListener('click', runDiagnose);
+  $('chkDone').addEventListener('click', closeCheckPanel);
+  $('chkClose').addEventListener('click', closeCheckPanel);
+  // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。
+  // 开和关都带同一份清单，取消时壳照着删才删得干净
+  const ctxExt = () => (host.menuExt || []).join(',');
+  $('cfgCtxMenu').addEventListener('change', () => {
+    const on = $('cfgCtxMenu').checked;
+    toShell('ctxmenu:' + (on ? 'on' : 'off') + ',' + ctxExt());
+  });
   if (window.GisMap && config.draw_limit) GisMap.setDrawLimit(config.draw_limit);
   wireSettingNav();
   // 页内快捷键：点键帽进入捕获状态，恢复默认写回出厂组合
