@@ -1382,7 +1382,12 @@ namespace GISViewer
                光比坐标不行——资源管理器盖住我们一块时，拖动的起点坐标也在我们窗口里 */
             if (btn && !_btnWas) _downInside = Native.DownInsideOwnWindow(Handle, pt.X, pt.Y);
             _btnWas = btn;
-            if (!btn || _downInside || !Visible) { HideDragPane(); return; }
+            /* 光标那一点最上面必须是我们自己。只按矩形判断会出事：资源管理器压在我们
+               上面时，坐标照样落在我们的矩形里，接收层被举起来盖住资源管理器——
+               它虽然几乎全透明，照样吃鼠标，结果就是"管理器上点不动、拖不动"。
+               接收层自己亮着的时候 WindowFromPoint 命中的是它，仍算我们的窗口 */
+            bool overUs = Native.DownInsideOwnWindow(Handle, pt.X, pt.Y);
+            if (!btn || _downInside || !Visible || !overUs) { HideDragPane(); return; }
             if (inside) ShowDragPane(); else HideDragPane();
         }
 
@@ -1400,6 +1405,12 @@ namespace GISViewer
             _dragPane.Bounds = DropAreaScreen();
             _dragPane.Opacity = HIDDEN_ALPHA;
             _dragPane.Show();
+            /* 必须置顶，而且只能放在 Show() 之后：隐藏窗口调 BringToFront 是空操作，
+               接收层会一直压在 WebView2 的渲染子窗口下面，拖放的落点命中的是那个子窗口，
+               文件根本到不了我们手上（实测落点就是 Chrome_RenderWidgetHostHWND）。
+               以前这行会把整组窗口顶到别的软件上面，才出"管理器点不动"的事；
+               现在 DragWatchTick 加了 overUs —— 光标那一点最上面不是我们自己就走不到这里，
+               所以只有真的拖到图览身上时才置顶，拖别的软件时一刀都不会往上抬 */
             _dragPane.BringToFront();
             Log("外部拖放进入窗口，接收层已就位（还不知道拖的是什么）");
         }

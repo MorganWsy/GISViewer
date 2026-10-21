@@ -62,12 +62,15 @@ Add-Type -AssemblyName UIAutomationTypes
 $dst = Get-Process -Name $Proc -ErrorAction Stop | Sort-Object StartTime -Descending | Select-Object -First 1
 $mh = $dst.MainWindowHandle
 
-# 1) 图览最大化，铺满整屏，这样"遮挡别家窗口"最容易暴露
-[void][Dc]::ShowWindow($mh, 3)
+# 1) 图览摆到主屏一块固定位置（不做最大化：多屏时最大化会跨到另一块屏，
+#    那边可能压着别的软件，落点就测不到自己了）
+[void][Dc]::ShowWindow($mh, 9)
+Start-Sleep -Milliseconds 300
+[void][Dc]::SetWindowPos($mh, [IntPtr]::Zero, 120, 120, 1400, 820, 0x0040)
 Start-Sleep -Milliseconds 700
 $r = New-Object Dc+RECT
 [void][Dc]::GetWindowRect($mh, [ref]$r)
-Write-Output ("图览最大化后 " + $r.Left + "," + $r.Top + "-" + $r.Right + "," + $r.Bottom)
+Write-Output ("图览窗口 " + $r.Left + "," + $r.Top + "-" + $r.Right + "," + $r.Bottom)
 
 # 2) 开一个资源管理器窗口压在图览左半边上面
 Start-Process explorer.exe -ArgumentList ('/select,"' + ($File -replace '/', '\') + '"')

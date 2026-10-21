@@ -1933,6 +1933,7 @@ function wireQuickKeys() {
       if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
       if (!$('recentPop').hidden) { hideRecent(); return; }
       if (!$('pickPop').hidden) { hidePickPop(); return; }
+      if (!$('checkPop').hidden) { hideCheckPop(); return; }
       if (!$('layerPop').hidden) { hideLayerPop(); return; }
       if (!$('settings').hidden) { $('cfgClose').click(); return; }
       if (!$('errToast').hidden) { hideErrToast(); return; }
@@ -2256,11 +2257,12 @@ function wireChrome() {
     if (e.button !== 0) return;
     /* 最近打开和"打开"菜单都挂在顶栏里：点它们时不能去拖窗口，
        否则这一下被系统拖动循环接走，列表项的 click 永远回不来（点不开就是这个原因） */
-    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop')) return;
+    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop, #checkPop')) return;
     /* 顶栏空白处一按下，窗口就交给系统拖动循环了，这一下之后的 click 再也回不到页面，
        所以浮窗只能在这里主动收掉，不能等外面的 document click */
     hideRecent();
     hidePickPop();
+    hideCheckPop();
     const now = Date.now();
     if (now - barTap < 450) { barTap = 0; toShell('win:max'); return; }
     barTap = now;
@@ -2436,6 +2438,7 @@ async function inspectPath(path) {
      路径框那边不该还挂着一块"最近打开"盖在地图上 */
   hideRecent();
   hidePickPop();
+  hideCheckPop();
   /* 快捷键/拖放开门时，顶栏输入框往往还是上一次留下的焦点：
      从托盘唤回窗口时浏览器会把焦点还给上次那个控件，光标就一直闪在路径框里。
      打开动作本身就是"输入结束"，这里统一交还焦点（没焦点时 blur 是空操作） */
@@ -3126,10 +3129,43 @@ function paintCacheSize(info, dir) {
    选一个文件或文件夹 → 开结论清单，自动和上一次的报告比，诊断包一键导出。
    报告由引擎存在配置目录的 checks/last.json，下一次体检自动拿它当对照 */
 
+/* 体检结论的四档：文字给摘要用，图标给文件行走在用。
+   形状各不同（圆叹号 / 三角 / 信息圆点 / 对勾），缩成一行也分得清 */
 const LEVEL_TEXT = { bad: '有问题', warn: '要留意', note: '提一句', ok: '没问题' };
+const LEVEL_ICON = {
+  bad: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.7v3.7" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".9" fill="currentColor" stroke="none"/></svg>',
+  warn: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.3l6 10.4H2z"/><path d="M8 6.3v3" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".85" fill="currentColor" stroke="none"/></svg>',
+  note: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v4" stroke-linecap="round"/><circle cx="8" cy="4.9" r=".9" fill="currentColor" stroke="none"/></svg>',
+  ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.3"/><path d="M5 8.3l2.1 2.1L11 6.1"/></svg>',
+};
 
-function openCheckPanel() { $('checkPanel').hidden = false; }
-function closeCheckPanel() { $('checkPanel').hidden = true; }
+/* 体检浮层：顶栏那颗按钮点开。输入和结果在同一块里——
+   结果直接长在输入框下面，换个文件接着查时不用先关一个窗口再开一个 */
+function showCheckPop() {
+  const pop = $('checkPop');
+  const btn = $('checkBtn');
+  if (!pop || !btn) return;
+  hideRecent();
+  hidePickPop();
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth || 560;
+  pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
+  pop.hidden = false;
+  const input = $('checkPath');
+  if (input) input.focus();
+}
+
+function hideCheckPop() {
+  const pop = $('checkPop');
+  if (pop) pop.hidden = true;
+}
+
+function toggleCheckPop() {
+  const pop = $('checkPop');
+  if (pop && !pop.hidden) hideCheckPop();
+  else showCheckPop();
+}
 
 function renderCheck(d) {
   const sum = $('chkSum');
@@ -3139,8 +3175,11 @@ function renderCheck(d) {
   sum.textContent = '';
   order.forEach((k) => {
     const n = s[k] || 0;
+    if (!n) return;   // 一条都没有的档位不占位置，摘要才看得清
     const span = document.createElement('span');
-    span.innerHTML = LEVEL_TEXT[k] + ' <b>' + n + '</b>';
+    span.className = 'chk-sum-item';
+    span.innerHTML = '<i class="chk-ico lv-' + k + '">' + (LEVEL_ICON[k] || '') + '</i>' +
+      LEVEL_TEXT[k] + ' <b>' + n + '</b>';
     sum.appendChild(span);
   });
   const el = document.createElement('span');
@@ -3150,7 +3189,7 @@ function renderCheck(d) {
   // 文件夹里数据太多时引擎只体检前若干个，这里说清楚，免得用户以为就这么多
   if (d.truncated) {
     const cut = document.createElement('span');
-    cut.textContent = '超过 ' + d.limit + ' 个，只体检了前 ' + (d.files || []).length + ' 个';
+    cut.textContent = '本次最多体检 ' + d.limit + ' 个，其余没查';
     sum.appendChild(cut);
   }
 
@@ -3160,15 +3199,21 @@ function renderCheck(d) {
     box.className = 'chk-file';
     const head = document.createElement('div');
     head.className = 'chk-head';
-    const dot = document.createElement('i');
-    dot.className = 'chk-dot ' + f.level;
-    head.appendChild(dot);
-    head.appendChild(document.createTextNode(f.name));
-    const kind = document.createElement('span');
-    kind.className = 'chk-kind';
-    kind.textContent = f.path || '';
-    head.appendChild(kind);
+    const ico = document.createElement('span');
+    ico.className = 'chk-ico lv-' + f.level;
+    ico.innerHTML = LEVEL_ICON[f.level] || LEVEL_ICON.ok;
+    head.appendChild(ico);
+    const nm = document.createElement('span');
+    nm.className = 'chk-name';
+    nm.textContent = f.name;
+    head.appendChild(nm);
     box.appendChild(head);
+    // 路径单独一行：文件名长的时候不再把路径挤成两截，路径本身也只用一行表示
+    const where = document.createElement('div');
+    where.className = 'chk-path';
+    where.textContent = f.path || '';
+    where.title = f.path || '';
+    box.appendChild(where);
 
     const items = document.createElement('div');
     items.className = 'chk-items';
@@ -3201,12 +3246,19 @@ function renderCheck(d) {
   });
 }
 
-function runCheck() {
+/* 体检要查哪个：输入框优先，留空则查当前打开的那份 */
+function checkTarget() {
   const input = $('checkPath');
-  const path = (input && input.value.trim()) || (current && current.path) || '';
-  if (!path) { $('checkHint').textContent = '先填一个文件或文件夹路径'; return; }
-  input.value = path;
-  $('checkHint').textContent = '正在体检…';
+  return (input && input.value.trim()) || (current && current.path) || '';
+}
+
+function runCheck() {
+  const path = checkTarget();
+  const hint = $('checkHint');
+  if (!path) { hint.textContent = '先填一个文件或文件夹路径'; return; }
+  const input = $('checkPath');
+  if (input) input.value = path;
+  hint.textContent = '正在体检…';
   $('checkRunBtn').disabled = true;
   fetch('/api/check', {
     method: 'POST',
@@ -3215,37 +3267,40 @@ function runCheck() {
   }).then((r) => r.json()).then((d) => {
     $('checkRunBtn').disabled = false;
     if (!d || !d.ok) {
-      $('checkHint').textContent = (d && d.error && d.error.title) || '体检失败';
+      hint.textContent = (d && d.error && d.error.title) || '体检失败';
       return;
     }
     const n = (d.files || []).length;
-    const bad = (d.summary && (d.summary.bad || 0)) + (d.summary && (d.summary.warn || 0));
-    $('checkHint').textContent = '体检了 ' + n + ' 个' + (bad ? '，其中 ' + bad + ' 个要留意' : '，都没发现问题');
+    // 数字摘要那一行已经写清楚了，这里不重复；只在"什么都没查出来"时补一句
     renderCheck(d);
-    openCheckPanel();
+    $('checkResult').hidden = !n;
+    hint.textContent = n ? '' : '这个位置没有可体检的数据';
   }).catch(() => {
     $('checkRunBtn').disabled = false;
-    $('checkHint').textContent = '体检失败，稍后再试';
+    hint.textContent = '体检失败，稍后再试';
   });
 }
 
+/* 诊断包：环境 + 当前这份的体检结果打成 zip，反馈问题时发出去。
+   入口在设置→文件里，顶栏浮层只留"填路径、开始体检"两件事 */
 function runDiagnose() {
   const input = $('checkPath');
-  const path = (input && input.value.trim()) || (current && current.path) || '';
-  if (!path) { $('checkHint').textContent = '先填一个文件或文件夹路径'; return; }
-  $('checkHint').textContent = '正在打包诊断包…';
+  const path = (current && current.path) || (input && input.value.trim()) || '';
+  const hint = $('diagHint');
+  if (!path) { if (hint) hint.textContent = '先在主界面打开一个文件，再来导出诊断包'; return; }
+  if (hint) hint.textContent = '正在打包诊断包…';
   fetch('/api/diagnose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paths: [path] }),
   }).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) {
-      $('checkHint').textContent = (d && d.error && d.error.title) || '诊断包没写出来';
+      if (hint) hint.textContent = (d && d.error && d.error.title) || '诊断包没写出来';
       return;
     }
-    $('checkHint').textContent = '诊断包已导出（' + (d.size_label || '') + '），已在资源管理器里选中';
+    if (hint) hint.textContent = '诊断包已导出（' + (d.size_label || '') + '），已在资源管理器里选中';
     toShell('revealfile:' + d.path);
-  }).catch(() => { $('checkHint').textContent = '诊断包没写出来，稍后再试'; });
+  }).catch(() => { if (hint) hint.textContent = '诊断包没写出来，稍后再试'; });
 }
 
 function refreshCacheSize() {
@@ -3959,13 +4014,15 @@ function init() {
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
-  // 数据体检：选目录、跑体检、导出诊断包
+  // 数据体检：顶栏那颗按钮开浮层，选目录、跑体检、看结论都在这一块里
+  $('checkBtn').addEventListener('click', toggleCheckPop);
   $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; toShell('pickdir'); });
   $('checkRunBtn').addEventListener('click', runCheck);
-  $('checkDiagBtn').addEventListener('click', runDiagnose);
-  $('chkDiag').addEventListener('click', runDiagnose);
-  $('chkDone').addEventListener('click', closeCheckPanel);
-  $('chkClose').addEventListener('click', closeCheckPanel);
+  // 路径框里回车等同点"开始体检"，省得手离开键盘
+  $('checkPath').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
+  });
+  $('diagBtn').addEventListener('click', runDiagnose);
   // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。
   // 开和关都带同一份清单，取消时壳照着删才删得干净
   const ctxExt = () => (host.menuExt || []).join(',');
@@ -4084,6 +4141,14 @@ function init() {
     const onBtn = e.target && e.target.closest ? e.target.closest('#filePickBtn') : null;
     if (pop.contains(e.target) || onBtn) return;
     hidePickPop();
+  });
+  // 体检浮层同理：点外面收掉，点自己的按钮不算（否则按下去就没了）
+  document.addEventListener('click', (e) => {
+    const pop = $('checkPop');
+    if (!pop || pop.hidden) return;
+    const onBtn = e.target && e.target.closest ? e.target.closest('#checkBtn') : null;
+    if (pop.contains(e.target) || onBtn) return;
+    hideCheckPop();
   });
   let findTimer = 0;
   $('attrFind').addEventListener('input', () => {

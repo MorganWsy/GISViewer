@@ -25,6 +25,10 @@
   --font-ui: "Noto Sans SC", "Source Han Sans SC", "Source Han Sans CN", "LXGW WenKai",
     "Microsoft YaHei", "PingFang SC", sans-serif;
   --font-num: Arial, "Noto Sans SC", sans-serif;
+  /* 设置页所有控件共用这一个高度：以天地图密钥输入框为准。
+     输入框、自定义下拉、按钮、分段开关排在一行时按同一高度摆，
+     行距才不会因为控件高低不同而忽宽忽窄 */
+  --ctl-h: 30px;
 }
 
 :root[data-theme="dark"] {
@@ -1638,6 +1642,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   padding-left: 0;
   border-left: 0;
 }
+/* 某些底图没有话要说：空着就别占那 25px，否则底图页的行距跟别的页对不上 */
+#settings .bm-hint:empty { display: none; }
 
 .hint.bad { color: #c0392b; }
 :root[data-theme="dark"] .hint.bad { color: #ef8a80; }
@@ -1682,6 +1688,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   display: inline-flex;
   flex: none;
   gap: 2px;
+  height: var(--ctl-h);
   padding: 2px;
   background: var(--panel-alt);
   border: 1px solid var(--line);
@@ -1691,7 +1698,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   padding: 2px 9px;
   font: inherit;
   font-size: 12.5px;
-  line-height: 18px;
+  /* 按钮行高吃掉分段开关的内边距和边框，整体正好与输入框同高 */
+  line-height: calc(var(--ctl-h) - 10px);
   color: var(--text-dim);
   background: none;
   border: 0;
@@ -1712,7 +1720,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 /* 设置页里所有控件同高同圆角：下拉、输入框、按钮排在一起时边线才对得上 */
 .field select, .field input[type="text"], .field input[type="password"] {
-  height: 30px;
+  height: var(--ctl-h);
   padding: 0 8px;
   font-size: 13px;
   font-family: inherit;
@@ -1722,7 +1730,24 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   border-radius: 6px;
 }
 
-.field .btn { height: 36px; display: inline-flex; align-items: center; border-radius: 6px; }
+/* 自定义下拉（combo）的可见部分才是那颗按钮：原 select 只有 1px。
+   它原来 min-height 36、行高按 14px 字排，比输入框高出 6~8px，
+   一列设置项看下来就是"忽高忽低"。这里压到和输入框同一高度 */
+.field .combo-btn {
+  height: var(--ctl-h);
+  min-height: 0;
+  padding: 0 30px 0 8px;
+  font-size: 13px;
+}
+/* 色带预览条塞进 30px 里：字 13px + 条 4px + 1px 间距，上下各留 4px 内边距 */
+.field .combo.has-bar .combo-btn { padding: 4px 30px 4px 8px; }
+.field .combo-bar { height: 4px; margin-top: 1px; }
+
+.field .btn { height: var(--ctl-h); display: inline-flex; align-items: center; border-radius: 6px; }
+
+/* 一行里标签和控件同一中线；行本身给个最小高度，
+   复选框那行是 22px、分段开关那行是 28px，不给就会被这两样撑出一高一低 */
+.field.inline { min-height: var(--ctl-h); }
 
 /* 天地图密钥那一行：输入框里嵌一颗眼睛，代替原来的"显示/隐藏"按钮 */
 .key-row { position: relative; display: flex; align-items: stretch; }
@@ -1942,14 +1967,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   line-height: 16px;
 }
 /* 标题后面那枚计数：一条浅底小胶囊，不抢"清空"的注意力。
-   字号和标题一样是 12px——两个并排的东西字号不同，看着就是一个大一个小 */
+   字号和标题一样是 12px；字体也必须跟标题同一套——上一版用了 Arial，
+   数字的字面比中文小一圈，同一行看过去就是一高一矮，光对盒子的中线救不回来 */
 .recent-pop .rp-num {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 16px;
   padding: 0 6px;
-  font-family: var(--font-num);
   font-size: 12px;
   font-weight: 600;
   line-height: 16px;
@@ -2340,48 +2365,113 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 @keyframes vecspin { to { transform: rotate(360deg); } }
 
-/* 数据体检结果卡：比关闭确认框宽一些，逐条结论要能读得开。
-   级别用左侧色条而不是整行铺色——整行铺色在长列表里太吵，
-   而且和"有问题/要留意/提一句"三档各自的字色抢视线 */
-.check-card { width: 560px; }
-.check-card .card-title { margin-bottom: 4px; padding: 0 12px 6px; font-size: 15px; }
-.chk-sum {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 12px;
-  padding: 2px 14px 8px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--line);
-}
-.chk-sum b { font-family: var(--font-num); font-weight: 600; color: var(--text); }
-.chk-list {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 8px 14px 4px;
+/* 数据体检浮层：顶栏那颗按钮点开就是它，输入框和结果同在一块浮层里。
+   换文件接着查时不用先关一个再开一个，结论也就不会被两个窗口夹在中间 */
+.check-pop {
+  position: fixed;
+  z-index: 55;
+  width: 560px;
+  max-width: calc(100vw - 24px);
+  max-height: min(72vh, 540px);
   display: flex;
   flex-direction: column;
   gap: 7px;
+  padding: 9px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
-.chk-file { display: flex; flex-direction: column; gap: 3px; }
+.cp-head { display: flex; align-items: baseline; gap: 8px; padding: 0 1px; }
+.cp-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.cp-sub { font-size: 11.5px; color: var(--text-dim); }
+.cp-row { display: flex; align-items: center; gap: 6px; }
+/* 输入框与两个按钮同一高度：跟设置页共用 --ctl-h，三样并排时边线才对得上 */
+.cp-row input {
+  flex: 1;
+  min-width: 0;
+  height: var(--ctl-h);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.cp-icon {
+  flex: none;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cp-icon:hover { color: var(--text); border-color: var(--accent); }
+.cp-icon svg { width: 16px; height: 16px; }
+.cp-row .btn { flex: none; height: var(--ctl-h); padding: 0 14px; font-size: 13px; }
+
+.cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
+.chk-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 6px 1px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* 摘要每一项前面挂同款小图标：颜色和形状跟下面文件行一致，一眼对得上 */
+.chk-sum-item { display: inline-flex; align-items: center; gap: 4px; }
+.chk-sum .chk-ico,
+.chk-sum .chk-ico svg { width: 12px; height: 12px; }
+.chk-sum b { font-family: var(--font-num); font-weight: 600; color: var(--text); }
+.chk-list {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 1px 2px 3px;
+}
+.chk-file { display: flex; flex-direction: column; gap: 1px; }
 .chk-head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.45;
   color: var(--text);
-  overflow-wrap: anywhere;
 }
-/* 级别圆点：三档颜色固定，别用主题色，红黄蓝在同一列表里一眼分得开 */
-.chk-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
-.chk-dot.bad { background: var(--err-line); }
-.chk-dot.warn { background: var(--warn-ico); }
-.chk-dot.note { background: var(--accent); }
-.chk-dot.ok { background: var(--line); }
-.chk-kind { font-weight: 400; font-size: 11.5px; color: var(--text-dim); }
-.chk-items { display: flex; flex-direction: column; gap: 2px; padding-left: 15px; }
+.chk-name { min-width: 0; overflow-wrap: anywhere; }
+/* 健康度用图标表示：形状和颜色一起说事，红三角和红圆点在缩略列表里也分得开 */
+/* 图标盒：档位类一律带 lv- 前缀。原先直接叫 warn，撞上了样式表里通用的
+   .warn 告警框（有边框和内边距），图标被撑成 26×22 的方块 */
+.chk-ico { flex: none; width: 15px; height: 15px; display: block; }
+/* 内联 svg 没有 width/height 属性，尺寸全靠这条：漏了就会缩成 0 宽，只剩一个空白 */
+.chk-ico svg { width: 15px; height: 15px; display: block; }
+.chk-ico.lv-bad { color: #cf3b30; }
+.chk-ico.lv-warn { color: var(--warn-ico); }
+.chk-ico.lv-note { color: var(--accent); }
+.chk-ico.lv-ok { color: #2f9e58; }
+:root[data-theme="dark"] .chk-ico.lv-bad { color: #ef7f74; }
+:root[data-theme="dark"] .chk-ico.lv-ok { color: #63c78c; }
+/* 路径单独一行、只占一行：长了截断，完整值挂在 title 上 */
+.chk-path {
+  padding-left: 21px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chk-items { display: flex; flex-direction: column; gap: 2px; padding-left: 21px; }
 .chk-item {
   display: flex;
   gap: 6px;
@@ -2391,11 +2481,6 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .chk-item .t { flex: none; color: var(--text); }
-.chk-chg { padding-left: 15px; font-size: 12px; line-height: 1.55; color: var(--warn-ico); overflow-wrap: anywhere; }
-.check-card .ca-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 9px 14px 2px;
-}
-.check-card .ca-actions .btn { min-width: 64px; padding: 3px 10px; font-size: 13px; }
+.chk-chg { padding-left: 21px; font-size: 12px; line-height: 1.55; color: var(--warn-ico); overflow-wrap: anywhere; }
+.cp-hint { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); padding: 0 1px; }
+.cp-hint:empty { display: none; }

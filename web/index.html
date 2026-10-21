@@ -27,10 +27,33 @@
   <!-- "打开"菜单：.gdb 这类数据在资源管理器里是文件夹，系统文件框选不了，
        所以按钮点开先分岔：打开文件…/打开文件夹… -->
   <div id="pickPop" class="pick-pop" hidden></div>
+  <!-- 数据体检：文件或文件夹整体查一遍，结论按严重程度分条列出。
+       输入和结果放在同一块浮层里——换个文件接着查时不用先关一个再开一个 -->
+  <div id="checkPop" class="check-pop" hidden>
+    <div class="cp-head">
+      <span class="cp-title">数据体检</span>
+      <span class="cp-sub" id="cpSub">文件或文件夹，留空就查当前打开的</span>
+    </div>
+    <div class="cp-row">
+      <input id="checkPath" type="text" spellcheck="false" placeholder="路径">
+      <button id="checkPathPick" class="cp-icon" type="button" title="选择文件夹">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+      </button>
+      <button id="checkRunBtn" class="btn" type="button">开始体检</button>
+    </div>
+    <div class="cp-result" id="checkResult" hidden>
+      <div class="chk-sum" id="chkSum"></div>
+      <div class="chk-list" id="chkList"></div>
+    </div>
+    <div class="cp-hint" id="checkHint"></div>
+  </div>
   <div class="tools no-drag">
     <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
     <button id="filePickBtn" class="ibtn" type="button" title="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
       <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+    </button>
+    <button id="checkBtn" class="ibtn" type="button" title="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6a1.5 1.5 0 0 1 1.5 1.5v.6H16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h-.5V5A1.5 1.5 0 0 1 9 3.5z"/><path d="M9 11.5l2 2 4-4"/><path d="M9 16.5h6"/></svg>
     </button>
     <button id="themeBtn" class="ibtn" type="button"></button>
     <button id="settingsBtn" class="ibtn" type="button" title="设置：底图、密钥、显示与快捷键">
@@ -181,20 +204,6 @@
       <button id="caCancel" class="btn ghost" type="button">取消</button>
       <button id="caExit" class="btn ghost" type="button">退出</button>
       <button id="caTray" class="btn" type="button">驻留在托盘</button>
-    </div>
-  </div>
-</div>
-
-<div id="checkPanel" class="modal" hidden>
-  <div class="modal-card check-card" role="dialog" aria-modal="true" aria-labelledby="chkTitle">
-    <div class="card-title">数据体检<button id="chkClose" class="modal-x" title="关闭">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg>
-    </button></div>
-    <div class="chk-sum" id="chkSum"></div>
-    <div class="chk-list" id="chkList"></div>
-    <div class="ca-actions">
-      <button id="chkDiag" class="btn ghost" type="button">导出诊断包</button>
-      <button id="chkDone" class="btn" type="button">完成</button>
     </div>
   </div>
 </div>
@@ -367,6 +376,10 @@
       </section>
 
       <section class="set-pane" data-sec="file" hidden>
+      <div class="field inline">
+        <label for="cfgCtxMenu">资源管理器右键"用图览打开"</label>
+        <input id="cfgCtxMenu" type="checkbox">
+      </div>
       <div class="field">
         <label for="cfgOpenDir">文件框起始目录</label>
         <div class="icon-row">
@@ -417,22 +430,11 @@
           <span class="hint" id="cacheSizeHint">正在统计…</span>
         </div>
       </div>
-      <div class="field inline">
-        <label for="cfgCtxMenu">资源管理器右键"用图览打开"</label>
-        <input id="cfgCtxMenu" type="checkbox">
-      </div>
       <div class="field">
-        <label for="checkPath">数据体检</label>
-        <div class="icon-row">
-          <input id="checkPath" type="text" spellcheck="false" placeholder="填文件或文件夹，留空则体检当前打开的">
-          <button id="checkPathPick" class="icon-btn" type="button" title="选择要体检的文件或文件夹">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
-          </button>
-        </div>
+        <label>导出诊断包</label>
         <div class="upd-row">
-          <button id="checkRunBtn" class="btn ghost" type="button">开始体检</button>
-          <button id="checkDiagBtn" class="btn ghost" type="button">导出诊断包</button>
-          <span class="hint" id="checkHint">体检报告会自动留作下次对比</span>
+          <button id="diagBtn" class="btn ghost" type="button">导出诊断包</button>
+          <span class="hint" id="diagHint">环境信息与当前文件的体检结论打成 zip，反馈问题时发出去</span>
         </div>
       </div>
       </section>
