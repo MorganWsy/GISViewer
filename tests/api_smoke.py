@@ -11,6 +11,7 @@
 """
 
 import argparse
+import io
 import json
 import os
 import shutil
@@ -22,7 +23,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get("TULAN_DATA") or ROOT.parent / "GISViewer-data")
@@ -261,6 +264,21 @@ def main(argv=None):
         need(zp.is_file(), "zip 没写出来：%s" % zp)
         need(zp.stat().st_size > 100, "zip 太小，多半是空的")
         need(data.get("size_label"), "没有大小标签")
+        # 包里同时给 json 与 xlsx：两份都得在，xlsx 还得是能被读的表格
+        names = set(zipfile.ZipFile(zp).namelist())
+        need("体检结果.json" in names, "包里没有 json：%s" % sorted(names))
+        need("体检结果.xlsx" in names, "包里没有 xlsx：%s" % sorted(names))
+        need("说明.md" in names, "包里没有说明：%s" % sorted(names))
+        book = zipfile.ZipFile(io.BytesIO(zipfile.ZipFile(zp).read("体检结果.xlsx")))
+        root = ElementTree.fromstring(book.read("xl/workbook.xml"))
+        sheets = [el.get("name") for el in root.iter()
+                  if el.tag.endswith("}sheet")]
+        need(sheets == ["概览", "文件清单", "体检明细"], "工作表不对：%s" % sheets)
+        sheet = book.read("xl/worksheets/sheet3.xml")
+        ElementTree.fromstring(sheet)   # 每个部件都必须是良构 XML，否则 Excel 打不开
+        shared = book.read("xl/sharedStrings.xml").decode("utf-8")
+        need("检查项目" in shared, "明细表没有表头文字")
+        need("可读性" in shared, "明细表没有检查项目")
 
     try:
         wait_ready(base)

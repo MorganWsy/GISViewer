@@ -37,7 +37,7 @@ let config = {
   vector_color: '#d9781f', max_features: 500, restore_last: false, cache_dir: '', keep_hours: 12,
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
   key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000,
-  hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32,
+  hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32, hk3_mods: 3, hk3_vk: 68,
   upd_freq: 'open', close_act: 'min', close_ask: true, recent: [], recent_max: 5,
 };
 const RAIL_MIN = 300;
@@ -3090,17 +3090,17 @@ function fillSettings() {
   // 早先存过 "boot"（开机就查），这一版改成打开后延迟查，读到老值直接换算过去
   $('cfgUpdFreq').value = config.upd_freq === 'boot' ? 'open' : (config.upd_freq || 'open');
   fillFontSelects();
-  paintHotkey();
-  paintHotkey2();
+  paintHotkeys();
   $('cfgAutoStart').checked = host.autoStart === true;
   $('cfgDeskLnk').checked = host.deskLnk === true;
   // 上次停在哪个分组
   showSettingPane(config.set_sec || 'base');
   // 文件框的起始位置由壳执行，这里把当前设置同步过去（含首次加载；留空＝上次的文件夹）
   toShell('opendir:' + String(config.open_dir || ''));
-  // 快捷键两行提示平时留空，只在改键过程中显示操作反馈
+  // 快捷键那几行提示平时留空，只在改键过程中显示操作反馈
   $('hkHint').textContent = '';
   $('hk2Hint').textContent = '';
+  $('hk3Hint').textContent = '';
   sysNote('');
   paintCacheHint();
   refreshCacheSize();
@@ -3188,6 +3188,31 @@ function showCheckPop() {
     setHint('按回车重新体检');
   }
 }
+
+/* 壳那边按"对选中项体检"的快捷键：把资源管理器里选中的路径整批发过来，
+   开浮层直接查。选中的是文件夹就按文件夹查——与在输入框里填路径是同一件事。
+   界面还没初始化完就先攒着，等就绪了再跑 */
+let pendingCheck = [];
+
+function checkPaths(paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!list.length) return;
+  const input = $('checkPath');
+  if (input) input.value = list[0];
+  // 先开浮层再查：showCheckPop 看到输入框非空只会给一句"回车重查"，
+  // 不会自己再跑一遍，省得同一次体检跑两回
+  showCheckPop();
+  runCheck(list);
+}
+
+window.GisCheckPaths = function (paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!list.length) return;
+  if (!pageReady) { pendingCheck = list; return; }
+  checkPaths(list);
+};
+
+
 
 /* 体检在跑的时候：盖上薄幕、转圈、关不掉。忙完自动撤掉 */
 let checkBusy = false;
@@ -3325,14 +3350,17 @@ function renderReport(f, host) {
   });
 }
 
-/* 体检要查哪个：输入框优先，留空则查当前打开的那份 */
+/* 体检要查哪个：输入框优先，留空则查当前打开的那份。
+   快捷键送进来的多选路径走 batch，一次把选中的几个都查了——
+   资源管理器里框住三个文件按快捷键，只查第一个等于丢了两份 */
 function checkTarget() {
   const input = $('checkPath');
   return (input && input.value.trim()) || (current && current.path) || '';
 }
 
-function runCheck() {
-  const path = checkTarget();
+function runCheck(batch) {
+  const many = (Array.isArray(batch) ? batch : []).filter(Boolean);
+  const path = many.length ? many[0] : checkTarget();
   if (!path) { setHint('先填一个文件或文件夹路径'); return; }
   const input = $('checkPath');
   if (input) input.value = path;
@@ -3343,7 +3371,7 @@ function runCheck() {
   fetch('/api/check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paths: [path] }),
+    body: JSON.stringify({ paths: many.length ? many : [path] }),
   }).then((r) => r.json()).then((d) => {
     setCheckBusy(false);
     /* 体检跑着的时候浮层可能已经被关掉了：结果不再往关闭的浮层里写，
@@ -3441,7 +3469,7 @@ function toShell(msg) {
 }
 
 /* 字体、自启状态、快捷键、有没有新版，这四件事只有壳知道 */
-const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2: '', menuExt: [] };
+const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2: '', hotkey3: '', menuExt: [] };
 let hkSynced = false;
 let configLoaded = false;
 
@@ -3478,26 +3506,27 @@ window.GisHost = function (name, value) {
     if (box) box.checked = on;
     return;
   }
-  if (name === 'hotkey') {
-    host.hotkey = String(value || '');
-    paintHotkey();
+  /* 三套全局快捷键的回报：hotkey / hotkey2 / hotkey3 是当前值，
+     带 Ok 是刚改成功，带 Failed 是新组合键被占了、壳已经退回旧的 */
+  const hotNo = { hotkey: 1, hotkeyOk: 1, hotkeyFailed: 1,
+    hotkey2: 2, hotkey2Ok: 2, hotkey2Failed: 2,
+    hotkey3: 3, hotkey3Ok: 3, hotkey3Failed: 3 }[name];
+  if (hotNo) {
+    const row = HK_ROWS[hotNo];
+    if (name.indexOf('Ok') > 0) {
+      host[row.host] = String(value || '');
+      paintHotkey(hotNo);
+      $(row.hint).textContent = row.ok.replace('%s', host[row.host]);
+      return;
+    }
+    if (name.indexOf('Failed') > 0) {
+      $(row.hint).textContent = value + ' 被别的软件占着，已经退回 ' +
+        host[row.host] + '，换一组试试。';
+      return;
+    }
+    host[row.host] = String(value || '');
+    paintHotkey(hotNo);
     trySyncHotkey();
-    return;
-  }
-  if (name === 'hotkey2') {
-    host.hotkey2 = String(value || '');
-    paintHotkey2();
-    trySyncHotkey();
-    return;
-  }
-  if (name === 'hotkey2Ok') {
-    host.hotkey2 = String(value || '');
-    paintHotkey2();
-    $('hk2Hint').textContent = '已生效：在资源管理器里选中文件后按 ' + host.hotkey2 + '。';
-    return;
-  }
-  if (name === 'hotkey2Failed') {
-    $('hk2Hint').textContent = value + ' 被别的软件占着，已经退回 ' + host.hotkey2 + '，换一组试试。';
     return;
   }
   if (name === 'autoStartState' || name === 'deskLnkState') {
@@ -3509,16 +3538,6 @@ window.GisHost = function (name, value) {
     if (auto) host.autoStart = on; else host.deskLnk = on;
     sysNote(bad ? (auto ? '开机自启没改成：' : '桌面上的快捷方式没改成：') +
       (String(value).slice(6) || '系统不让写这个位置') : '');
-    return;
-  }
-  if (name === 'hotkeyOk') {
-    host.hotkey = String(value || '');
-    paintHotkey();
-    $('hkHint').textContent = '快捷键已生效：' + host.hotkey + '。软件收进托盘后也能用它叫出来。';
-    return;
-  }
-  if (name === 'hotkeyFailed') {
-    $('hkHint').textContent = value + ' 被别的软件占着，已经退回 ' + host.hotkey + '，换一组试试。';
     return;
   }
   if (name === 'update') { paintUpdate(value); return; }
@@ -3593,22 +3612,19 @@ const HK_NAMED = {
 };
 
 /* 壳先起来、配置后到：等两边都齐了再比一次，存过的组合键覆盖壳的默认值。
-   两条快捷键各管各的，哪一条不同就只重注册哪一条 */
+   三条快捷键各管各的，哪一条不同就只重注册哪一条 */
 function trySyncHotkey() {
   if (hkSynced || !configLoaded) return;
   hkSynced = true;
-  const want = hkText(config.hk_mods, config.hk_vk);
-  if (want && want !== host.hotkey) {
-    host.hotkey = want;
-    paintHotkey();
-    toShell('hk:' + Number(config.hk_mods) + ',' + Number(config.hk_vk));
-  }
-  const want2 = hkText(config.hk2_mods, config.hk2_vk);
-  if (want2 && want2 !== host.hotkey2) {
-    host.hotkey2 = want2;
-    paintHotkey2();
-    toShell('hk2:' + Number(config.hk2_mods) + ',' + Number(config.hk2_vk));
-  }
+  [1, 2, 3].forEach((no) => {
+    const row = HK_ROWS[no];
+    const want = hkText(config[row.cfg[0]], config[row.cfg[1]]);
+    if (!want || want === host[row.host]) return;
+    host[row.host] = want;
+    paintHotkey(no);
+    toShell((no === 1 ? 'hk' : 'hk' + no) + ':' +
+      Number(config[row.cfg[0]]) + ',' + Number(config[row.cfg[1]]));
+  });
 }
 
 /* ---------- 页内快捷键（Esc / F / Ctrl+F 这类不经过系统注册的） ---------- */
@@ -3672,59 +3688,59 @@ document.addEventListener('keydown', (e) => {
   settlePageKey();
 }, true);
 
-function paintHotkey() {
+/* 三套全局快捷键都由壳注册：1 唤出窗口、2 打开选中项、3 体检选中项。
+   一行一个按钮，改键时只有一套在"待按"状态，用序号记着是哪一套 */
+const HK_ROWS = {
+  1: { btn: 'hkBtn', reset: 'hkReset', hint: 'hkHint', host: 'hotkey',
+       cfg: ['hk_mods', 'hk_vk'], def: [3, 71], ph: 'Ctrl+Alt+G',
+       ok: '快捷键已生效：%s。软件收进托盘后也能用它叫出来。' },
+  2: { btn: 'hk2Btn', reset: 'hk2Reset', hint: 'hk2Hint', host: 'hotkey2',
+       cfg: ['hk2_mods', 'hk2_vk'], def: [3, 32], ph: 'Ctrl+Alt+空格',
+       ok: '已生效：在资源管理器里选中文件后按 %s。' },
+  3: { btn: 'hk3Btn', reset: 'hk3Reset', hint: 'hk3Hint', host: 'hotkey3',
+       cfg: ['hk3_mods', 'hk3_vk'], def: [3, 68], ph: 'Ctrl+Alt+D',
+       ok: '已生效：在资源管理器里选中文件后按 %s，直接开始体检。' },
+};
+let armingHot = 0;
 
-
-  const btn = $('hkBtn');
-  if (!btn || arming) return;
-  const txt = host.hotkey || hkText(config.hk_mods, config.hk_vk) || 'Ctrl+Alt+G';
-  btn.textContent = txt;
-  const cell = $('keyGlobal');
-  if (cell) cell.textContent = txt;
+/* 按钮上显示哪个键：壳报回来的优先，其次是配置里存的，最后是出厂默认 */
+function hkValue(no) {
+  const row = HK_ROWS[no];
+  return host[row.host] || hkText(config[row.cfg[0]], config[row.cfg[1]]) || row.ph;
 }
 
-function paintHotkey2() {
-  const btn = $('hk2Btn');
-  if (!btn || arming2) return;
-  const txt = host.hotkey2 || hkText(config.hk2_mods, config.hk2_vk) || 'Ctrl+Alt+空格';
-  btn.textContent = txt;
-  const cell = $('keyOpenSel');
-  if (cell) cell.textContent = txt;
+function paintHotkey(no) {
+  const row = HK_ROWS[no];
+  const btn = $(row.btn);
+  if (!btn || armingHot === no) return;
+  btn.textContent = hkValue(no);
 }
 
-let arming = false;
-let arming2 = false;
+function paintHotkeys() {
+  [1, 2, 3].forEach(paintHotkey);
+}
 
-function armHotkey() {
+function armHotkey(no) {
+  if (armingHot === no) { settleHotkey(); return; }
   settleHotkey();
-  arming = true;
-  const btn = $('hkBtn');
-  btn.classList.add('arming');
-  btn.textContent = '按下组合键…';
-  $('hkHint').textContent = '按下想要的组合键，也可以按 Esc 取消。单独一个字母容易被别的软件抢走，建议带上 Ctrl 或 Alt。';
-}
-
-function armHotkey2() {
-  settleHotkey();
-  arming2 = true;
-  const btn = $('hk2Btn');
-  btn.classList.add('arming');
-  btn.textContent = '按下组合键…';
-  $('hk2Hint').textContent = '按下想要的组合键，也可以按 Esc 取消。建议带上 Ctrl 或 Alt，免得和系统或别的软件抢键。';
+  armingHot = no;
+  const btn = $(HK_ROWS[no].btn);
+  if (btn) { btn.classList.add('arming'); btn.textContent = '按下组合键…'; }
+  $(HK_ROWS[no].hint).textContent =
+    '按下想要的组合键，也可以按 Esc 取消。建议带上 Ctrl 或 Alt，免得和系统或别的软件抢键。';
 }
 
 function settleHotkey() {
-  arming = false;
-  arming2 = false;
-  const a = $('hkBtn');
-  const b = $('hk2Btn');
-  if (a) a.classList.remove('arming');
-  if (b) b.classList.remove('arming');
-  // 改键过程结束后先清掉操作提示，成功/被占用会各自再写一条
-  $('hkHint').textContent = '';
-  $('hk2Hint').textContent = '';
-  paintHotkey();
-  paintHotkey2();
+  armingHot = 0;
+  [1, 2, 3].forEach((no) => {
+    const row = HK_ROWS[no];
+    const btn = $(row.btn);
+    if (btn) btn.classList.remove('arming');
+    // 改键过程结束后先清掉操作提示，成功/被占用会各自再写一条
+    const hint = $(row.hint);
+    if (hint) hint.textContent = '';
+  });
+  paintHotkeys();
 }
 
 function vkOf(e) {
@@ -3743,7 +3759,7 @@ function vkOf(e) {
 }
 
 function onArmKeydown(e) {
-  if (!arming && !arming2) return;
+  if (!armingHot) return;
   e.preventDefault();
   e.stopPropagation();
   if (e.key === 'Escape') { settleHotkey(); return; }
@@ -3751,40 +3767,31 @@ function onArmKeydown(e) {
   const vk = e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' ||
     e.key === 'Meta' || e.key === 'CapsLock' ? 0 : vkOf(e);
   if (!vk || (mods === 0 && !(vk >= 0x70 && vk <= 0x7B))) {
-    $(arming2 ? 'hk2Hint' : 'hkHint').textContent =
+    $(HK_ROWS[armingHot].hint).textContent =
       '至少要按下一个修饰键（Ctrl、Alt、Shift、Win），单按 F1~F12 也可以。';
     return;
   }
-  const second = arming2;
+  const no = armingHot;
   settleHotkey();
-  if (second) applyHotkey2Choice(mods, vk);
-  else applyHotkeyChoice(mods, vk);
+  applyHotkeyChoice(no, mods, vk);
 }
 
 /* 快捷键归壳管，界面只负责把选择递过去并立刻把按钮上的字改掉 */
-function applyHotkeyChoice(mods, vk) {
-  config.hk_mods = mods;
-  config.hk_vk = vk;
-  host.hotkey = hkText(mods, vk);
-  paintHotkey();
-  toShell('hk:' + mods + ',' + vk);
+function applyHotkeyChoice(no, mods, vk) {
+  const row = HK_ROWS[no];
+  config[row.cfg[0]] = mods;
+  config[row.cfg[1]] = vk;
+  host[row.host] = hkText(mods, vk);
+  paintHotkey(no);
+  // 壳认得 hk / hk2 / hk3 三种前缀，第一条没有数字
+  toShell((no === 1 ? 'hk' : 'hk' + no) + ':' + mods + ',' + vk);
+  const body = {};
+  body[row.cfg[0]] = mods;
+  body[row.cfg[1]] = vk;
   fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hk_mods: mods, hk_vk: vk }),
-  }).catch(() => {});
-}
-
-function applyHotkey2Choice(mods, vk) {
-  config.hk2_mods = mods;
-  config.hk2_vk = vk;
-  host.hotkey2 = hkText(mods, vk);
-  paintHotkey2();
-  toShell('hk2:' + mods + ',' + vk);
-  fetch('/api/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hk2_mods: mods, hk2_vk: vk }),
+    body: JSON.stringify(body),
   }).catch(() => {});
 }
 
@@ -4186,10 +4193,16 @@ function init() {
     paintRange($('cfgAlpha'));
     applyLook();
   });
-  $('hkBtn').addEventListener('click', armHotkey);
-  $('hkReset').addEventListener('click', () => { settleHotkey(); applyHotkeyChoice(3, 71); });
-  $('hk2Btn').addEventListener('click', armHotkey2);
-  $('hk2Reset').addEventListener('click', () => { settleHotkey(); applyHotkey2Choice(3, 32); });
+  [1, 2, 3].forEach((no) => {
+    const row = HK_ROWS[no];
+    const btn = $(row.btn);
+    if (btn) btn.addEventListener('click', () => armHotkey(no));
+    const back = $(row.reset);
+    if (back) back.addEventListener('click', () => {
+      settleHotkey();
+      applyHotkeyChoice(no, row.def[0], row.def[1]);
+    });
+  });
   document.addEventListener('keydown', onArmKeydown, true);
   $('cfgAutoStart').addEventListener('change', (e) => {
     toShell('autostart:' + (e.target.checked ? '1' : '0'));
@@ -4362,6 +4375,12 @@ function init() {
   loadConfig().then(() => {
     if (window.GisMap) GisMap.init(config);
     pageReady = true;
+    // 快捷键在界面就绪前按下的那一批：补跑一次，别让用户以为没反应
+    if (pendingCheck.length) {
+      const list = pendingCheck;
+      pendingCheck = [];
+      checkPaths(list);
+    }
     reportDropArea();
     window.addEventListener('resize', reportDropArea);
     const mainEl = $('drop');

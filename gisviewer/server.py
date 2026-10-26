@@ -227,7 +227,8 @@ def write_config(data):
                "ramp", "class_count", "nodata_view", "raster_default", "vector_color",
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
-               "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "upd_freq", "close_act",
+               "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "hk3_mods", "hk3_vk",
+               "upd_freq", "close_act",
                "open_dir", "toast_sec", "set_sec",
                "key_close", "key_fit", "key_find", "draw_limit"}
     payload = read_config()
@@ -328,28 +329,9 @@ def _stamp_elapsed(result, started):
 
 def _check_facts(result):
     """单文件体检表头那一行：什么格式、几个图层、多少要素、多大。
-
-    只写看得懂的事实，不做判断——判断在 verdict 里。
-    """
-    f = result.get("file") or {}
-    out = []
-    label = result.get("driver_label")
-    if label:
-        out.append(label)
-    if result.get("kind") == "vector":
-        if result.get("layer_count"):
-            out.append("%d 个图层" % result["layer_count"])
-        if result.get("feature_count_total"):
-            out.append("{:,} 个要素".format(int(result["feature_count_total"])))
-    elif result.get("kind") == "raster":
-        w, h = result.get("width"), result.get("height")
-        if w and h:
-            out.append("{:,} × {:,} 像元".format(int(w), int(h)))
-        if result.get("band_count"):
-            out.append("%d 个波段" % result["band_count"])
-    if f.get("size_label"):
-        out.append(f["size_label"])
-    return out
+    实现放在 verdict 里，诊断包的 xlsx 用的是同一份。"""
+    from . import verdict
+    return verdict.facts(result)
 
 
 def cached_safe_inspect(path, **kwargs):

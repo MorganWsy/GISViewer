@@ -120,6 +120,11 @@ namespace GISViewer
         uint _hk2Key = Native.VK_SPACE2;
         bool _hk2Ok;
         string _hk2Text = "Ctrl+Alt+空格";
+        /* 第三套：选中文件后直接体检。选 Ctrl+Alt+D，"D" 是诊断，也不跟系统惯例打架 */
+        uint _hk3Mods = Native.MOD_CONTROL | Native.MOD_ALT;
+        uint _hk3Key = Native.VK_D;
+        bool _hk3Ok;
+        string _hk3Text = "Ctrl+Alt+D";
         string _lastDir = "";
         /* 文件框从哪起步：设置页填的固定目录；留空就用上次打开文件所在的文件夹 */
         string _openDir = "";
@@ -510,6 +515,14 @@ namespace GISViewer
                     ApplyHotkey2(mods, vk);
                 return;
             }
+            if (msg.StartsWith("hk3:"))
+            {
+                string[] p = msg.Substring(4).Split(',');
+                uint mods, vk;
+                if (p.Length >= 2 && uint.TryParse(p[0], out mods) && uint.TryParse(p[1], out vk))
+                    ApplyHotkey3(mods, vk);
+                return;
+            }
             if (msg == "autostart:1" || msg == "autostart:0")
             {
                 bool on = msg.EndsWith("1");
@@ -819,6 +832,9 @@ namespace GISViewer
             Eval("window.GisHost && window.GisHost('hotkey2', " + Json(_hk2Text) + ")");
             if (!_hk2Ok)
                 Eval("window.GisHost && window.GisHost('hotkey2Failed', " + Json(_hk2Text) + ")");
+            Eval("window.GisHost && window.GisHost('hotkey3', " + Json(_hk3Text) + ")");
+            if (!_hk3Ok)
+                Eval("window.GisHost && window.GisHost('hotkey3Failed', " + Json(_hk3Text) + ")");
             Eval("window.GisHost && window.GisHost('maximized', " +
                 Json(WindowState == FormWindowState.Maximized ? "on" : "off") + ")");
             Eval("window.GisHost && window.GisHost('ctxmenu', " +
@@ -879,48 +895,69 @@ namespace GISViewer
         /* 拖进来一批路径：界面还没导航完就先收着，等页面就绪再一起送 */
         readonly List<string[]> _earlyDrops = new List<string[]>();
 
-        /* ---------- 资源管理器里选中、按 Ctrl+Alt+空格 直接打开 ---------- */
+        /* ---------- 资源管理器里选中：Ctrl+Alt+空格 打开、Ctrl+Alt+D 体检 ---------- */
 
-        void OpenExplorerSelection()
+        /* 两条快捷键的前半段是同一件事：读选中项，读不到就按原因给一句人话。
+           read 是给日志用的名字，verb 是给用户看的动作（"打开"/"体检"） */
+        string[] ExplorerSelectionOrNotice(string read, string verb)
         {
             Stopwatch sw = Stopwatch.StartNew();
             string[] paths = ExplorerSelection();
-            Log("选中即开读完选中项，用时 " + sw.ElapsedMilliseconds + " ms");
+            Log("读选中项（" + read + "），用时 " + sw.ElapsedMilliseconds + " ms");
             ShowFromTray();
-            if (paths.Length == 0)
+            if (paths.Length > 0) return paths;
+            Log("按了" + read + "，但资源管理器里没有选中的文件");
+            if (_frontNotFileManager)
             {
-                Log("按了选中即开，但资源管理器里没有选中的文件");
-                if (_frontNotFileManager)
-                {
-                    Push("notice", "{title:" + Json("快捷键要在资源管理器或桌面上用") + ",detail:" +
-                        Json("先在资源管理器窗口或桌面点选文件，焦点留在那里时按快捷键。" +
-                             "现在最前面的是别的程序，看不出你想打开哪个文件，就不猜了。") + "}");
-                    return;
-                }
-                if (_comFailed)
-                {
-                    Push("notice", "{title:" + Json("这次没读到选中项") + ",detail:" +
-                        Json("系统这一下没把资源管理器的选中内容给出来，再按一次快捷键；" +
-                             "连着几次都这样，就把资源管理器窗口关掉重开。") + "}");
-                    return;
-                }
-                if (_sawVirtualPick)
-                {
-                    /* 停在"此电脑"、"回收站"这类位置时给的是 ::{GUID} 壳路径，
-                       或者选中的是桌面、文档这类文件夹——都不是能打开的数据文件 */
-                    Push("notice", "{title:" + Json("这里没有能打开的文件") + ",detail:" +
-                        Json("资源管理器现在停在\"此电脑\"这类没有磁盘路径的位置，或者选中的是" +
-                             "桌面、文档这样的文件夹。请进入文件所在的真实文件夹，" +
-                             "点选文件（比如 .tif、.shp、.gdb）后再按快捷键。") + "}");
-                    return;
-                }
-                Push("notice", "{title:" + Json("没有选中文件") + ",detail:" +
-                    Json("先在资源管理器或桌面点选一个文件（比如 .tif、.shp、.gdb），" +
-                         "再按快捷键。") + "}");
-                return;
+                Push("notice", "{title:" + Json("快捷键要在资源管理器或桌面上用") + ",detail:" +
+                    Json("先在资源管理器窗口或桌面点选文件，焦点留在那里时按快捷键。" +
+                         "现在最前面的是别的程序，看不出你想" + verb + "哪个文件，就不猜了。") + "}");
+                return paths;
             }
+            if (_comFailed)
+            {
+                Push("notice", "{title:" + Json("这次没读到选中项") + ",detail:" +
+                    Json("系统这一下没把资源管理器的选中内容给出来，再按一次快捷键；" +
+                         "连着几次都这样，就把资源管理器窗口关掉重开。") + "}");
+                return paths;
+            }
+            if (_sawVirtualPick)
+            {
+                /* 停在"此电脑"、"回收站"这类位置时给的是 ::{GUID} 壳路径，
+                   或者选中的是桌面、文档这类文件夹——都不是能打开的数据文件 */
+                Push("notice", "{title:" + Json("这里没有能打开的文件") + ",detail:" +
+                    Json("资源管理器现在停在\"此电脑\"这类没有磁盘路径的位置，或者选中的是" +
+                         "桌面、文档这样的文件夹。请进入文件所在的真实文件夹，" +
+                         "点选文件（比如 .tif、.shp、.gdb）后再按快捷键。") + "}");
+                return paths;
+            }
+            Push("notice", "{title:" + Json("没有选中文件") + ",detail:" +
+                Json("先在资源管理器或桌面点选一个文件（比如 .tif、.shp、.gdb），" +
+                     "再按快捷键。") + "}");
+            return paths;
+        }
+
+        void OpenExplorerSelection()
+        {
+            string[] paths = ExplorerSelectionOrNotice("选中即开", "打开");
+            if (paths.Length == 0) return;
             Log("选中即开拿到 " + paths.Length + " 项：" + string.Join(" | ", paths));
             OnDroppedPaths(paths);
+        }
+
+        /* 体检那条：不打开数据，只把选中的路径交给界面，由界面开体检浮层去查 */
+        void CheckExplorerSelection()
+        {
+            string[] paths = ExplorerSelectionOrNotice("选中即查", "体检");
+            if (paths.Length == 0) return;
+            Log("选中即查拿到 " + paths.Length + " 项：" + string.Join(" | ", paths));
+            var sb = new StringBuilder();
+            foreach (string p in paths)
+            {
+                if (sb.Length > 0) sb.Append(',');
+                sb.Append(Json(p));
+            }
+            Eval("window.GisCheckPaths && window.GisCheckPaths([" + sb + "])");
         }
 
         /* 资源管理器开着的每个窗口都挂在 Shell.Application 的 Windows() 上，
@@ -1550,6 +1587,7 @@ namespace GISViewer
         {
             base.OnHandleCreated(e);
             RegisterHotkey2();
+            RegisterHotkey3();
             RegisterHotkey();
             /* 启动头几百毫秒界面还没就绪时拖进来的文件，接收层照收，
                收到的路径先攒着，等界面就绪再补送 */
@@ -1574,6 +1612,25 @@ namespace GISViewer
             {
                 _hk2Ok = false;
                 Log("选中即开的快捷键 " + text + " 注册不上（可能被别的软件占了）");
+            }
+        }
+
+        /* 第三条：选中项直接体检。默认 Ctrl+Alt+D，设置里可以换 */
+        void RegisterHotkey3()
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            Native.UnregisterHotKey(Handle, Native.HotkeyId3);
+            string text = Hotkey.Describe(_hk3Mods, _hk3Key);
+            _hk3Text = text;
+            if (Native.RegisterHotKey(Handle, Native.HotkeyId3, _hk3Mods, _hk3Key))
+            {
+                _hk3Ok = true;
+                Log("选中即查的快捷键已挂上 " + text);
+            }
+            else
+            {
+                _hk3Ok = false;
+                Log("选中即查的快捷键 " + text + " 注册不上（可能被别的软件占了）");
             }
         }
 
@@ -1624,6 +1681,26 @@ namespace GISViewer
             RegisterHotkey2();
             Push("hotkey2Ok", Json(_hk2Text));
             Push("hotkey2Failed", Json(want));
+        }
+
+        /* 设置里换了"选中即查"的组合键：同上，被别人占了就退回默认并告诉界面 */
+        void ApplyHotkey3(uint mods, uint vk)
+        {
+            if (!Hotkey.Plausible(mods, vk)) return;
+            _hk3Mods = mods;
+            _hk3Key = vk;
+            RegisterHotkey3();
+            if (_hk3Ok)
+            {
+                Push("hotkey3Ok", Json(_hk3Text));
+                return;
+            }
+            string want = Hotkey.Describe(mods, vk);
+            _hk3Mods = Native.MOD_CONTROL | Native.MOD_ALT;
+            _hk3Key = Native.VK_D;
+            RegisterHotkey3();
+            Push("hotkey3Ok", Json(_hk3Text));
+            Push("hotkey3Failed", Json(want));
         }
 
         void ApplyHotkey(uint mods, uint vk)
@@ -1687,6 +1764,7 @@ namespace GISViewer
             if (m.Msg == Native.WM_HOTKEY)
             {
                 if ((int)m.WParam == Native.HotkeyId2) OpenExplorerSelection();
+                else if ((int)m.WParam == Native.HotkeyId3) CheckExplorerSelection();
                 else Toggle();
                 return;
             }

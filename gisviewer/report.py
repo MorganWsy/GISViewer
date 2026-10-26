@@ -14,6 +14,8 @@ from pathlib import Path
 
 from . import __version__
 from . import inspect as engine
+from . import verdict
+from . import xlsx
 
 SKIP_EXT = {".hdr", ".ovr", ".rrd"}    # 只是配件，不单独体检
 DIR_LIMIT = 500                        # 一个文件夹最多体检这么多，超了先给前 500 个
@@ -67,12 +69,21 @@ def jsonable(obj):
     return obj
 
 
-def build(results):
-    """报告外壳：比结果本身多一层，对比时认版本、认时间。"""
+def build(results, with_verdict=False):
+    """报告外壳：比结果本身多一层，对比时认版本、认时间。
+
+    with_verdict 给诊断包用：包里那份 json 要能自己说清结论，不能只有一堆元数据
+    等人去推。存成"上次报告"时不要——对比只看元数据，结论由 compare 现算。
+    """
+    files = [jsonable(r) for r in results]
+    if with_verdict:
+        for item, raw in zip(files, results):
+            if isinstance(item, dict):
+                item["verdict"] = jsonable(verdict.judge(raw))
     return {
         "app": "图览 " + __version__,
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "files": [jsonable(r) for r in results],
+        "files": files,
     }
 
 
@@ -149,12 +160,17 @@ def diagnostic_note():
         "# 图览诊断包",
         "",
         "这个包用来排查“某个数据为什么读不出来、读出来为什么不对”。包里不含任何源数据，",
-        "只有两份内容：本说明文件，以及 体检结果.json。",
+        "只有三份内容：本说明文件、体检结果.json、体检结果.xlsx。",
         "",
         "## 体检结果.json",
         "",
         "图览打开这些文件时读到的元数据（格式、图层、坐标系、范围、要素数、字段表、",
         "栅格波段与像元信息），以及每条体检结论。不包含几何、像元值和属性表内容。",
+        "",
+        "## 体检结果.xlsx",
+        "",
+        "和上面那份 json 是同一份结果，换个摆法给人看：概览、文件清单、体检明细三张表，",
+        "后两张表头带筛选，按结论或按检查项目分堆看。不想开 json 的话，只看这张表就够。",
         "",
         "## 环境",
         "",
@@ -170,11 +186,87 @@ def diagnostic_note():
     return "\n".join(lines)
 
 
+def check_workbook(results):
+    """把体检结果摊成三张表：概览、文件清单、体检明细。
+
+    xlsx 和 json 出自同一次计算，一份给程序读、一份给人看。用表格而不是纯文本，
+    是因为几百个数据里"哪些没过"要能按列筛：Excel 里点一下表头就够了，
+    而在一屏流水账里找红字，找着找着就漏了。
+    """
+    files = []
+    for raw in results:
+        said = verdict.judge(raw)
+        f = raw.get("file") or {}
+        path = f.get("path") or raw.get("input") or ""
+        files.append({
+            "name": f.get("name") or os.path.basename(str(path)) or "（未命名）",
+            "path": str(path),
+            "level": said["level"],
+            "facts": " · ".join(verdict.facts(raw)),
+            "rows": said.get("rows") or [],
+            "items": said.get("items") or [],
+        })
+    counts = {"bad": 0, "warn": 0, "ok": 0}
+    for f in files:
+        counts[f["level"]] = counts.get(f["level"], 0) + 1
+
+    overview = [
+        [("图览版本", xlsx.BOLD), (__version__, xlsx.TEXT)],
+        [("生成时间", xlsx.BOLD), (time.strftime("%Y-%m-%d %H:%M:%S"), xlsx.TEXT)],
+        [("体检文件数", xlsx.BOLD), (len(files), xlsx.TEXT)],
+        [("有问题", xlsx.BOLD), (counts["bad"], xlsx.TEXT)],
+        [("要留意", xlsx.BOLD), (counts["warn"], xlsx.TEXT)],
+        [("没发现问题", xlsx.BOLD), (counts["ok"], xlsx.TEXT)],
+        [("结论分档", xlsx.BOLD),
+         ("有问题：打开或使用会出错，需要处理；要留意：能用，但某些地方不理想；"
+          "没发现问题：逐项核对都通过了。", xlsx.TEXT)],
+        [("怎么看", xlsx.BOLD),
+         ("“体检明细”一个数据占若干行，一行是一个检查项目，表头带筛选——按结论或按项目"
+          "分堆看最快。“文件清单”一个数据一行，适合整体过一遍。同一个包里的 "
+          "体检结果.json 是同一份数据的原始版本，供程序读取。", xlsx.TEXT)],
+    ]
+
+    listing = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("结论", xlsx.HEAD),
+                ("格式与规模", xlsx.HEAD), ("路径", xlsx.HEAD)]]
+    for i, f in enumerate(files, start=1):
+        listing.append([(i, xlsx.NUM), (f["name"], xlsx.BOLD),
+                        (verdict.LEVEL_LABEL.get(f["level"], ""), xlsx.NUM),
+                        (f["facts"], xlsx.TEXT), (f["path"], xlsx.DIM)])
+
+    detail = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("检查项目", xlsx.HEAD),
+               ("结果", xlsx.HEAD), ("结论", xlsx.HEAD), ("说明", xlsx.HEAD),
+               ("建议", xlsx.HEAD)]]
+    for i, f in enumerate(files, start=1):
+        rows = f["rows"] or [dict(it, label=it.get("cat_label") or "体检") for it in f["items"]]
+        for row in rows:
+            detail.append([(i, xlsx.NUM), (f["name"], xlsx.TEXT),
+                           (row.get("label") or "", xlsx.TEXT),
+                           (verdict.LEVEL_LABEL.get(row.get("level"), ""), xlsx.NUM),
+                           (row.get("title") or "", xlsx.TEXT),
+                           (row.get("detail") or "", xlsx.TEXT),
+                           (row.get("hint") or "", xlsx.DIM)])
+
+    return xlsx.build([
+        {"name": "概览", "cols": [14, 82], "rows": overview},
+        {"name": "文件清单", "cols": [6, 40, 10, 34, 62], "rows": listing,
+         "head": 1, "filter": True},
+        {"name": "体检明细", "cols": [6, 30, 10, 9, 34, 44, 40], "rows": detail,
+         "head": 1, "filter": True},
+    ])
+
+
 def write_zip(results, zip_path):
-    """诊断包：结论 json + 说明（环境信息并进说明里）。日志不打包（引擎不落日志文件）。"""
-    payload = json.dumps(jsonable(build(results)), ensure_ascii=False, indent=2, default=str)
+    """诊断包：结论 json + 体检表 xlsx + 说明（环境信息并进说明里）。
+    日志不打包（引擎不落日志文件）。
+
+    json 和 xlsx 同时给：两者都只是这份结果的另一种摆法，加起来不到几十 KB，
+    用户要发给别人看就发 xlsx，要自己排查就开 json，不必先选一次格式。
+    """
+    payload = json.dumps(jsonable(build(results, with_verdict=True)), ensure_ascii=False,
+                         indent=2, default=str)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("体检结果.json", payload)
+        z.writestr("体检结果.json", clean_text(payload))
+        z.writestr("体检结果.xlsx", check_workbook(results))
         z.writestr("说明.md", diagnostic_note())
     return zip_path
 

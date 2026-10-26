@@ -220,6 +220,14 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 /* 体检那颗图标用的是 1024 视图框，内容只占中间 640 高，按 19px 摆会比旁边的图标小一圈。
    放大到 23px，视觉高度才跟文件夹、设置那几颗对得上 */
 #checkBtn svg { width: 23px; height: 23px; }
+/* 体检图标中心的加号：用强调色，跟卡片同色系但亮一格。整块一个颜色时加号会被卡片
+   那片镂空吞掉，只剩一个方块；红色又跳出了这套图标的配色。
+   悬停与激活时按钮换了底色、卡片也跟着变深，加号改成"看得见的那层底色"，
+   才还是镂空的样子，而不是和卡片糊成一片 */
+#checkBtn .plus { fill: var(--accent); }
+#checkBtn:hover .plus { fill: var(--panel-alt); }
+#checkBtn.on .plus,
+#checkBtn.on:hover .plus { fill: var(--accent-soft); }
 .ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
 .ibtn:active { filter: brightness(.96); }
 /* 激活态：按钮把面板开着的时候一直亮着，关掉自动落回去。
@@ -2561,7 +2569,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 1px 9px 3px 2px;
+  /* 上边留 10px：输入框和第一条结论之间要有一口气，否则看着像粘在框里的
+     下边也留一格，滚到底时不至于贴着浮层边 */
+  padding: 10px 9px 6px 2px;
 }
 
 /* ---- 分组（手风琴）：标题和结果行同一个字号，标题用强调色 ----
@@ -2578,10 +2588,27 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   color: var(--accent);
   cursor: pointer;
   user-select: none;
+  /* 悬停给底色，不改字色：早先这里把标题改成正文黑，鼠标一过整组像被降级了。
+     左右各让 5px，行本身宽出来一点，点起来也顺手 */
+  margin: 0 -5px;
+  padding: 1px 5px;
+  border-radius: 5px;
 }
-.chk-grp-hd:hover { color: var(--text); }
+.chk-grp-hd:hover { background: var(--accent-soft); }
 .chk-grp-hd:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 2px; border-radius: 4px; }
-.chk-grp-n { font-family: var(--font-num); font-weight: 700; opacity: 0.72; }
+/* 数字与标题用同一档字号与行高，再让盒子按中线摆：两个字体（正文与数字）的字面
+   高度不一样，光靠基线对齐，数字看着会比标题低半个像素 */
+.chk-grp-n {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-num);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+/* 箭头是一个旋转 45° 的小方块。旋转后的外框虽然和文字同中线，但两条边画出来的"v"
+   落在外框下半部分，看上去会低一像素，所以往上让 1px 才是视觉正中 */
 .chk-caret {
   width: 5px;
   height: 5px;
@@ -2595,9 +2622,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-grp.folded .chk-caret { transform: rotate(-45deg) translateY(-1px); }
 .chk-grp.folded .chk-grp-body { display: none; }
 .chk-grp-body { display: flex; flex-direction: column; gap: 8px; }
-.chk-file { display: flex; flex-direction: column; gap: 2px; }
-/* 文件名：跟分组标题同字号、同强调色。图标只留在分组标题上，每行不再重复 */
-.chk-name { font-size: 13px; line-height: 18px; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+.chk-file { display: flex; flex-direction: column; gap: 1px; }
+/* 文件名：加粗、正文黑。强调色只留给分组标题——两级都用强调色，一眼分不出主次。
+   图标只留在分组标题上，每行不再重复 */
+.chk-name { font-size: 13px; line-height: 18px; font-weight: 700; color: var(--text); overflow-wrap: anywhere; }
 /* 健康度用图标表示：形状和颜色一起说事，红三角和红圆点在缩略列表里也分得开 */
 /* 图标盒：档位类一律带 lv- 前缀。原先直接叫 warn，撞上了样式表里通用的
    .warn 告警框（有边框和内边距），图标被撑成 26×22 的方块 */
@@ -2613,27 +2641,37 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-items { display: flex; flex-direction: column; gap: 2px; }
 .chk-item {
   display: flex;
+  align-items: flex-start;
   gap: 8px;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 12.5px;
+  line-height: 19px;
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
-.chk-item .t { flex: none; width: 56px; color: var(--text); }
+.chk-item .t { flex: none; width: 56px; line-height: 19px; color: var(--text); }
 
-/* ---- 单文件：完整体检表 ---- */
+/* ---- 单文件：完整体检表 ----
+   摘要行与各行的字号统一到 12.5px/19px：字号一样、行高一样，整块才像一张表。
+   早先标签 12.5、结论 12、摘要 11.5，三档挤在一起，看着忽大忽小 */
 .chk-meta {
-  font-size: 11.5px;
-  line-height: 16px;
+  font-size: 12.5px;
+  line-height: 19px;
   color: var(--text-dim);
-  padding: 0 0 7px;
-  border-bottom: 1px solid var(--line);
+  /* 摘要行下面不再画线：它与第一条结论之间本来就隔着一格，再加一道线就成了分隔条 */
+  padding: 0 0 6px;
 }
 /* 行间那道细分隔线比 --line 再淡一级：整张表用 --line 会变成一堆横线，
    但写死浅灰在深色主题下会亮成白线，所以单独给一个变量 */
-.chk-row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.chk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
 .chk-row:last-child { border-bottom: 0; padding-bottom: 2px; }
-/* 项目名列：图标按第一行文字的中线摆（行高 17px 对 15px 图标，上边让 1px） */
+/* 项目名列：图标与第一行文字的中线对齐。
+   行高 19px、图标 15px，上下各余 2px，所以 align-items:flex-start 再补 2px 才是正中对齐 */
 .chk-row-lab {
   flex: none;
   width: 88px;
@@ -2641,12 +2679,20 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   align-items: flex-start;
   gap: 6px;
   font-size: 12.5px;
-  line-height: 17px;
+  line-height: 19px;
   font-weight: 600;
   color: var(--text);
 }
-.chk-row-lab .chk-ico { margin-top: 1px; }
-.chk-row-val { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.6; }
+.chk-row-lab .chk-ico { margin-top: 2px; }
+.chk-row-val {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+  line-height: 19px;
+}
 .chk-row-t { color: var(--text); }
 .chk-row-d { color: var(--text-dim); }
 .chk-row-h { color: #8b95a1; }

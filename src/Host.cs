@@ -31,7 +31,10 @@ namespace GISViewer
         public const int HotkeyId = 0xC101;
         /* 第二个全局热键：在资源管理器里选中文件后按它，直接在这软件里打开 */
         public const int HotkeyId2 = 0xC102;
+        /* 第三个：选中的文件不打开，直接做一次数据体检 */
+        public const int HotkeyId3 = 0xC103;
         public const int VK_SPACE2 = 0x20;
+        public const int VK_D = 0x44;
 
         /* 单实例：后启动的那个不要另开一套窗口和引擎，把已经在跑的叫回来 */
         public const int WM_TULAN_SHOW = 0x8000 + 17;

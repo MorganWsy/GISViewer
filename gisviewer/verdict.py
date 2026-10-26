@@ -196,6 +196,33 @@ def _rows(kind, items, err=None):
     return out
 
 
+def facts(result):
+    """一份数据的基本事实：什么格式、几个图层、多少要素、多大。
+
+    只写看得懂的事实，不做判断——判断在 judge 里。界面的摘要行和诊断包里的
+    xlsx 都从这一份出，两处不各写一遍，否则迟早会漏掉一边。
+    """
+    f = result.get("file") or {}
+    out = []
+    label = result.get("driver_label")
+    if label:
+        out.append(label)
+    if result.get("kind") == "vector":
+        if result.get("layer_count"):
+            out.append("%d 个图层" % result["layer_count"])
+        if result.get("feature_count_total"):
+            out.append("{:,} 个要素".format(int(result["feature_count_total"])))
+    elif result.get("kind") == "raster":
+        w, h = result.get("width"), result.get("height")
+        if w and h:
+            out.append("{:,} × {:,} 像元".format(int(w), int(h)))
+        if result.get("band_count"):
+            out.append("%d 个波段" % result["band_count"])
+    if f.get("size_label"):
+        out.append(f["size_label"])
+    return out
+
+
 def judge(result):
     """一份体检结果 -> {level, items, rows, counts, ok}。level 取最重的一条。"""
     items = []
