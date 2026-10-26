@@ -165,6 +165,16 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 
 .path-form .btn { height: 30px; padding: 0 13px; font-size: 13px; border-radius: 5px; }
+/* "查看"只用图标：跟右侧那一排顶栏按钮同一个观感，也省出 40px 给路径框 */
+.path-form .btn.ico-btn-only {
+  flex: none;
+  width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.path-form .btn.ico-btn-only svg { width: 17px; height: 17px; display: block; }
 
 .btn {
   padding: 8px 14px;
@@ -207,6 +217,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .ibtn svg { width: 19px; height: 19px; display: block; }
 .ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
 .ibtn:active { filter: brightness(.96); }
+/* 激活态：按钮把面板开着的时候一直亮着，关掉自动落回去。
+   跟"设置"页签里的 .on 同一套配色，用户不用猜现在是谁打开的 */
+.ibtn.on,
+.ibtn.on:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
 
 /* 图标区和窗口三键之间的一道细线，把"软件的事"和"窗口的事"分开 */
 .bar-sep { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
@@ -1545,7 +1559,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 .set-nav button:hover { background: var(--accent-soft); color: var(--text); }
 .set-nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.set-body { min-height: 0; overflow-y: auto; padding-right: 0; }
+.set-body { min-height: 0; overflow-y: auto; padding-right: 10px; margin-right: -10px; }
 .set-pane {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1616,9 +1630,35 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .mini-btn:hover { color: var(--accent); border-color: var(--accent); }
 .key-chip.arming { border-color: var(--accent); color: var(--accent); border-bottom-width: 1px; }
 
-/* 滑块 + 右侧读数。滑块配色跟按钮激活色走，别用系统默认那套蓝灰 */
-.range-row { display: flex; align-items: center; gap: 10px; }
-.range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+/* 滑块 + 右侧读数。轨道 4px、滑块 12px：原来跟着系统默认走，滑块有 16px 高，
+   一行设置里就它最扎眼。配色仍跟按钮激活色走 */
+.range-row { display: flex; align-items: center; gap: 10px; min-height: var(--ctl-h); }
+.range-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  padding: 0;
+  background: transparent;
+  accent-color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+.range-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--line);
+  border-radius: 2px;
+}
+.range-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 50%;
+}
+.range-row input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .range-row output { width: 42px; text-align: right; font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 /* 关于页：名称值一行 */
@@ -1672,7 +1712,9 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   background: var(--accent-soft);
 }
 
-.upd-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+/* 控件下面那一条（按钮 + 说明）：距控件 4px，跟 .field 的行内间距一致。
+   原来这里另外加 8px，同一页里就成了"有的 4px、有的 12px" */
+.upd-row { display: flex; align-items: center; gap: 10px; margin-top: 0; }
 .upd-row .hint { margin: 0; }
 
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
@@ -1739,9 +1781,10 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   padding: 0 30px 0 8px;
   font-size: 13px;
 }
-/* 色带预览条塞进 30px 里：字 13px + 条 4px + 1px 间距，上下各留 4px 内边距 */
-.field .combo.has-bar .combo-btn { padding: 4px 30px 4px 8px; }
-.field .combo-bar { height: 4px; margin-top: 1px; }
+/* 色带这一项单独放高：里面要放一条渐变色条，30px 里塞"字 + 条"太挤。
+   这是设置页里唯一比基准高的控件，其余一律 --ctl-h */
+.field .combo.has-bar .combo-btn { height: 36px; padding: 4px 30px 4px 8px; }
+.field .combo-bar { height: 6px; margin-top: 3px; }
 
 .field .btn { height: var(--ctl-h); display: inline-flex; align-items: center; border-radius: 6px; }
 
@@ -1889,8 +1932,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 42px;
-  height: 22px;
+  width: 34px;
+  height: 18px;
   margin: 0;
   padding: 0;
   background: var(--panel-alt);
@@ -1906,15 +1949,15 @@ input[type="checkbox"]::after {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--text-dim);
   transition: transform 0.16s, background 0.16s;
 }
 
 input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
-input[type="checkbox"]:checked::after { transform: translateX(20px); background: var(--panel); }
+input[type="checkbox"]:checked::after { transform: translateX(16px); background: var(--panel); }
 input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
@@ -2366,7 +2409,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 @keyframes vecspin { to { transform: rotate(360deg); } }
 
 /* 数据体检浮层：顶栏那颗按钮点开就是它，输入框和结果同在一块浮层里。
-   换文件接着查时不用先关一个再开一个，结论也就不会被两个窗口夹在中间 */
+   换文件接着查时不用先关一个再开一个，结论也就不会被两个窗口夹在中间。
+   右侧不留内边距：滚动条要贴着浮层的边，不然右边永远空一条 */
 .check-pop {
   position: fixed;
   z-index: 55;
@@ -2376,22 +2420,27 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 9px;
+  padding: 9px 0 9px 9px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  /* 浮层挂在顶栏里，而顶栏整块是 user-select:none（标题栏不该能选中）。
+     体检结论是要抄进邮件发给我们的，得能选中复制 */
+  user-select: text;
 }
-.cp-head { display: flex; align-items: baseline; gap: 8px; padding: 0 1px; }
+.cp-head { display: flex; align-items: center; gap: 5px; padding: 0 9px 0 1px; }
 .cp-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
-.cp-sub { font-size: 11.5px; color: var(--text-dim); }
-.cp-row { display: flex; align-items: center; gap: 6px; }
-/* 输入框与两个按钮同一高度：跟设置页共用 --ctl-h，三样并排时边线才对得上 */
-.cp-row input {
+/* 标题旁那颗说明图标：不进浮层的人也得知道"体检到底查了什么" */
+.cp-head .tip-ico { margin-left: 0; }
+.cp-row { display: flex; align-items: center; gap: 6px; padding-right: 9px; }
+/* 输入框里嵌两颗按钮（文件、文件夹）：跟设置页 .icon-row 同一套做法 */
+.cp-field { position: relative; flex: 1; min-width: 0; display: flex; }
+.cp-field input {
   flex: 1;
   min-width: 0;
   height: var(--ctl-h);
-  padding: 0 8px;
+  padding: 0 64px 0 8px;   /* 右侧留给两颗内嵌按钮 */
   font: inherit;
   font-size: 13px;
   color: var(--text);
@@ -2399,29 +2448,51 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border: 1px solid var(--line);
   border-radius: 6px;
 }
-.cp-icon {
-  flex: none;
-  width: var(--ctl-h);
-  height: var(--ctl-h);
+/* 聚焦样式跟顶栏路径框一致：描边加一层柔和光圈，而不是浏览器那圈黑框 */
+.cp-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cp-in {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   color: var(--text-dim);
-  background: var(--panel-alt);
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  background: none;
+  border: 0;
+  border-radius: 5px;
   cursor: pointer;
 }
-.cp-icon:hover { color: var(--text); border-color: var(--accent); }
-.cp-icon svg { width: 16px; height: 16px; }
-.cp-row .btn { flex: none; height: var(--ctl-h); padding: 0 14px; font-size: 13px; }
+#checkFilePick { right: 31px; }
+#checkPathPick { right: 3px; }
+.cp-in:hover { color: var(--accent); background: var(--accent-soft); }
+.cp-in svg { width: 16px; height: 16px; }
+/* 开始体检：图标按钮，主色底。跟旁边两颗内嵌按钮分开，一眼看出哪个是"执行" */
+.cp-row .btn.cp-go {
+  flex: none;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cp-go svg { width: 17px; height: 17px; display: block; }
+.cp-go:disabled { opacity: 0.55; cursor: default; }
 
 .cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
 .chk-sum {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  padding: 6px 1px;
+  padding: 6px 9px 6px 1px;
   font-size: 12px;
   color: var(--text-dim);
 }
@@ -2436,7 +2507,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 1px 2px 3px;
+  padding: 1px 9px 3px 2px;
 }
 .chk-file { display: flex; flex-direction: column; gap: 1px; }
 .chk-head {
@@ -2461,16 +2532,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-ico.lv-ok { color: #2f9e58; }
 :root[data-theme="dark"] .chk-ico.lv-bad { color: #ef7f74; }
 :root[data-theme="dark"] .chk-ico.lv-ok { color: #63c78c; }
-/* 路径单独一行、只占一行：长了截断，完整值挂在 title 上 */
-.chk-path {
-  padding-left: 21px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* 文件名与详情都只写一份，路径不再重复：同一个文件夹里点开体检，路径对每一行都一样 */
 .chk-items { display: flex; flex-direction: column; gap: 2px; padding-left: 21px; }
 .chk-item {
   display: flex;
@@ -2481,6 +2543,5 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .chk-item .t { flex: none; color: var(--text); }
-.chk-chg { padding-left: 21px; font-size: 12px; line-height: 1.55; color: var(--warn-ico); overflow-wrap: anywhere; }
-.cp-hint { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); padding: 0 1px; }
+.cp-hint { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); padding: 0 9px 0 1px; }
 .cp-hint:empty { display: none; }

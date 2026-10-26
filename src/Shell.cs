@@ -591,6 +591,7 @@ namespace GISViewer
             if (msg == "pickfile") { Log("界面点了选择文件"); PickFiles(); return; }
             if (msg == "pickfolder") { Log("界面点了选择文件夹"); PickFolder(); return; }
             if (msg == "pickdir") { Log("界面点了选择起始目录"); PickDir(); return; }
+            if (msg == "pickcheck") { Log("界面点了体检的选择文件"); PickCheckFile(); return; }
             if (msg.StartsWith("opendir:"))
             {
                 // 文件框 / 文件夹框从哪起步：设置页填的目录，空着表示"上次打开文件所在的文件夹"
@@ -698,6 +699,35 @@ namespace GISViewer
                 finally { ResumeDragWatch(); }
             }
             catch (Exception ex) { Log("选起始目录失败 " + ex.Message); }
+        }
+
+        /* 体检里的"选择文件"：同一只系统打开框，但选完不打开，只把真实路径填回体检浮层。
+           体检要的是路径本身（文件或文件夹都行），不是把这份数据画出来 */
+        void PickCheckFile()
+        {
+            try
+            {
+                SuspendDragWatch();
+                try
+                {
+                    using (OpenFileDialog dlg = new OpenFileDialog())
+                    {
+                        dlg.Title = Title + "：选择要体检的文件";
+                        dlg.Multiselect = false;
+                        dlg.CheckFileExists = true;
+                        dlg.Filter = "所有文件|*.*";
+                        dlg.RestoreDirectory = true;
+                        string start = StartDir();
+                        if (!string.IsNullOrEmpty(start) && Directory.Exists(start))
+                            dlg.InitialDirectory = start;
+                        if (dlg.ShowDialog(this) != DialogResult.OK) { Log("体检选文件已取消"); return; }
+                        Log("体检选了文件 " + dlg.FileName);
+                        Push("checkpath", Json(dlg.FileName));
+                    }
+                }
+                finally { ResumeDragWatch(); }
+            }
+            catch (Exception ex) { Log("体检的文件框没弹出来 " + ex.Message); }
         }
 
         /* 网页里的文件框在 WebView2 里只能拿到 C:\fakepath，选完还得先复制一份临时副本；

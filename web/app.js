@@ -2800,11 +2800,13 @@ function showPickPop() {
   pop.style.left = Math.round(r.left) + 'px';
   pop.style.top = Math.round(r.bottom + 6) + 'px';
   pop.hidden = false;
+  markBtn('filePickBtn', true);
 }
 
 function hidePickPop() {
   const pop = $('pickPop');
   if (pop) pop.hidden = true;
+  markBtn('filePickBtn', false);
 }
 
 function togglePickPop() {
@@ -3139,6 +3141,13 @@ const LEVEL_ICON = {
   ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.3"/><path d="M5 8.3l2.1 2.1L11 6.1"/></svg>',
 };
 
+/* 顶栏按钮的激活态：哪个面板开着，对应的按钮就亮着，关掉自动落回原样。
+   三颗按钮共用这一条，免得各写各的 class 名 */
+function markBtn(id, on) {
+  const b = $(id);
+  if (b) b.classList.toggle('on', !!on);
+}
+
 /* 体检浮层：顶栏那颗按钮点开。输入和结果在同一块里——
    结果直接长在输入框下面，换个文件接着查时不用先关一个窗口再开一个 */
 function showCheckPop() {
@@ -3152,13 +3161,25 @@ function showCheckPop() {
   pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
   pop.style.top = Math.round(r.bottom + 6) + 'px';
   pop.hidden = false;
+  markBtn('checkBtn', true);
   const input = $('checkPath');
   if (input) input.focus();
 }
 
+/* 关掉就把上一次的结论一起收掉：留着会让人以为那是刚查的。
+   输入框里的路径留着，同一个位置再查一次不用重新粘 */
 function hideCheckPop() {
   const pop = $('checkPop');
   if (pop) pop.hidden = true;
+  markBtn('checkBtn', false);
+  const list = $('chkList');
+  const sum = $('chkSum');
+  const hint = $('checkHint');
+  const res = $('checkResult');
+  if (list) list.textContent = '';
+  if (sum) sum.textContent = '';
+  if (hint) hint.textContent = '';
+  if (res) res.hidden = true;
 }
 
 function toggleCheckPop() {
@@ -3183,8 +3204,7 @@ function renderCheck(d) {
     sum.appendChild(span);
   });
   const el = document.createElement('span');
-  el.textContent = '共 ' + (d.files || []).length + ' 个' +
-    (d.prev_at ? '，与上次体检（' + String(d.prev_at).replace('T', ' ').slice(0, 16) + '）比' : '，这是第一次体检');
+  el.textContent = '共 ' + (d.files || []).length + ' 个';
   sum.appendChild(el);
   // 文件夹里数据太多时引擎只体检前若干个，这里说清楚，免得用户以为就这么多
   if (d.truncated) {
@@ -3208,12 +3228,6 @@ function renderCheck(d) {
     nm.textContent = f.name;
     head.appendChild(nm);
     box.appendChild(head);
-    // 路径单独一行：文件名长的时候不再把路径挤成两截，路径本身也只用一行表示
-    const where = document.createElement('div');
-    where.className = 'chk-path';
-    where.textContent = f.path || '';
-    where.title = f.path || '';
-    box.appendChild(where);
 
     const items = document.createElement('div');
     items.className = 'chk-items';
@@ -3230,18 +3244,6 @@ function renderCheck(d) {
       items.appendChild(row);
     });
     if (items.children.length) box.appendChild(items);
-
-    // 和上次比出来的差异：界面用"字段 旧值 → 新值"一行写完
-    (f.changes || []).forEach((c) => {
-      const ch = document.createElement('div');
-      ch.className = 'chk-chg';
-      const before = c.before === null || c.before === undefined ? '（无）'
-        : (Array.isArray(c.before) ? c.before.join('、') : String(c.before));
-      const after = c.after === null || c.after === undefined ? '（无）'
-        : (Array.isArray(c.after) ? c.after.join('、') : String(c.after));
-      ch.textContent = c.label + '：' + before + ' → ' + after;
-      box.appendChild(ch);
-    });
     list.appendChild(box);
   });
 }
@@ -3266,6 +3268,10 @@ function runCheck() {
     body: JSON.stringify({ paths: [path] }),
   }).then((r) => r.json()).then((d) => {
     $('checkRunBtn').disabled = false;
+    /* 体检跑着的时候浮层可能已经被关掉了：结果不再往关闭的浮层里写，
+       否则下次打开会冒出一份"上一次的结论"，跟"关掉即清空"就矛盾了 */
+    const pop = $('checkPop');
+    if (!pop || pop.hidden) return;
     if (!d || !d.ok) {
       hint.textContent = (d && d.error && d.error.title) || '体检失败';
       return;
@@ -3277,6 +3283,8 @@ function runCheck() {
     hint.textContent = n ? '' : '这个位置没有可体检的数据';
   }).catch(() => {
     $('checkRunBtn').disabled = false;
+    const pop = $('checkPop');
+    if (!pop || pop.hidden) return;
     hint.textContent = '体检失败，稍后再试';
   });
 }
@@ -3373,6 +3381,12 @@ window.GisHost = function (name, value) {
     const where = dirPickTarget === 'check' ? $('checkPath') : $('cfgOpenDir');
     dirPickTarget = '';
     if (where) { where.value = String(value || ''); if (where.id === 'cfgOpenDir') applySettings(); }
+    return;
+  }
+  // 体检里"选择文件"回传：只填路径，不打开
+  if (name === 'checkpath') {
+    const where = $('checkPath');
+    if (where) where.value = String(value || '');
     return;
   }
   if (name === 'autoStart') { host.autoStart = value === 'on'; $('cfgAutoStart').checked = host.autoStart; return; }
@@ -3986,13 +4000,19 @@ function init() {
 
   $('settingsBtn').addEventListener('click', () => {
     settleHotkey();
+    /* 弹窗一开，顶栏那两块浮层就收掉：否则两个按钮同时亮着，
+       而且浮层压不到弹窗上面，看起来像没关干净 */
+    hideCheckPop();
+    hidePickPop();
     fillSettings();
     $('settings').hidden = false;
+    markBtn('settingsBtn', true);
   });
   $('cfgClose').addEventListener('click', () => {
     settleHotkey();
     $('settings').hidden = true;
     resetSetPos();   // 下次打开还是居中，不会停在上一回拖到的角落
+    markBtn('settingsBtn', false);
   });
   wireSetDrag();
   // 浮层卡片没有关闭按钮：点卡片任意处即关（自动到点收走的逻辑在 showErrToast 里）
@@ -4014,14 +4034,25 @@ function init() {
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
-  // 数据体检：顶栏那颗按钮开浮层，选目录、跑体检、看结论都在这一块里
+  // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、跑体检、看结论都在这一块里
   $('checkBtn').addEventListener('click', toggleCheckPop);
+  $('checkFilePick').addEventListener('click', () => toShell('pickcheck'));
   $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; toShell('pickdir'); });
   $('checkRunBtn').addEventListener('click', runCheck);
   // 路径框里回车等同点"开始体检"，省得手离开键盘
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
+  // 标题旁那颗说明：不点开的人也得知道"体检"到底在查什么
+  const cpTip = $('cpTip');
+  if (cpTip) {
+    cpTip.setAttribute('data-tip', [
+      '把文件或文件夹里的每份数据逐个打开一遍，逐项核对：',
+      '能不能读出来、坐标系有没有、范围是否正常、要素数与字段表；栅格还看波段数、像元大小、压缩方式和金字塔。',
+      '结论分四档：有问题 / 要留意 / 提一句 / 没问题，文件名前那颗图标就是它。',
+    ].join('\n'));
+    cpTip.innerHTML = HINT_ICO;
+  }
   $('diagBtn').addEventListener('click', runDiagnose);
   // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。
   // 开和关都带同一份清单，取消时壳照着删才删得干净

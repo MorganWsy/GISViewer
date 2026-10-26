@@ -20,7 +20,9 @@
   <form id="pathForm" class="path-form no-drag" autocomplete="off">
     <!-- 占位符给出两类例子：文件路径长什么样、坐标认哪几种写法（逗号分隔、先经后纬、带 N/E） -->
     <input id="pathInput" type="text" placeholder="粘贴路径（如 D:\data\省界.shp），或坐标定位（如 116.4,39.9 或 39.9N 116.4E）" spellcheck="false">
-    <button type="submit" class="btn">查看</button>
+    <button type="submit" class="btn ico-btn-only" title="查看：打开路径里的数据，或按坐标定位">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.4" cy="10.4" r="6.3"/><path d="M15.1 15.1L20 20"/></svg>
+    </button>
   </form>
   <!-- 最近打开：点一下路径框就出来，选一条直接重开 -->
   <div id="recentPop" class="recent-pop" hidden></div>
@@ -32,14 +34,22 @@
   <div id="checkPop" class="check-pop" hidden>
     <div class="cp-head">
       <span class="cp-title">数据体检</span>
-      <span class="cp-sub" id="cpSub">文件或文件夹，留空就查当前打开的</span>
+      <i class="tip-ico" id="cpTip"></i>
     </div>
     <div class="cp-row">
-      <input id="checkPath" type="text" spellcheck="false" placeholder="路径">
-      <button id="checkPathPick" class="cp-icon" type="button" title="选择文件夹">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+      <!-- 输入框右侧嵌两颗按钮：文件、文件夹。体检两样都收，按钮也就得两样都给 -->
+      <div class="cp-field">
+        <input id="checkPath" type="text" spellcheck="false" placeholder="文件或文件夹，留空就查当前打开的">
+        <button id="checkFilePick" class="cp-in" type="button" title="选择文件">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/><path d="M9 12.5h6M9 16h4"/></svg>
+        </button>
+        <button id="checkPathPick" class="cp-in" type="button" title="选择文件夹">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.4l1.7 2h8a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>
+        </button>
+      </div>
+      <button id="checkRunBtn" class="btn cp-go" type="button" title="开始体检">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6a1.5 1.5 0 0 1 1.5 1.5v.6H16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h-.5V5A1.5 1.5 0 0 1 9 3.5z"/><path d="M9 11.5l2 2 4-4"/><path d="M9 16.5h6"/></svg>
       </button>
-      <button id="checkRunBtn" class="btn" type="button">开始体检</button>
     </div>
     <div class="cp-result" id="checkResult" hidden>
       <div class="chk-sum" id="chkSum"></div>
