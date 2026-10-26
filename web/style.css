@@ -220,14 +220,6 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 /* 体检那颗图标用的是 1024 视图框，内容只占中间 640 高，按 19px 摆会比旁边的图标小一圈。
    放大到 23px，视觉高度才跟文件夹、设置那几颗对得上 */
 #checkBtn svg { width: 23px; height: 23px; }
-/* 体检图标中心的加号：用强调色，跟卡片同色系但亮一格。整块一个颜色时加号会被卡片
-   那片镂空吞掉，只剩一个方块；红色又跳出了这套图标的配色。
-   悬停与激活时按钮换了底色、卡片也跟着变深，加号改成"看得见的那层底色"，
-   才还是镂空的样子，而不是和卡片糊成一片 */
-#checkBtn .plus { fill: var(--accent); }
-#checkBtn:hover .plus { fill: var(--panel-alt); }
-#checkBtn.on .plus,
-#checkBtn.on:hover .plus { fill: var(--accent-soft); }
 .ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
 .ibtn:active { filter: brightness(.96); }
 /* 激活态：按钮把面板开着的时候一直亮着，关掉自动落回去。
@@ -2568,16 +2560,23 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  /* 上边留 10px：输入框和第一条结论之间要有一口气，否则看着像粘在框里的
-     下边也留一格，滚到底时不至于贴着浮层边 */
-  padding: 10px 9px 6px 2px;
+  /* 组与组、行与行之间一律靠各自的内边距与分隔线，这里不再另加 gap。
+     早先 gap 10px：文字到下面那条线 6px、到上面那条线 16px，每行看着都往下沉 */
+  gap: 0;
+  /* 上边 4px：加上那条 1px 分隔线正好是 5px——输入框和第一条结论之间只留一口气，
+     多了就是白占地方 */
+  padding: 4px 9px 6px 2px;
 }
 
-/* ---- 分组（手风琴）：标题和结果行同一个字号，标题用强调色 ----
+/* ---- 分组（手风琴）：图标用自己的档位色，文字用强调色 ----
    跟信息栏的分节一个做法：标题点一下收起或展开，箭头跟着方向转 */
 .chk-grp { display: flex; flex-direction: column; gap: 6px; }
-.chk-grp + .chk-grp { border-top: 1px solid var(--line); padding-top: 9px; }
+/* 组与组之间用虚线：实线跟行内那条分隔线长得一样，分不出"换组"和"换行" */
+.chk-grp + .chk-grp {
+  border-top: 1px dashed var(--line);
+  margin-top: 8px;
+  padding-top: 8px;
+}
 .chk-grp-hd {
   display: flex;
   align-items: center;
@@ -2588,23 +2587,20 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   color: var(--accent);
   cursor: pointer;
   user-select: none;
-  /* 悬停给底色，不改字色：早先这里把标题改成正文黑，鼠标一过整组像被降级了。
-     左右各让 5px，行本身宽出来一点，点起来也顺手 */
-  margin: 0 -5px;
-  padding: 1px 5px;
-  border-radius: 5px;
 }
-.chk-grp-hd:hover { background: var(--accent-soft); }
+/* 悬停不加底色、也不改字色：标题是一行"读数"，不是按钮，浮起来反而让人以为能拖走 */
 .chk-grp-hd:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 2px; border-radius: 4px; }
-/* 数字与标题用同一档字号与行高，再让盒子按中线摆：两个字体（正文与数字）的字面
-   高度不一样，光靠基线对齐，数字看着会比标题低半个像素 */
+/* 数字与标题同字体、同字号、同行高：早先用 --font-num（Arial），Arial 的数字与
+   汉字的字面高度差一截，并排摆着像两档字号，中线也差半个像素 */
 .chk-grp-n {
   display: inline-flex;
   align-items: center;
-  font-family: var(--font-num);
+  font-family: inherit;
   font-size: 13px;
   line-height: 18px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
   opacity: 0.72;
 }
 /* 箭头是一个旋转 45° 的小方块。旋转后的外框虽然和文字同中线，但两条边画出来的"v"
@@ -2658,7 +2654,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   line-height: 19px;
   color: var(--text-dim);
   /* 摘要行下面不再画线：它与第一条结论之间本来就隔着一格，再加一道线就成了分隔条 */
-  padding: 0 0 6px;
+  padding: 0 0 5px;
 }
 /* 行间那道细分隔线比 --line 再淡一级：整张表用 --line 会变成一堆横线，
    但写死浅灰在深色主题下会亮成白线，所以单独给一个变量 */
@@ -2666,7 +2662,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 5px 0;
+  /* 上下各 3px：文字正好落在两条分隔线中间（行高 19 是字本身的行盒，上下等距才居中），
+     整行也比原来那套 5px + 10px gap 的间距紧凑得多 */
+  padding: 3px 0;
   border-bottom: 1px solid var(--line-soft);
 }
 .chk-row:last-child { border-bottom: 0; padding-bottom: 2px; }

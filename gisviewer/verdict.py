@@ -211,11 +211,12 @@ def facts(result):
         if result.get("layer_count"):
             out.append("%d 个图层" % result["layer_count"])
         if result.get("feature_count_total"):
-            out.append("{:,} 个要素".format(int(result["feature_count_total"])))
+            # 不写千分位：摘要行是一句话，不是表格，"109,007" 里的逗号只会让人多看一眼
+            out.append("%d 个要素" % int(result["feature_count_total"]))
     elif result.get("kind") == "raster":
         w, h = result.get("width"), result.get("height")
         if w and h:
-            out.append("{:,} × {:,} 像元".format(int(w), int(h)))
+            out.append("%d × %d 像元" % (int(w), int(h)))
         if result.get("band_count"):
             out.append("%d 个波段" % result["band_count"])
     if f.get("size_label"):

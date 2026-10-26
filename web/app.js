@@ -3148,10 +3148,13 @@ function paintCacheSize(info, dir) {
    形状各不同（圆叹号 / 三角 / 对勾），缩成一行也分得清。
    早先还有一档"提一句"，实操里和"要留意"分不开，合并成三档 */
 const LEVEL_TEXT = { bad: '有问题', warn: '要留意', ok: '没问题' };
+/* 档位图标：一律实心填充，勾与感叹号是"挖掉"的负空间（fill-rule=evenodd）。
+   原来那套是描边，15px 下 1.5px 的线糊成一团，三角形里到底画了什么看不清——
+   挖空的做法在深浅两种底色上都清楚 */
 const LEVEL_ICON = {
-  bad: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.7v3.7" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".9" fill="currentColor" stroke="none"/></svg>',
-  warn: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.3l6 10.4H2z"/><path d="M8 6.3v3" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".85" fill="currentColor" stroke="none"/></svg>',
-  ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.3"/><path d="M5 8.3l2.1 2.1L11 6.1"/></svg>',
+  bad: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm-.85 3.4h1.7v5.1h-1.7zm.85 6.3a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>',
+  warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M7.26 2.5a.86.86 0 0 1 1.48 0l5.9 10.5a.86.86 0 0 1-.74 1.3H2.1a.86.86 0 0 1-.74-1.3zM7.3 5.6h1.4v4.2H7.3zm.7 5a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z"/></svg>',
+  ok: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3.6 4.2l1.2 1.2-5.4 5.5-3.3-3.3 1.2-1.2 2.1 2.1z"/></svg>',
 };
 const LEVEL_ORDER = ['bad', 'warn', 'ok'];
 
@@ -3286,7 +3289,9 @@ function renderGroups(files, host) {
     hd.tabIndex = 0;
     hd.title = '收起或展开这一组';
     const ico = document.createElement('i');
-    ico.className = 'chk-ico';
+    // 档位色由 lv- 前缀决定（红 / 橙 / 绿）。早先只写 chk-ico，图标只好继承标题的
+    // 强调色，三种档位在列表里长得一模一样
+    ico.className = 'chk-ico lv-' + lv;
     ico.innerHTML = LEVEL_ICON[lv];
     hd.appendChild(ico);
     hd.appendChild(el('span', 'chk-grp-name', LEVEL_TEXT[lv]));

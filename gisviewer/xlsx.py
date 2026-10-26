@@ -12,12 +12,13 @@ import re
 import zipfile
 from xml.sax.saxutils import escape
 
-# 单元格样式：序号与 _STYLES 里 cellXfs 的顺序一一对应
+# 单元格样式：序号与 _STYLES 里 cellXfs 的顺序一一对应。
+# 整张表一律左对齐——几百行里竖着一列居中数字，眼睛得来回找基准线
 TITLE = 0   # 大标题（目前没用到，留着给以后加表头）
-HEAD = 1    # 表头：强调色底、白字、居中
+HEAD = 1    # 表头：强调色底、白字
 TEXT = 2    # 正文：左对齐、顶端对齐、自动换行
 BOLD = 3    # 加粗正文
-NUM = 4     # 数字与短标识：居中
+NUM = 4     # 数字与短标识（序号、结论）：同样是左对齐
 DIM = 5     # 次要信息（路径这类）：灰字
 
 # Excel 不认控制字符，留着会让整个文件打不开
@@ -52,21 +53,21 @@ _STYLES = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
            # 0 标题
            '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1">'
            '<alignment vertical="center"/></xf>'
-           # 1 表头
+           # 1 表头：只居中竖直方向，横向统一靠左（整张表都左对齐，眼睛只用一条基准线）
            '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1">'
-           '<alignment horizontal="center" vertical="center"/></xf>'
+           '<alignment horizontal="left" vertical="center"/></xf>'
            # 2 正文：wrapText 让长路径和长说明在列宽内折行，而不是被截掉
            '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1">'
-           '<alignment vertical="top" wrapText="1"/></xf>'
+           '<alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
            # 3 加粗
            '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1">'
-           '<alignment vertical="top" wrapText="1"/></xf>'
-           # 4 居中（序号、结论这种短字段）
+           '<alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
+           # 4 数字与短字段：必须显式写 left，光靠默认对齐数字会贴到右边
            '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1">'
-           '<alignment horizontal="center" vertical="top" wrapText="1"/></xf>'
+           '<alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
            # 5 灰字
            '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1">'
-           '<alignment vertical="top" wrapText="1"/></xf>'
+           '<alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
            '</cellXfs>'
            '<cellStyles count="1"><cellStyle name="常规" xfId="0" builtinId="0"/></cellStyles>'
            '</styleSheet>')
