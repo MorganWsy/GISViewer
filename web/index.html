@@ -35,11 +35,14 @@
     <div class="cp-head">
       <span class="cp-title">数据体检</span>
       <i class="tip-ico" id="cpTip"></i>
+      <button id="diagBtn" class="cp-head-btn" type="button" title="导出诊断包：环境信息与这次体检的结论打成 zip" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v10"/><path d="M8.2 9.9L12 13.7l3.8-3.8"/><path d="M4.5 16v3.2h15V16"/></svg>
+      </button>
     </div>
     <div class="cp-row">
       <!-- 输入框右侧嵌两颗按钮：文件、文件夹。体检两样都收，按钮也就得两样都给 -->
       <div class="cp-field">
-        <input id="checkPath" type="text" spellcheck="false" placeholder="文件或文件夹，留空就查当前打开的">
+        <input id="checkPath" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="check-path" placeholder="文件或文件夹，留空就查当前打开的">
         <button id="checkFilePick" class="cp-in" type="button" title="选择文件">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/><path d="M9 12.5h6M9 16h4"/></svg>
         </button>
@@ -56,6 +59,11 @@
       <div class="chk-list" id="chkList"></div>
     </div>
     <div class="cp-hint" id="checkHint"></div>
+    <!-- 跑体检时盖住整块浮层：转圈图标 + 说明，期间浮层关不掉 -->
+    <div class="cp-busy" id="checkBusy" hidden>
+      <span class="cp-spin"></span>
+      <span class="cp-busy-text">正在体检…</span>
+    </div>
   </div>
   <div class="tools no-drag">
     <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
@@ -63,7 +71,7 @@
       <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
     </button>
     <button id="checkBtn" class="ibtn" type="button" title="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6a1.5 1.5 0 0 1 1.5 1.5v.6H16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2h-.5V5A1.5 1.5 0 0 1 9 3.5z"/><path d="M9 11.5l2 2 4-4"/><path d="M9 16.5h6"/></svg>
+      <svg viewBox="0 0 1024 1024" aria-hidden="true"><path d="M820.148148 288.009481a75.851852 75.851852 0 0 1 75.851852 75.851852v392.286815a75.851852 75.851852 0 0 1-75.851852 75.851852h-616.296296a75.851852 75.851852 0 0 1-75.851852-75.851852V363.84237a75.851852 75.851852 0 0 1 75.851852-75.851851h616.296296zM512 399.985778c-17.673481 0-32.009481 14.317037-32.009481 31.990518v96.009482H384c-16.744296 0-30.473481 12.856889-31.876741 29.240889l-0.113778 2.749629c0 17.673481 14.317037 32.009481 31.990519 32.009482h95.990519v95.990518c0 16.744296 12.875852 30.492444 29.240888 31.895704l2.768593 0.113778c17.673481 0 32.009481-14.336 32.009481-32.009482l-0.018962-96.009481h96.009481c16.744296 0 30.473481-12.837926 31.876741-29.221926l0.113778-2.768593c0-17.673481-14.317037-31.990519-31.990519-31.990518h-96.009481V431.976296c0-16.744296-12.856889-30.473481-29.221926-31.87674z" fill="#0CCA8A"/><path d="M363.861333 192h296.296297a75.851852 75.851852 0 0 1 75.851851 75.851852v20.157629H287.971556v-20.157629a75.851852 75.851852 0 0 1 75.851851-75.851852z" fill="#0CCA8A" fill-opacity=".5"/></svg>
     </button>
     <button id="themeBtn" class="ibtn" type="button"></button>
     <button id="settingsBtn" class="ibtn" type="button" title="设置：底图、密钥、显示与快捷键">
@@ -438,13 +446,6 @@
         <div class="upd-row">
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
-        </div>
-      </div>
-      <div class="field">
-        <label>导出诊断包</label>
-        <div class="upd-row">
-          <button id="diagBtn" class="btn ghost" type="button">导出诊断包</button>
-          <span class="hint" id="diagHint">环境信息与当前文件的体检结论打成 zip，反馈问题时发出去</span>
         </div>
       </div>
       </section>

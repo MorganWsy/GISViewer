@@ -30,7 +30,16 @@ def expand_paths(paths, limit=DIR_LIMIT):
         if os.path.isdir(raw) and not low.endswith((".gdb", ".zarr")):
             hits = []
             for root, dirs, names in os.walk(raw):
-                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                # .gdb / .zarr 本身就是一份数据：整份收下，不再钻进去把内部表当成散文件
+                descend = []
+                for d in dirs:
+                    if d.startswith("."):
+                        continue
+                    if d.lower().endswith((".gdb", ".zarr")):
+                        hits.append(os.path.join(root, d))
+                        continue
+                    descend.append(d)
+                dirs[:] = descend
                 for name in sorted(names):
                     full = os.path.join(root, name)
                     if name.startswith(".") or os.path.splitext(name)[1].lower() in SKIP_EXT:
@@ -71,9 +80,20 @@ def norm(path):
     return str(path or "").replace("\\", "/").casefold()
 
 
+def clean_text(text):
+    """把代理字符还原成原来的字节，再按 UTF-8 容错解码。
+
+    有些驱动（MapInfo 的 .tab/.mif 之类）把中文元数据按本地代码页原样吐回来，
+    Python 用代理字符记着那串字节。这种字符串写不进 UTF-8，写报告和回接口时
+    都会抛 UnicodeEncodeError，一次就把整份结果带崩。坏字节换成替换符，其余照常。
+    """
+    return str(text).encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def save(report, path):
+    text = json.dumps(report, ensure_ascii=False, indent=2, default=str)
     with io.open(path, "w", encoding="utf-8") as fh:
-        json.dump(report, fh, ensure_ascii=False, indent=2, default=str)
+        fh.write(clean_text(text))
     return path
 
 
@@ -122,15 +142,40 @@ def environment_text():
     return "".join(f"{k}：{v}\n" for k, v in rows if v)
 
 
+def diagnostic_note():
+    """诊断包里的说明文件：用法 + 环境信息合在一份里，包里不再单放一个环境.txt。"""
+    env = [line for line in environment_text().splitlines() if line.strip()]
+    lines = [
+        "# 图览诊断包",
+        "",
+        "这个包用来排查“某个数据为什么读不出来、读出来为什么不对”。包里不含任何源数据，",
+        "只有两份内容：本说明文件，以及 体检结果.json。",
+        "",
+        "## 体检结果.json",
+        "",
+        "图览打开这些文件时读到的元数据（格式、图层、坐标系、范围、要素数、字段表、",
+        "栅格波段与像元信息），以及每条体检结论。不包含几何、像元值和属性表内容。",
+        "",
+        "## 环境",
+        "",
+    ]
+    lines.extend(env)
+    lines.extend([
+        "",
+        "## 反馈方式",
+        "",
+        "把整个 zip 原样发给我们，并附一句话说明当时在做什么、期望看到什么。",
+        "",
+    ])
+    return "\n".join(lines)
+
+
 def write_zip(results, zip_path):
-    """诊断包：环境 + 完整结果 + 一句说明。日志不打包（引擎不落日志文件）。"""
+    """诊断包：结论 json + 说明（环境信息并进说明里）。日志不打包（引擎不落日志文件）。"""
     payload = json.dumps(jsonable(build(results)), ensure_ascii=False, indent=2, default=str)
-    note = ("这个包里没有源数据，只有环境信息和图览读到的结果。\n"
-            "反馈问题时把整个 zip 发过来即可，里面不含你的文件内容。\n")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("环境.txt", environment_text())
         z.writestr("体检结果.json", payload)
-        z.writestr("说明.txt", note)
+        z.writestr("说明.md", diagnostic_note())
     return zip_path
 
 

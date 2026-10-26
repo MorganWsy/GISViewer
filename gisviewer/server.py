@@ -517,8 +517,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)):
-            body = json.dumps(engine_body(body) if isinstance(body, dict) else body,
-                              ensure_ascii=False, default=str).encode("utf-8")
+            # 元数据里可能带着非 UTF-8 的原始字节（见 report.clean_text），
+            # 直接 encode 会让整条响应 500，这里统一洗一遍再发
+            from . import report
+            text = json.dumps(engine_body(body) if isinstance(body, dict) else body,
+                              ensure_ascii=False, default=str)
+            body = report.clean_text(text).encode("utf-8")
         elif isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
@@ -709,7 +713,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             folder.mkdir(parents=True, exist_ok=True)
             report.save(report.build(results), str(prev_path))
-        except OSError:
+        except Exception:
+            # 落盘只是给"下次对比"和"导出诊断包"用的，写不进去不能连累这一次的结论：
+            # 早先这里只接 OSError，碰上元数据里的坏字节就整条响应 500，界面只剩"体检失败"
             pass
         return self._send(200, {
             "ok": True, "elapsed_ms": round((time.time() - started) * 1000, 1),
@@ -720,14 +726,26 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     def _diagnose(self, body):
-        """诊断包：环境 + 本次体检结果，打包成一个 zip，界面让资源管理器选中它。"""
+        """诊断包：环境信息 + 最近一次体检的结论，打包成一个 zip。
+
+        界面上的入口在体检浮层里，导出的就是用户刚看到的那份结论，不重跑一遍——
+        重跑既慢，又可能与屏幕上显示的结论对不上。只有从来没体检过（命令行第一次
+        就 --diagnose）时，才按给定路径现查一份。
+        """
         from . import report
         paths = body.get("paths") or []
         if isinstance(paths, str):
             paths = [paths]
         paths = [str(p).strip() for p in paths if str(p).strip()]
-        results = [engine.safe_inspect(p, compute_stats=False, histograms=False)
-                   for p in report.expand_paths(paths)[0]] if paths else []
+        last = report.load(str(config_dir() / "checks" / "last.json"))
+        results = (last or {}).get("files") or []
+        if not results and paths:
+            results = [engine.safe_inspect(p, compute_stats=False, histograms=False)
+                       for p in report.expand_paths(paths)[0]]
+        if not results:
+            return self._send(400, {"ok": False, "error": {
+                "title": "还没有可导出的体检结果",
+                "hint": "先在体检浮层里跑一次体检，再来导出诊断包。"}})
         folder = config_dir() / "diag"
         zip_path = report.write_zip_at(results, str(folder))
         if not zip_path:

@@ -3047,6 +3047,16 @@ function paintBasemapFields() {
 }
 
 /* 把 config 摊到设置页的各控件上；控件都是自绘的，摊完要再同步一次 */
+/* 滑块的"已走过"一段要涂主色：CSS 那条渐变按 --pct 变色，这里只负责把百分比写进去 */
+function paintRange(el) {
+  if (!el) return;
+  const min = Number(el.min || 0);
+  const max = Number(el.max || 100);
+  const v = Number(el.value || 0);
+  const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+  el.style.setProperty('--pct', Math.max(0, Math.min(100, pct)).toFixed(1) + '%');
+}
+
 function fillSettings() {
   $('cfgBasemap').value = config.basemap || 'tianditu_img';
   $('cfgAnnotation').checked = config.annotation === true;
@@ -3068,6 +3078,7 @@ function fillSettings() {
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
   $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
+  paintRange($('cfgAlpha'));
   $('cfgTheme').value = ['auto', 'light', 'dark'].indexOf(config.theme) >= 0 ? config.theme : 'auto';
   $('aboutVer').textContent = 'v' + ((document.title || '图览').replace('图览', '').trim() || '0.1');
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
@@ -3166,9 +3177,22 @@ function showCheckPop() {
   if (input) input.focus();
 }
 
+/* 体检在跑的时候：盖上薄幕、转圈、关不掉。忙完自动撤掉 */
+let checkBusy = false;
+
+function setCheckBusy(on) {
+  checkBusy = !!on;
+  const mask = $('checkBusy');
+  if (mask) mask.hidden = !on;
+  const run = $('checkRunBtn');
+  if (run) run.disabled = !!on;
+}
+
 /* 关掉就把上一次的结论一起收掉：留着会让人以为那是刚查的。
-   输入框里的路径留着，同一个位置再查一次不用重新粘 */
+   输入框里的路径留着，同一个位置再查一次不用重新粘。
+   体检进行中不允许关：结果还没回来就关掉，用户会以为白跑一趟 */
 function hideCheckPop() {
+  if (checkBusy) return;
   const pop = $('checkPop');
   if (pop) pop.hidden = true;
   markBtn('checkBtn', false);
@@ -3176,10 +3200,12 @@ function hideCheckPop() {
   const sum = $('chkSum');
   const hint = $('checkHint');
   const res = $('checkResult');
+  const dg = $('diagBtn');
   if (list) list.textContent = '';
   if (sum) sum.textContent = '';
   if (hint) hint.textContent = '';
   if (res) res.hidden = true;
+  if (dg) dg.hidden = true;
 }
 
 function toggleCheckPop() {
@@ -3260,14 +3286,16 @@ function runCheck() {
   if (!path) { hint.textContent = '先填一个文件或文件夹路径'; return; }
   const input = $('checkPath');
   if (input) input.value = path;
-  hint.textContent = '正在体检…';
-  $('checkRunBtn').disabled = true;
+  hint.textContent = '';
+  const dg = $('diagBtn');
+  if (dg) dg.hidden = true;
+  setCheckBusy(true);
   fetch('/api/check', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paths: [path] }),
   }).then((r) => r.json()).then((d) => {
-    $('checkRunBtn').disabled = false;
+    setCheckBusy(false);
     /* 体检跑着的时候浮层可能已经被关掉了：结果不再往关闭的浮层里写，
        否则下次打开会冒出一份"上一次的结论"，跟"关掉即清空"就矛盾了 */
     const pop = $('checkPop');
@@ -3281,26 +3309,25 @@ function runCheck() {
     renderCheck(d);
     $('checkResult').hidden = !n;
     hint.textContent = n ? '' : '这个位置没有可体检的数据';
+    // 有结论了才给"导出诊断包"：它导出的就是这一份
+    if (dg) dg.hidden = !n;
   }).catch(() => {
-    $('checkRunBtn').disabled = false;
+    setCheckBusy(false);
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
     hint.textContent = '体检失败，稍后再试';
   });
 }
 
-/* 诊断包：环境 + 当前这份的体检结果打成 zip，反馈问题时发出去。
-   入口在设置→文件里，顶栏浮层只留"填路径、开始体检"两件事 */
+/* 诊断包：环境信息与"刚跑完的这份体检结论"打成 zip，反馈问题时发出去。
+   服务端直接取上一次体检落盘的结果，不重新扫一遍，导出的就是屏幕上这份 */
 function runDiagnose() {
-  const input = $('checkPath');
-  const path = (current && current.path) || (input && input.value.trim()) || '';
-  const hint = $('diagHint');
-  if (!path) { if (hint) hint.textContent = '先在主界面打开一个文件，再来导出诊断包'; return; }
+  const hint = $('checkHint');
   if (hint) hint.textContent = '正在打包诊断包…';
   fetch('/api/diagnose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paths: [path] }),
+    body: JSON.stringify({}),
   }).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) {
       if (hint) hint.textContent = (d && d.error && d.error.title) || '诊断包没写出来';
@@ -4043,14 +4070,13 @@ function init() {
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
-  // 标题旁那颗说明：不点开的人也得知道"体检"到底在查什么
+  // 标题旁那颗说明：不点开的人也得知道"体检"到底在查什么。整段话不分点，读起来正式一些
   const cpTip = $('cpTip');
   if (cpTip) {
-    cpTip.setAttribute('data-tip', [
-      '把文件或文件夹里的每份数据逐个打开一遍，逐项核对：',
-      '能不能读出来、坐标系有没有、范围是否正常、要素数与字段表；栅格还看波段数、像元大小、压缩方式和金字塔。',
-      '结论分四档：有问题 / 要留意 / 提一句 / 没问题，文件名前那颗图标就是它。',
-    ].join('\n'));
+    cpTip.setAttribute('data-tip', '数据体检会把目标位置里的每份数据逐个打开一遍，核对能否读取、' +
+      '坐标系是否齐全、范围与图层结构是否正常；矢量数据再核对要素数与字段表，' +
+      '栅格数据再核对波段数、像元大小、压缩方式与金字塔。每条结论按严重程度归入' +
+      '“有问题、要留意、提一句、没问题”四档，文件名前的图标即代表该数据所属的档位。');
     cpTip.innerHTML = HINT_ICO;
   }
   $('diagBtn').addEventListener('click', runDiagnose);
@@ -4099,6 +4125,7 @@ function init() {
   $('cfgAlpha').addEventListener('input', () => {
     $('cfgAlphaOut').textContent = $('cfgAlpha').value + '%';
     config.panel_alpha = Number($('cfgAlpha').value);
+    paintRange($('cfgAlpha'));
     applyLook();
   });
   $('hkBtn').addEventListener('click', armHotkey);

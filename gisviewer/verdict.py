@@ -124,15 +124,11 @@ def judge(result):
         return {"level": "bad", "items": items, "counts": {"bad": 1}, "ok": False}
 
     kind = result.get("kind")
-    f = result.get("file") or {}
-    if f.get("is_dir"):
-        n = f.get("item_count")
-        if not n:
-            items.append(_item("warn", "文件夹里没有可识别的数据", "扫描了但没找到支持的格式",
-                               "确认目录选对了，或看看文件后缀是否在支持列表里"))
-        else:
-            items.append(_item("note", "这是个文件夹", "里面有 %d 个可识别的数据" % n))
-    elif kind == "vector":
+    # 不再按 is_dir 判"这是个文件夹"：.gdb / .zarr 在磁盘上也是目录，引擎却能按
+    # 一份数据打开（kind=vector/raster，图层齐全）。早先在这里先看 is_dir，结果
+    # 这类数据只得到一句"这是个文件夹"，坐标系、字段、要素数一条都没查。
+    # 真正的文件夹走不到这里——引擎对目录返回的本来就是"这是一个文件夹"的错误。
+    if kind == "vector":
         rows = []
         for layer in result.get("layers") or []:
             got = []
@@ -143,6 +139,12 @@ def judge(result):
         items.extend(_collapse(rows))
     elif kind == "raster":
         _raster(result, items)
+    elif not kind:
+        # 打得开却说不出是什么类型：这种容器没法核对坐标系与范围，
+        # 不能当"没问题"放过去，也不能报成读不出来
+        items.append(_item("warn", "没认出这是什么数据",
+                           "文件能打开，但类型不明，坐标系与范围都没法核对",
+                           "确认后缀和内容对不对得上；确实需要的话把文件发给我们看看"))
 
     if not items:
         items.append(_item("ok", "没发现问题", "坐标系、范围、要素数、字段都对得上"))

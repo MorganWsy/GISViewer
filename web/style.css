@@ -1524,8 +1524,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 /* 设置页：左边一列导航，右边一屏设置项。
    分组从七个并成五个，靠导航切换，不再靠一路往下滚 */
-.set-card { width: 620px; height: min(78vh, 660px); padding: 8px 0 6px; }
-.set-card .card-title { margin-bottom: 6px; padding: 0 12px 7px; font-size: 15px; }
+.set-card { width: 620px; height: min(78vh, 660px); padding: 4px 0 6px; }
+.set-card .card-title { margin-bottom: 4px; padding: 0 12px 5px; font-size: 15px; }
 /* 设置卡片的标题条是拖动把手：拖它挪的是卡片自己，不是软件窗口。
    手指光标明确表示"这里能拖"，文字本身不参与选择 */
 .set-card > .card-title { cursor: move; user-select: none; }
@@ -1646,8 +1646,12 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 .range-row input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
-  background: var(--line);
   border-radius: 2px;
+  /* 已走过的一段用主色填上：--pct 由 app.js 按当前值写进来 */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--pct, 0%),
+    var(--line) var(--pct, 0%) 100%);
 }
 .range-row input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -1783,8 +1787,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 /* 色带这一项单独放高：里面要放一条渐变色条，30px 里塞"字 + 条"太挤。
    这是设置页里唯一比基准高的控件，其余一律 --ctl-h */
-.field .combo.has-bar .combo-btn { height: 36px; padding: 4px 30px 4px 8px; }
-.field .combo-bar { height: 6px; margin-top: 3px; }
+.field .combo.has-bar .combo-btn { height: 38px; padding: 4px 30px 4px 8px; }
+.field .combo-bar { height: 8px; margin-top: 3px; }
 
 .field .btn { height: var(--ctl-h); display: inline-flex; align-items: center; border-radius: 6px; }
 
@@ -2430,9 +2434,29 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   user-select: text;
 }
 .cp-head { display: flex; align-items: center; gap: 5px; padding: 0 9px 0 1px; }
-.cp-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+/* 标题行高收到 1：13.5px 的字盒子正好和 16px 的提示图标同高，
+   两者按 align-items:center 摆就是真的齐，不再靠肉眼挪 1px */
+.cp-title { font-size: 13.5px; line-height: 16px; font-weight: 700; color: var(--text); }
 /* 标题旁那颗说明图标：不进浮层的人也得知道"体检到底查了什么" */
 .cp-head .tip-ico { margin-left: 0; }
+/* 导出诊断包：只在有结论时出现，放在标题行最右 */
+.cp-head-btn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cp-head-btn[hidden] { display: none; }
+.cp-head-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.cp-head-btn svg { width: 15px; height: 15px; display: block; }
 .cp-row { display: flex; align-items: center; gap: 6px; padding-right: 9px; }
 /* 输入框里嵌两颗按钮（文件、文件夹）：跟设置页 .icon-row 同一套做法 */
 .cp-field { position: relative; flex: 1; min-width: 0; display: flex; }
@@ -2487,6 +2511,31 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cp-go svg { width: 17px; height: 17px; display: block; }
 .cp-go:disabled { opacity: 0.55; cursor: default; }
 
+/* 体检进行中：整块浮层盖一层薄幕，转圈图标与说明居中。
+   这层是浮层里唯一的东西在动，用户一眼就知道"还在跑"，也不会去点关闭 */
+.cp-busy {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: rgba(var(--overlay-rgb), 0.9);
+}
+.cp-busy[hidden] { display: none; }
+.cp-spin {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: vecspin 0.8s linear infinite;
+}
+.cp-busy-text { font-size: 12.5px; line-height: 15px; color: var(--text-dim); }
+
 .cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
 .chk-sum {
   display: flex;
@@ -2496,8 +2545,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   font-size: 12px;
   color: var(--text-dim);
 }
-/* 摘要每一项前面挂同款小图标：颜色和形状跟下面文件行一致，一眼对得上 */
-.chk-sum-item { display: inline-flex; align-items: center; gap: 4px; }
+/* 摘要每一项前面挂同款小图标：颜色和形状跟下面文件行一致，一眼对得上。
+   line-height 收成 1（= 12px），字盒子与 12px 图标同高，中心自然重合 */
+.chk-sum-item { display: inline-flex; align-items: center; gap: 4px; line-height: 12px; }
 .chk-sum .chk-ico,
 .chk-sum .chk-ico svg { width: 12px; height: 12px; }
 .chk-sum b { font-family: var(--font-num); font-weight: 600; color: var(--text); }
@@ -2512,13 +2562,16 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-file { display: flex; flex-direction: column; gap: 1px; }
 .chk-head {
   display: flex;
-  align-items: center;
+  /* 文件名可能折行：图标按第一行的中线摆，而不是按整块的竖直中线 */
+  align-items: flex-start;
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 18px;
   color: var(--text);
 }
+/* 15px 图标对 18px 行高：上边留 1.5px，跟第一行文字的中线对齐 */
+.chk-head .chk-ico { margin-top: 1.5px; }
 .chk-name { min-width: 0; overflow-wrap: anywhere; }
 /* 健康度用图标表示：形状和颜色一起说事，红三角和红圆点在缩略列表里也分得开 */
 /* 图标盒：档位类一律带 lv- 前缀。原先直接叫 warn，撞上了样式表里通用的
