@@ -1376,9 +1376,10 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 }
 .tip-bubble.tip-multi .tip-txt { min-width: 0; }
 /* 不挂圆点的整段行：首句与末句这种说明性文字。左边不给圆点留位，
-   否则整段会被推得比清单还靠右，看着像缩进错位 */
-.tip-bubble.tip-multi .tip-li.tip-plain { gap: 0; }
-.tip-bubble.tip-multi .tip-li.tip-plain + .tip-li.tip-plain { margin-top: 4px; }
+   否则整段会被推得比清单还靠右，看着像缩进错位。
+   上下各留一点空隙，和中间的清单区分开段 */
+.tip-bubble.tip-multi .tip-li.tip-plain { gap: 0; margin-top: 5px; }
+.tip-bubble.tip-multi .tip-li.tip-plain:first-child { margin-top: 0; }
 
 .tip-bubble a.tip-link {
   display: block;
