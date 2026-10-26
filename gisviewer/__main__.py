@@ -315,7 +315,7 @@ def _print_check(result, said):
     if path:
         print(f"    {path}")
     for it in v["items"]:
-        # 结论与文件末尾那句"都没发现问题"重复时只留一次
+        # 结论与文件末尾那句"均未发现问题"重复时只留一次
         if it["level"] == "ok" and len(v["items"]) == 1:
             continue
         print(f"    {verdict.LEVEL_LABEL[it['level']]:<4}  {it['title']}")
@@ -411,7 +411,7 @@ def main(argv=None):
             if warn:
                 parts.append(f"{warn} 个要留意")
             if not (bad or warn):
-                parts.append("都没发现问题")
+                parts.append("均未发现问题")
             print()
             print("，".join(parts))
         return 1 if any(v["level"] in ("bad", "warn") for v in said) else 0

@@ -3144,10 +3144,10 @@ function paintCacheSize(info, dir) {
    选一个文件或文件夹 → 开结论清单，自动和上一次的报告比，诊断包一键导出。
    报告由引擎存在配置目录的 checks/last.json，下一次体检自动拿它当对照 */
 
-/* 体检结论的三档：有问题 / 要留意 / 没问题。文字给分组标题，图标标在分组前。
+/* 体检结论的三档：有问题 / 要留意 / 未发现问题。文字给分组标题，图标标在分组前。
    形状各不同（圆叹号 / 三角 / 对勾），缩成一行也分得清。
    早先还有一档"提一句"，实操里和"要留意"分不开，合并成三档 */
-const LEVEL_TEXT = { bad: '有问题', warn: '要留意', ok: '没问题' };
+const LEVEL_TEXT = { bad: '有问题', warn: '要留意', ok: '未发现问题' };
 /* 档位图标：一律实心填充，勾与感叹号是"挖掉"的负空间（fill-rule=evenodd）。
    原来那套是描边，15px 下 1.5px 的线糊成一团，三角形里到底画了什么看不清——
    挖空的做法在深浅两种底色上都清楚 */
@@ -3188,7 +3188,7 @@ function showCheckPop() {
     input.value = current.path;
     runCheck();
   } else if (input && input.value.trim()) {
-    setHint('按回车重新体检');
+    setHint('按回车键重新体检');
   }
 }
 
@@ -3366,7 +3366,7 @@ function checkTarget() {
 function runCheck(batch) {
   const many = (Array.isArray(batch) ? batch : []).filter(Boolean);
   const path = many.length ? many[0] : checkTarget();
-  if (!path) { setHint('先填一个文件或文件夹路径'); return; }
+  if (!path) { setHint('请先填写文件或文件夹路径'); return; }
   const input = $('checkPath');
   if (input) input.value = path;
   setHint('');
@@ -3384,39 +3384,39 @@ function runCheck(batch) {
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
     if (!d || !d.ok) {
-      setHint((d && d.error && d.error.title) || '体检失败');
+      setHint((d && d.error && d.error.title) || '体检未能完成');
       return;
     }
     const n = (d.files || []).length;
     renderCheck(d);
     $('checkResult').hidden = !n;
-    if (!n) setHint('这个位置没有可体检的数据');
+    if (!n) setHint('该位置未找到可体检的数据');
     // 有结论了才给"导出诊断包"：它导出的就是这一份
     if (dg) dg.hidden = !n;
   }).catch(() => {
     setCheckBusy(false);
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
-    setHint('体检失败，稍后再试');
+    setHint('体检未能完成，请稍后重试');
   });
 }
 
 /* 诊断包：环境信息与"刚跑完的这份体检结论"打成 zip，反馈问题时发出去。
    服务端直接取上一次体检落盘的结果，不重新扫一遍，导出的就是屏幕上这份 */
 function runDiagnose() {
-  setHint('正在打包诊断包…');
+  setHint('正在生成诊断包…');
   fetch('/api/diagnose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   }).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) {
-      setHint((d && d.error && d.error.title) || '诊断包没写出来');
+      setHint((d && d.error && d.error.title) || '诊断包未能生成');
       return;
     }
-    setHint('已导出 ' + (d.size_label || '') + '，已在资源管理器里选中');
+    setHint('已导出 ' + (d.size_label || '') + '，已在资源管理器中选中');
     toShell('revealfile:' + d.path);
-  }).catch(() => setHint('诊断包没写出来，稍后再试'));
+  }).catch(() => setHint('诊断包未能生成，请稍后重试'));
 }
 
 function refreshCacheSize() {

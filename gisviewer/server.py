@@ -692,8 +692,8 @@ class Handler(BaseHTTPRequestHandler):
         paths = [str(p).strip() for p in paths if str(p).strip()]
         if not paths:
             return self._send(400, {"ok": False, "error": {
-                "title": "没有指定文件或文件夹",
-                "hint": "填一个文件夹，软件会把里面支持的数据逐个体检。"}})
+                "title": "未指定文件或文件夹",
+                "hint": "填写一个文件夹，软件会对其中的每份数据逐个体检。"}})
         started = time.time()
         targets, truncated = report.expand_paths(paths)
         results = [engine.safe_inspect(p, compute_stats=False, histograms=False)
@@ -759,20 +759,20 @@ class Handler(BaseHTTPRequestHandler):
                        for p in report.expand_paths(paths)[0]]
         if not results:
             return self._send(400, {"ok": False, "error": {
-                "title": "还没有可导出的体检结果",
-                "hint": "先在体检浮层里跑一次体检，再来导出诊断包。"}})
+                "title": "暂无可导出的体检结果",
+                "hint": "请先在体检浮层中执行一次体检，再导出诊断包。"}})
         folder = config_dir() / "diag"
         zip_path = report.write_zip_at(results, str(folder))
         if not zip_path:
             return self._send(500, {"ok": False, "error": {
-                "title": "诊断包没写出来", "hint": "确认磁盘还有空间，或换个位置再试。"}})
+                "title": "诊断包未能生成", "hint": "确认磁盘空间充足，或更换保存位置后重试。"}})
         return self._send(200, {"ok": True, "path": zip_path,
                                 "size_label": labels.human_size(os.path.getsize(zip_path))})
 
     def _inspect(self, path, fast=False):
         if not path:
             return self._send(200, {"ok": False,
-                                    "error": {"title": "没有指定文件", "hint": "把文件拖进来，或填写完整路径。"}})
+                                    "error": {"title": "未指定文件", "hint": "将文件拖入窗口，或填写完整路径。"}})
         # fast=True：矢量跳过"数个数、量范围"这两步全文件扫描，先把界面立起来，
         # 缺的数字由页面在取数完成后回填（见 app.js 里 gis:vector 的处理）
         result = cached_safe_inspect(path, histograms=False, quick=fast)

@@ -6,7 +6,7 @@ judge() 出结论，compare() 出两次体检的差异。
 """
 
 LEVEL_ORDER = {"bad": 2, "warn": 1, "ok": 0}
-LEVEL_LABEL = {"bad": "有问题", "warn": "要留意", "ok": "没发现问题"}
+LEVEL_LABEL = {"bad": "有问题", "warn": "要留意", "ok": "未发现问题"}
 
 SIZE_BIG = 8 * 1024 * 1024        # 与 vindex 的门槛一致：超过它才值得建索引
 PIXELS_MANY = 20 * 1000 * 1000    # 两千万像元以上，没有金字塔缩放会明显等
@@ -23,20 +23,20 @@ ROWS = {
 }
 # 这一项没查出问题时怎么描述。写"正常"太空，写清楚核对的是什么
 PASS_TEXT = {
-    "read": "打开正常",
-    # 只写"有定义"：有坐标系却算不出经纬度范围的情况确实存在（本地 CAD 坐标），
-    # 写成"齐全"会和下一行"算不出经纬度范围"打架
-    "crs": "有坐标系定义",
-    "extent": "范围算得出来",
-    "layers": "图层结构正常",
-    "count": "图层里都有要素",
-    "fields": "字段没有空名、没有重名",
-    "index": "该格式带空间索引",
-    "pixels": "像元尺寸正常",
-    "bands": "波段齐全",
-    "nodata": "设了无效值",
-    "compress": "影像有压缩",
-    "pyramid": "建了金字塔",
+    "read": "文件可正常读取",
+    # 只写"已定义"：有坐标系却算不出经纬度范围的情况确实存在（本地 CAD 坐标），
+    # 写成"齐全"会和下一行"无法计算经纬度范围"打架
+    "crs": "已定义坐标系",
+    "extent": "范围可计算",
+    "layers": "图层结构完整",
+    "count": "各图层均含要素",
+    "fields": "字段名完整且无重复",
+    "index": "格式自带空间索引",
+    "pixels": "像元尺寸有效",
+    "bands": "波段信息完整",
+    "nodata": "已设置无效值",
+    "compress": "已采用压缩",
+    "pyramid": "已建立金字塔",
 }
 # 项目名：判据里用简称（read / crs…），界面和命令行要的是中文短标签
 CAT_LABEL = dict((cat, label) for spec in ROWS.values() for cat, label in spec)
@@ -68,45 +68,45 @@ def _worst(items):
 def _vector(layer, result, items):
     count = layer.get("feature_count")
     if count == 0:
-        items.append(_item("warn", "这个图层是空的",
-                           "要素数为 0，画到地图上什么也看不到",
-                           "确认导出时是否漏了数据，或过滤条件把所有要素都排除了",
+        items.append(_item("warn", "图层不含要素",
+                           "要素数为 0，加载后不显示任何内容",
+                           "确认导出时是否漏选数据，或过滤条件是否排除了全部要素",
                            cat="count"))
     if not layer.get("crs"):
-        items.append(_item("warn", "没有坐标系",
-                           "坐标只能按原始数值临时摆放，位置不可信，也没法和别的图层对齐",
-                           "在数据源里补一份坐标系（.prj 或图层定义）后重新导出",
+        items.append(_item("warn", "缺少坐标系定义",
+                           "坐标只能按原始数值临时定位，位置不可信，且无法与其他图层对齐",
+                           "在数据源中补充坐标系（.prj 或图层定义）后重新导出",
                            cat="crs"))
     elif layer.get("geometry_type_is_mixed") or layer.get("geometry_is_mixed"):
-        items.append(_item("warn", "一个图层里混着多种几何类型",
-                           "矢量的点、线、面混在同一层，绘制和统计都只能按各自类型分开看",
-                           "一般不影响查看；要按类型统计的话建议拆层导出",
+        items.append(_item("warn", "同一图层包含多种几何类型",
+                           "点、线、面混在同一图层，绘制与统计需按各自类型分别处理",
+                           "一般不影响浏览；如需按类型统计，建议拆分图层后导出",
                            cat="layers"))
     names = [f.get("name") or "" for f in (layer.get("fields") or [])]
     blank = sum(1 for n in names if not n)
     if blank:
-        items.append(_item("warn", "有 %d 个字段没有名字" % blank,
-                           "空字段名会让属性表出现没有标题的列",
-                           "在数据源里给字段改名，或导出时去掉这些列",
+        items.append(_item("warn", "有 %d 个字段未命名" % blank,
+                           "字段名为空，属性表中会出现没有标题的列",
+                           "在数据源中为字段命名，或导出时移除这些列",
                            cat="fields"))
     dup = sorted({n for n in names if n and names.count(n) > 1})
     if dup:
         items.append(_item("warn", "字段名重复：%s" % "、".join(dup[:4]),
-                           "同名列表里会有两列一样标题，取数时容易拿错",
-                           "导出前把重名字段改名",
+                           "属性表中会出现两列同名标题，取数时容易取错",
+                           "导出前重命名重复字段",
                            cat="fields"))
     caps = layer.get("capabilities") or {}
     size = (result.get("file") or {}).get("size_bytes") or 0
     if caps and caps.get("空间过滤加速") is False and size >= SIZE_BIG:
-        items.append(_item("warn", "这个格式没有空间索引，文件又比较大",
-                           "按视野取数时驱动只能从头扫，图览会顺手建一份本地索引，"
-                           "建好之后拖动、缩放都是毫秒级",
-                           "不用处理；第一次打开后稍等十来秒即可",
+        items.append(_item("warn", "该格式不带空间索引，且文件较大",
+                           "按视野取数时驱动须全量扫描；图览会在首次打开时自动建立本地索引，"
+                           "建立后拖动与缩放可即时响应",
+                           "无需处理；首次打开后等待约十秒即可",
                            cat="index"))
     ext = layer.get("extent_wgs84")
     if layer.get("has_geometry") and not ext:
-        items.append(_item("warn", "算不出经纬度范围",
-                           "坐标系多半有问题，地图上无法正确定位",
+        items.append(_item("warn", "无法计算经纬度范围",
+                           "坐标系定义可能不完整，地图上无法正确定位",
                            "检查坐标系定义是否完整",
                            cat="extent"))
 
@@ -114,29 +114,29 @@ def _vector(layer, result, items):
 def _raster(result, items):
     pixels = result.get("pixels") or 0
     if not pixels:
-        items.append(_item("bad", "影像没有任何像元", "宽或高为 0，读不出内容",
+        items.append(_item("bad", "影像不含像元", "宽或高为 0，没有可读取的内容",
                            "确认文件是否完整", cat="pixels"))
     if not result.get("crs"):
-        items.append(_item("warn", "没有坐标系",
-                           "不知道影像在地球上的位置，只能看像素，不能和别的数据叠加",
-                           "补一份坐标系（.prj / .aux.xml）后重新导出",
+        items.append(_item("warn", "缺少坐标系定义",
+                           "无法确定影像的地理位置，只能查看像素，不能与其他数据叠加",
+                           "补充坐标系（.prj / .aux.xml）后重新导出",
                            cat="crs"))
     levels = result.get("overview_levels") or 0
     if pixels >= PIXELS_MANY and not levels:
-        items.append(_item("warn", "没有金字塔（概视图）",
-                           "缩到全图时要现场抽稀整幅影像，每次打开都慢",
-                           "用 gdaladdo 建一次金字塔，之后秒开",
+        items.append(_item("warn", "缺少金字塔（概视图）",
+                           "缩放至全图时须实时抽稀整幅影像，每次打开均较慢",
+                           "使用 gdaladdo 建立一次金字塔，之后可直接打开",
                            cat="pyramid"))
     comp = (result.get("image_structure") or {}).get("COMPRESSION") or ""
     if not comp and (result.get("file") or {}).get("size_bytes", 0) >= 50 * 1024 * 1024:
-        items.append(_item("warn", "影像没有压缩",
-                           "体积会明显偏大，传输和打开都更慢",
-                           "无损场景可以用 LZW 或 DEFLATE 重新导出",
+        items.append(_item("warn", "影像未压缩",
+                           "文件体积会明显偏大，传输与打开都更慢",
+                           "无损场景可改用 LZW 或 DEFLATE 重新导出",
                            cat="compress"))
     if not (result.get("bands") or [{}])[0].get("has_nodata"):
-        items.append(_item("warn", "没有设置无效值（NoData）",
-                           "影像边缘的填充值会被当成真实数值参与统计",
-                           "确认边缘是否该参与统计；需要的话在导出时设 NoData",
+        items.append(_item("warn", "未设置无效值（NoData）",
+                           "影像边缘的填充值会被当作真实数值参与统计",
+                           "确认边缘是否应参与统计；如需排除，请在导出时设置 NoData",
                            cat="nodata"))
 
 
@@ -170,7 +170,7 @@ def _rows(kind, items, err=None):
     """
     if err is not None:
         return [{"cat": "read", "label": "可读性", "level": "bad",
-                 "title": err.get("title") or "读不出来",
+                 "title": err.get("title") or "无法读取",
                  "detail": err.get("detail"), "hint": err.get("hint")}]
     spec = ROWS.get(kind or "")
     if not spec:
@@ -229,7 +229,7 @@ def judge(result):
     items = []
     if not result.get("ok"):
         err = result.get("error") or {}
-        items.append(_item("bad", err.get("title") or "读不出来",
+        items.append(_item("bad", err.get("title") or "无法读取",
                            err.get("detail"), err.get("hint"), cat="read"))
         return {"level": "bad", "items": items, "rows": _rows(result.get("kind"), items, err),
                 "counts": {"bad": 1}, "ok": False}
@@ -253,12 +253,12 @@ def judge(result):
     elif not kind:
         # 打得开却说不出是什么类型：这种容器没法核对坐标系与范围，
         # 不能当"没问题"放过去，也不能报成读不出来
-        items.append(_item("warn", "没认出这是什么数据",
-                           "文件能打开，但类型不明，坐标系与范围都没法核对",
-                           "确认后缀和内容对不对得上；确实需要的话把文件发给我们看看"))
+        items.append(_item("warn", "无法识别数据类型",
+                           "文件可以打开，但类型不明确，坐标系与范围均无法核对",
+                           "确认文件后缀与内容是否一致；如仍无法识别，可将文件提供给开发者分析"))
 
     if not items:
-        items.append(_item("ok", "没发现问题", "坐标系、范围、要素数、字段都对得上"))
+        items.append(_item("ok", "未发现问题", "坐标系、范围、要素数与字段均无异常"))
     counts = {}
     for it in items:
         counts[it["level"]] = counts.get(it["level"], 0) + 1

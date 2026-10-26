@@ -130,7 +130,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 
 .brand-en {
   font-family: Consolas, "Cascadia Mono", monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 400;
   letter-spacing: 0.34em;
   color: var(--accent);
@@ -647,7 +647,7 @@ table.chip-table td {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-dim);
   font-family: var(--font-num);
   white-space: normal;
@@ -752,7 +752,7 @@ table.chip-table td {
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
 .legend-val { font-size: 13px; font-family: var(--font-num); white-space: nowrap; }
-.legend-blank { font-size: 12.5px; color: var(--text-dim); }
+.legend-blank { font-size: 13px; color: var(--text-dim); }
 
 /* 地图底部一行：图例靠左，比例尺和读数合成一条靠右。
    这一整条铺满地图的宽和底边，离边多少写在各自的 margin 上——
@@ -1124,7 +1124,7 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   align-items: center;
   gap: 8px;
   padding: 6px 14px 6px 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-dim);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1414,7 +1414,7 @@ table.rail-table tr.sec-off { display: none; }
 
 table.rail-table tr.sec th {
   padding: 9px 12px 3px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-align: left;
@@ -1423,7 +1423,7 @@ table.rail-table tr.sec th {
 
 table.rail-table tr:not(.sec):not(.wide) th {
   padding: 4px 6px 4px 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   text-align: left;
   vertical-align: top;
@@ -1433,7 +1433,7 @@ table.rail-table tr:not(.sec):not(.wide) th {
 
 table.rail-table tr:not(.sec):not(.wide) td {
   padding: 4px 12px 4px 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   vertical-align: top;
   word-break: break-word;
   font-family: var(--font-num);
@@ -1561,7 +1561,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   padding: 0 8px;
   text-align: left;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-dim);
   background: none;
   border: 0;
@@ -1630,7 +1630,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   height: 22px;
   padding: 0 8px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
   background: none;
   border: 1px solid var(--line);
@@ -1754,7 +1754,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .seg button {
   padding: 2px 9px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   /* 按钮行高吃掉分段开关的内边距和边框，整体正好与输入框同高 */
   line-height: calc(var(--ctl-h) - 10px);
   color: var(--text-dim);
@@ -2046,7 +2046,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .recent-pop .rp-clear {
   padding: 1px 6px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   /* 清空删的是全部记录，常驻警告色提醒这一下不可挽回 */
   color: #d64545;
   background: none;
@@ -2061,7 +2061,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .recent-pop .rp-name { font-size: 13px; font-weight: 600; color: var(--text); }
 .recent-pop .rp-path {
   margin-top: 1px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
   overflow: hidden;
   white-space: nowrap;
@@ -2101,7 +2101,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 }
 .pick-pop button:hover { background: var(--panel-alt); }
 .pick-pop .pp-label { font-weight: 600; }
-.pick-pop .pp-note { font-size: 11.5px; color: var(--text-dim); }
+.pick-pop .pp-note { font-size: 12px; color: var(--text-dim); }
 
 /* 属性表标题栏里的查找框 */
 .attr-find {
@@ -2138,7 +2138,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   transform: translateX(-50%);
   z-index: 9;
   padding: 5px 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text);
   background: var(--overlay);
   border: 1px solid var(--line);
@@ -2192,12 +2192,12 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .err-toast .et-title { font-size: 13px; font-weight: 700; color: var(--text); }
 .err-toast .et-detail {
   margin-top: 1px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-dim);
   /* 长路径、长报错信息按需折行，不许把卡片撑破 */
   overflow-wrap: anywhere;
 }
-.err-toast .et-hint { margin-top: 2px; font-size: 12.5px; color: var(--text-dim); }
+.err-toast .et-hint { margin-top: 2px; font-size: 13px; color: var(--text-dim); }
 
 /* 关于页：版本和仓库跟标签同一行；介绍和版权在底部收成一小块 */
 .ver-num { font-family: var(--font-num); font-size: 13px; color: var(--text); }
@@ -2208,7 +2208,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   align-items: center;
   gap: 6px;
   padding: 3px 11px 3px 9px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
@@ -2256,11 +2256,11 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   font-weight: 700;
   color: var(--text);
 }
-.third-party p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.7; color: var(--text-dim); }
+.third-party p { margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: var(--text-dim); }
 .third-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
   table-layout: fixed;
 }
 .third-table th, .third-table td {
@@ -2296,7 +2296,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .close-card h3 {
   margin: 0;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
   color: var(--text);
@@ -2435,7 +2435,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 9px 0 9px 9px;
+  /* 上下 6px：标题行、输入框、结果表各自都带内边距，浮层自己再留 9px 就是白占地方 */
+  padding: 6px 0 6px 9px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2445,9 +2446,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   user-select: text;
 }
 .cp-head { display: flex; align-items: center; gap: 5px; padding: 0 9px 0 1px; }
-/* 标题行高收到 1：13.5px 的字盒子正好和 16px 的提示图标同高，
-   两者按 align-items:center 摆就是真的齐，不再靠肉眼挪 1px */
-.cp-title { font-size: 13.5px; line-height: 16px; font-weight: 700; color: var(--text); }
+/* 标题 14px / 行高 18px，与分组标题同一档：浮层只有一个标题、每个分组一个标题，
+   两者字号一致，层级靠颜色（标题深色、组标题强调色）和粗细区分，不靠半个像素的字号差。
+   整条标题行的高度由右侧 24px 的导出按钮决定，这里改行高不影响标题行高度 */
+.cp-title { font-size: 14px; line-height: 18px; font-weight: 700; color: var(--text); }
 /* 标题旁那颗说明图标：不进浮层的人也得知道"体检到底查了什么" */
 .cp-head .tip-ico { margin-left: 0; }
 /* 标题行左侧那句提示（导出完成、体检失败）：靠右顶到按钮左边，单行省略。
@@ -2456,8 +2458,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   flex: 0 1 auto;
   min-width: 0;
   max-width: 68%;
-  font-size: 11.5px;
-  line-height: 15px;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -2552,7 +2554,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 50%;
   animation: vecspin 0.8s linear infinite;
 }
-.cp-busy-text { font-size: 12.5px; line-height: 15px; color: var(--text-dim); }
+.cp-busy-text { font-size: 13px; line-height: 16px; color: var(--text-dim); }
 
 .cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
 .chk-list {
@@ -2581,7 +2583,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 18px;
   font-weight: 700;
   color: var(--accent);
@@ -2596,7 +2598,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: inline-flex;
   align-items: center;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

@@ -1194,10 +1194,10 @@ def column_values(target, layer_index, field, limit=200000):
     target = read_target(target)
     ds = _open_vector(target)
     if ds is None:
-        raise ValueError("没有可识别的矢量图层")
+        raise ValueError("未找到可识别的矢量图层")
     lyr = ds.GetLayerByIndex(int(layer_index))
     if lyr is None:
-        raise ValueError("这个图层读不出来")
+        raise ValueError("该图层无法读取")
     lyr.ResetReading()
     values = []
     for feat in lyr:
