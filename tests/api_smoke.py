@@ -235,8 +235,12 @@ def main(argv=None):
         need(status == 200 and data.get("ok"), "体检失败：%s" % data.get("error"))
         files = data.get("files") or []
         need(len(files) == 1, "文件数不对：%d" % len(files))
-        need(files[0].get("level") in ("bad", "warn", "note", "ok"), "级别不对：%s" % files[0].get("level"))
+        need(files[0].get("level") in ("bad", "warn", "ok"), "级别不对：%s" % files[0].get("level"))
         need(files[0].get("items"), "没有结论条目")
+        # 只查一个文件时要带完整体检表，界面靠它铺"可读性/坐标系/要素数…"逐行
+        need(files[0].get("rows"), "单文件没有体检表")
+        need(all(r.get("label") for r in files[0]["rows"]), "体检表缺项目名")
+        need(files[0].get("facts"), "单文件没有基本情况")
         need(data.get("report_path"), "报告没落盘，下次没法对比")
         # 再跑一次：上一次的报告当对照，这份数据没动就该比出"没变化"
         _, again, _ = cli.post("/api/check", {"paths": [str(gpkg)]})

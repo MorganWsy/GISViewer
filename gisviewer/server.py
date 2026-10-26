@@ -326,6 +326,32 @@ def _stamp_elapsed(result, started):
     return result
 
 
+def _check_facts(result):
+    """单文件体检表头那一行：什么格式、几个图层、多少要素、多大。
+
+    只写看得懂的事实，不做判断——判断在 verdict 里。
+    """
+    f = result.get("file") or {}
+    out = []
+    label = result.get("driver_label")
+    if label:
+        out.append(label)
+    if result.get("kind") == "vector":
+        if result.get("layer_count"):
+            out.append("%d 个图层" % result["layer_count"])
+        if result.get("feature_count_total"):
+            out.append("{:,} 个要素".format(int(result["feature_count_total"])))
+    elif result.get("kind") == "raster":
+        w, h = result.get("width"), result.get("height")
+        if w and h:
+            out.append("{:,} × {:,} 像元".format(int(w), int(h)))
+        if result.get("band_count"):
+            out.append("%d 个波段" % result["band_count"])
+    if f.get("size_label"):
+        out.append(f["size_label"])
+    return out
+
+
 def cached_safe_inspect(path, **kwargs):
     """safe_inspect 外面套缓存。失败的结果不缓存——文件可能马上就被修好。"""
     load_engine()
@@ -695,21 +721,28 @@ class Handler(BaseHTTPRequestHandler):
         prev = report.load(str(prev_path))
         old = report.load_by_path(str(prev_path))
         files = []
-        summary = {"bad": 0, "warn": 0, "note": 0, "ok": 0}
+        summary = {"bad": 0, "warn": 0, "ok": 0}
+        single = len(results) == 1
         for r in results:
             v = verdict.judge(r)
             summary[v["level"]] = summary.get(v["level"], 0) + 1
             f = r.get("file") or {}
             path = f.get("path") or r.get("input")
             before = old.get(report.norm(path))
-            files.append({
+            item = {
                 "path": path,
                 "name": f.get("name") or (os.path.basename(str(path)) if path else "（未命名）"),
                 "kind": r.get("kind"),
                 "level": v["level"],
                 "items": v["items"],
                 "changes": verdict.compare(before, r) if before else None,
-            })
+            }
+            # 只查了一个文件时，界面要铺一张完整体检表：逐项结论 + 这份数据的基本事实。
+            # 查文件夹时这些字段没人用，多传就是几百份空数组
+            if single:
+                item["rows"] = v.get("rows") or []
+                item["facts"] = _check_facts(r)
+            files.append(item)
         try:
             folder.mkdir(parents=True, exist_ok=True)
             report.save(report.build(results), str(prev_path))

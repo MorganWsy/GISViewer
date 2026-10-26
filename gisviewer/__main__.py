@@ -390,7 +390,7 @@ def main(argv=None):
         said = [verdict.judge(r) for r in results]
         if args.json:
             files = []
-            summary = {"bad": 0, "warn": 0, "note": 0, "ok": 0}
+            summary = {"bad": 0, "warn": 0, "ok": 0}
             for result, v in zip(results, said):
                 summary[v["level"]] = summary.get(v["level"], 0) + 1
                 files.append({"path": (result.get("file") or {}).get("path")
@@ -405,15 +405,12 @@ def main(argv=None):
                 _print_check(result, verdict.judge)
             bad = sum(1 for v in said if v["level"] == "bad")
             warn = sum(1 for v in said if v["level"] == "warn")
-            note = sum(1 for v in said if v["level"] == "note")
             parts = [f"共 {len(results)} 个"]
             if bad:
                 parts.append(f"{bad} 个有问题")
             if warn:
                 parts.append(f"{warn} 个要留意")
-            if note:
-                parts.append(f"{note} 个只有提示")
-            if not (bad or warn or note):
+            if not (bad or warn):
                 parts.append("都没发现问题")
             print()
             print("，".join(parts))

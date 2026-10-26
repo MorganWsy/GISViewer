@@ -193,20 +193,22 @@ function showTipBox(anchor, text) {
   const box = tipBubble();
   clearTimeout(tipState.timer);
   box.textContent = '';
-  // 文案里有换行就按行拆成分点：每行前面一枚小圆点，读起来一眼一条；
-  // 单行文案保持整段样式。data-tip 属性里存的就是 \n 分隔的原文
-  const lines = String(text).split('\n').filter((s) => s.length);
-  if (lines.length > 1) {
+  // 文案里有换行就按行拆开。以"· "开头的行画圆点，其余行整段排：
+  // 有的气泡是"一句总述 + 几条清单 + 一句收尾"，不能每行都挂圆点
+  const raw = String(text).split('\n').filter((s) => s.length);
+  if (raw.length > 1) {
+    const marked = raw.some((s) => s.indexOf('· ') === 0);
     box.classList.add('tip-multi');
-    lines.forEach((line) => {
-      const row = el('div', 'tip-li');
-      row.appendChild(el('i', 'tip-dot'));
-      row.appendChild(el('span', 'tip-txt', line));
+    raw.forEach((line) => {
+      const bullet = marked ? line.indexOf('· ') === 0 : true;
+      const row = el('div', 'tip-li' + (bullet ? '' : ' tip-plain'));
+      if (bullet) row.appendChild(el('i', 'tip-dot'));
+      row.appendChild(el('span', 'tip-txt', bullet && marked ? line.slice(2) : line));
       box.appendChild(row);
     });
   } else {
     box.classList.remove('tip-multi');
-    box.textContent = lines[0] || '';
+    box.textContent = raw[0] || '';
   }
   // 提示气泡里可以带一条外链：锚点给 data-tip-href，链接文案给 data-tip-link。
   // target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走
@@ -3142,15 +3144,16 @@ function paintCacheSize(info, dir) {
    选一个文件或文件夹 → 开结论清单，自动和上一次的报告比，诊断包一键导出。
    报告由引擎存在配置目录的 checks/last.json，下一次体检自动拿它当对照 */
 
-/* 体检结论的四档：文字给摘要用，图标给文件行走在用。
-   形状各不同（圆叹号 / 三角 / 信息圆点 / 对勾），缩成一行也分得清 */
-const LEVEL_TEXT = { bad: '有问题', warn: '要留意', note: '提一句', ok: '没问题' };
+/* 体检结论的三档：有问题 / 要留意 / 没问题。文字给分组标题，图标标在分组前。
+   形状各不同（圆叹号 / 三角 / 对勾），缩成一行也分得清。
+   早先还有一档"提一句"，实操里和"要留意"分不开，合并成三档 */
+const LEVEL_TEXT = { bad: '有问题', warn: '要留意', ok: '没问题' };
 const LEVEL_ICON = {
   bad: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.3"/><path d="M8 4.7v3.7" stroke-linecap="round"/><circle cx="8" cy="11.2" r=".9" fill="currentColor" stroke="none"/></svg>',
   warn: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2.3l6 10.4H2z"/><path d="M8 6.3v3" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".85" fill="currentColor" stroke="none"/></svg>',
-  note: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v4" stroke-linecap="round"/><circle cx="8" cy="4.9" r=".9" fill="currentColor" stroke="none"/></svg>',
   ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.3"/><path d="M5 8.3l2.1 2.1L11 6.1"/></svg>',
 };
+const LEVEL_ORDER = ['bad', 'warn', 'ok'];
 
 /* 顶栏按钮的激活态：哪个面板开着，对应的按钮就亮着，关掉自动落回原样。
    三颗按钮共用这一条，免得各写各的 class 名 */
@@ -3175,6 +3178,15 @@ function showCheckPop() {
   markBtn('checkBtn', true);
   const input = $('checkPath');
   if (input) input.focus();
+  /* 关掉即清空，所以每次打开都得重新查一遍才有东西看。输入框空着就查当前打开的那份：
+     "留空就查当前打开的"这句话，配上没有体检按钮的情况，只有自动跑才成立。
+     输入框里还留着上次的路径就只给一句"回车重查"，不替用户决定要不要再扫一遍大目录 */
+  if (input && !input.value.trim() && current && current.path) {
+    input.value = current.path;
+    runCheck();
+  } else if (input && input.value.trim()) {
+    setHint('按回车重新体检');
+  }
 }
 
 /* 体检在跑的时候：盖上薄幕、转圈、关不掉。忙完自动撤掉 */
@@ -3184,8 +3196,6 @@ function setCheckBusy(on) {
   checkBusy = !!on;
   const mask = $('checkBusy');
   if (mask) mask.hidden = !on;
-  const run = $('checkRunBtn');
-  if (run) run.disabled = !!on;
 }
 
 /* 关掉就把上一次的结论一起收掉：留着会让人以为那是刚查的。
@@ -3197,15 +3207,22 @@ function hideCheckPop() {
   if (pop) pop.hidden = true;
   markBtn('checkBtn', false);
   const list = $('chkList');
-  const sum = $('chkSum');
-  const hint = $('checkHint');
   const res = $('checkResult');
   const dg = $('diagBtn');
   if (list) list.textContent = '';
-  if (sum) sum.textContent = '';
-  if (hint) hint.textContent = '';
   if (res) res.hidden = true;
   if (dg) dg.hidden = true;
+  setHint('');
+}
+
+/* 浮层标题行左侧那句提示：导出完成、体检失败都走这里。
+   单行显示，超长省略，完整内容进 title，鼠标停一下能看全 */
+function setHint(text) {
+  const hint = $('checkHint');
+  if (!hint) return;
+  hint.textContent = text || '';
+  if (text) hint.title = text;
+  else hint.removeAttribute('title');
 }
 
 function toggleCheckPop() {
@@ -3214,63 +3231,97 @@ function toggleCheckPop() {
   else showCheckPop();
 }
 
+/* 结果区两种形态，按查了几个数据自动切：
+   查一个文件 → 完整体检表（逐项都列，通过的也写清楚）；
+   查文件夹 → 按档位分组的手风琴，没问题的整组收起。
+   摘要在两种形态里都没有：分组标题自带条数，再写一行"要留意 4"就是重复 */
 function renderCheck(d) {
-  const sum = $('chkSum');
   const list = $('chkList');
-  const s = d.summary || {};
-  const order = ['bad', 'warn', 'note', 'ok'];
-  sum.textContent = '';
-  order.forEach((k) => {
-    const n = s[k] || 0;
-    if (!n) return;   // 一条都没有的档位不占位置，摘要才看得清
-    const span = document.createElement('span');
-    span.className = 'chk-sum-item';
-    span.innerHTML = '<i class="chk-ico lv-' + k + '">' + (LEVEL_ICON[k] || '') + '</i>' +
-      LEVEL_TEXT[k] + ' <b>' + n + '</b>';
-    sum.appendChild(span);
-  });
-  const el = document.createElement('span');
-  el.textContent = '共 ' + (d.files || []).length + ' 个';
-  sum.appendChild(el);
-  // 文件夹里数据太多时引擎只体检前若干个，这里说清楚，免得用户以为就这么多
-  if (d.truncated) {
-    const cut = document.createElement('span');
-    cut.textContent = '本次最多体检 ' + d.limit + ' 个，其余没查';
-    sum.appendChild(cut);
-  }
-
   list.textContent = '';
-  (d.files || []).forEach((f) => {
-    const box = document.createElement('div');
-    box.className = 'chk-file';
-    const head = document.createElement('div');
-    head.className = 'chk-head';
-    const ico = document.createElement('span');
-    ico.className = 'chk-ico lv-' + f.level;
-    ico.innerHTML = LEVEL_ICON[f.level] || LEVEL_ICON.ok;
-    head.appendChild(ico);
-    const nm = document.createElement('span');
-    nm.className = 'chk-name';
-    nm.textContent = f.name;
-    head.appendChild(nm);
-    box.appendChild(head);
+  const files = d.files || [];
+  if (files.length === 1 && (files[0].rows || []).length) renderReport(files[0], list);
+  else renderGroups(files, list);
+}
 
-    const items = document.createElement('div');
-    items.className = 'chk-items';
-    (f.items || []).forEach((it) => {
-      const row = document.createElement('div');
-      row.className = 'chk-item';
-      const t = document.createElement('span');
-      t.className = 't';
-      t.textContent = it.title || '';
-      row.appendChild(t);
-      const det = document.createElement('span');
-      det.textContent = it.detail || it.hint || '';
-      row.appendChild(det);
-      items.appendChild(row);
+/* ---- 形态一：文件夹，按档位分组 ---- */
+function renderGroups(files, host) {
+  const buckets = { bad: [], warn: [], ok: [] };
+  files.forEach((f) => { (buckets[f.level] || buckets.ok).push(f); });
+  LEVEL_ORDER.forEach((lv) => {
+    const rows = buckets[lv];
+    if (!rows.length) return;
+    const grp = document.createElement('div');
+    grp.className = 'chk-grp';
+    // 没问题的默认收起：几百条通过的条目铺开，只会把真问题冲得看不见
+    if (lv === 'ok') grp.classList.add('folded');
+
+    const hd = document.createElement('div');
+    hd.className = 'chk-grp-hd';
+    hd.setAttribute('role', 'button');
+    hd.tabIndex = 0;
+    hd.title = '收起或展开这一组';
+    const ico = document.createElement('i');
+    ico.className = 'chk-ico';
+    ico.innerHTML = LEVEL_ICON[lv];
+    hd.appendChild(ico);
+    hd.appendChild(el('span', 'chk-grp-name', LEVEL_TEXT[lv]));
+    hd.appendChild(el('span', 'chk-grp-n', String(rows.length)));
+    hd.appendChild(el('span', 'chk-caret'));
+
+    const body = document.createElement('div');
+    body.className = 'chk-grp-body';
+    rows.forEach((f) => body.appendChild(fileRow(f)));
+
+    const flip = () => grp.classList.toggle('folded');
+    hd.addEventListener('click', flip);
+    hd.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); }
     });
-    if (items.children.length) box.appendChild(items);
-    list.appendChild(box);
+    grp.appendChild(hd);
+    grp.appendChild(body);
+    host.appendChild(grp);
+  });
+}
+
+/* 一个数据在列表里：先是名字，再是几行"项目 + 结论"。
+   名字前面不再挂图标——档位已经由分组标题说过了，每行再挂一遍只是重复 */
+function fileRow(f) {
+  const box = el('div', 'chk-file');
+  box.appendChild(el('div', 'chk-name', f.name));
+  if (f.level === 'ok') return box;
+  const items = (f.items || []).filter((it) => it.level !== 'ok');
+  if (!items.length) return box;
+  const wrap = el('div', 'chk-items');
+  items.forEach((it) => {
+    const row = el('div', 'chk-item');
+    // 项目名固定成短标签（坐标系、图层结构……），结论跟在后面：
+    // 早先把整句结论放在标签位上，"一个图层里混着多种几何类型"占掉 156px，说明只剩一半宽
+    row.appendChild(el('span', 't', it.cat_label || ''));
+    row.appendChild(el('span', '', it.title || ''));
+    wrap.appendChild(row);
+  });
+  box.appendChild(wrap);
+  return box;
+}
+
+/* ---- 形态二：单个文件，完整体检表 ---- */
+function renderReport(f, host) {
+  const facts = (f.facts || []).join(' · ');
+  if (facts) host.appendChild(el('div', 'chk-meta', facts));
+  (f.rows || []).forEach((r) => {
+    const row = el('div', 'chk-row');
+    const lab = el('div', 'chk-row-lab');
+    const ico = el('i', 'chk-ico lv-' + r.level);
+    ico.innerHTML = LEVEL_ICON[r.level] || LEVEL_ICON.ok;
+    lab.appendChild(ico);
+    lab.appendChild(el('span', '', r.label || ''));
+    const val = el('div', 'chk-row-val');
+    val.appendChild(el('div', 'chk-row-t', r.title || ''));
+    if (r.detail) val.appendChild(el('div', 'chk-row-d', r.detail));
+    if (r.hint) val.appendChild(el('div', 'chk-row-h', '建议：' + r.hint));
+    row.appendChild(lab);
+    row.appendChild(val);
+    host.appendChild(row);
   });
 }
 
@@ -3282,11 +3333,10 @@ function checkTarget() {
 
 function runCheck() {
   const path = checkTarget();
-  const hint = $('checkHint');
-  if (!path) { hint.textContent = '先填一个文件或文件夹路径'; return; }
+  if (!path) { setHint('先填一个文件或文件夹路径'); return; }
   const input = $('checkPath');
   if (input) input.value = path;
-  hint.textContent = '';
+  setHint('');
   const dg = $('diagBtn');
   if (dg) dg.hidden = true;
   setCheckBusy(true);
@@ -3301,41 +3351,39 @@ function runCheck() {
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
     if (!d || !d.ok) {
-      hint.textContent = (d && d.error && d.error.title) || '体检失败';
+      setHint((d && d.error && d.error.title) || '体检失败');
       return;
     }
     const n = (d.files || []).length;
-    // 数字摘要那一行已经写清楚了，这里不重复；只在"什么都没查出来"时补一句
     renderCheck(d);
     $('checkResult').hidden = !n;
-    hint.textContent = n ? '' : '这个位置没有可体检的数据';
+    if (!n) setHint('这个位置没有可体检的数据');
     // 有结论了才给"导出诊断包"：它导出的就是这一份
     if (dg) dg.hidden = !n;
   }).catch(() => {
     setCheckBusy(false);
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
-    hint.textContent = '体检失败，稍后再试';
+    setHint('体检失败，稍后再试');
   });
 }
 
 /* 诊断包：环境信息与"刚跑完的这份体检结论"打成 zip，反馈问题时发出去。
    服务端直接取上一次体检落盘的结果，不重新扫一遍，导出的就是屏幕上这份 */
 function runDiagnose() {
-  const hint = $('checkHint');
-  if (hint) hint.textContent = '正在打包诊断包…';
+  setHint('正在打包诊断包…');
   fetch('/api/diagnose', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   }).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) {
-      if (hint) hint.textContent = (d && d.error && d.error.title) || '诊断包没写出来';
+      setHint((d && d.error && d.error.title) || '诊断包没写出来');
       return;
     }
-    if (hint) hint.textContent = '诊断包已导出（' + (d.size_label || '') + '），已在资源管理器里选中';
+    setHint('已导出 ' + (d.size_label || '') + '，已在资源管理器里选中');
     toShell('revealfile:' + d.path);
-  }).catch(() => { if (hint) hint.textContent = '诊断包没写出来，稍后再试'; });
+  }).catch(() => setHint('诊断包没写出来，稍后再试'));
 }
 
 function refreshCacheSize() {
@@ -3406,14 +3454,19 @@ window.GisHost = function (name, value) {
   if (name === 'dir') {
     // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
     const where = dirPickTarget === 'check' ? $('checkPath') : $('cfgOpenDir');
+    const fromCheck = dirPickTarget === 'check';
     dirPickTarget = '';
     if (where) { where.value = String(value || ''); if (where.id === 'cfgOpenDir') applySettings(); }
+    if (fromCheck && where && where.value.trim()) runCheck();
     return;
   }
-  // 体检里"选择文件"回传：只填路径，不打开
+  // 体检里"选择文件"回传：填进路径框，接着就查
   if (name === 'checkpath') {
     const where = $('checkPath');
-    if (where) where.value = String(value || '');
+    if (where) {
+      where.value = String(value || '');
+      if (where.value.trim()) runCheck();
+    }
     return;
   }
   if (name === 'autoStart') { host.autoStart = value === 'on'; $('cfgAutoStart').checked = host.autoStart; return; }
@@ -4061,22 +4114,27 @@ function init() {
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
-  // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、跑体检、看结论都在这一块里
+  // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、看结论都在这一块里
   $('checkBtn').addEventListener('click', toggleCheckPop);
+  // 选完就查：没有"开始体检"按钮之后，选择动作本身就是触发条件
   $('checkFilePick').addEventListener('click', () => toShell('pickcheck'));
   $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; toShell('pickdir'); });
-  $('checkRunBtn').addEventListener('click', runCheck);
-  // 路径框里回车等同点"开始体检"，省得手离开键盘
+  // 路径框里回车等同确认，省得手离开键盘
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
-  // 标题旁那颗说明：不点开的人也得知道"体检"到底在查什么。整段话不分点，读起来正式一些
+  /* 标题旁那颗说明：分点讲清体检查了什么、结论怎么分档。
+     以"· "开头的行画圆点，其余行整段排——首句和末句是说明，中间三条才是清单 */
   const cpTip = $('cpTip');
   if (cpTip) {
-    cpTip.setAttribute('data-tip', '数据体检会把目标位置里的每份数据逐个打开一遍，核对能否读取、' +
-      '坐标系是否齐全、范围与图层结构是否正常；矢量数据再核对要素数与字段表，' +
-      '栅格数据再核对波段数、像元大小、压缩方式与金字塔。每条结论按严重程度归入' +
-      '“有问题、要留意、提一句、没问题”四档，文件名前的图标即代表该数据所属的档位。');
+    cpTip.setAttribute('data-tip', [
+      '数据体检会把目标位置里的每份数据逐个打开检查，并核对以下项目：',
+      '· 能否读取、坐标系是否齐全、范围与图层结构是否正常；',
+      '· 矢量数据再核对要素数与字段表；',
+      '· 栅格数据再核对波段数、像元大小、压缩方式与金字塔。',
+      '每条结论按严重程度归入“有问题、要留意、没问题”3 档。',
+      '一次最多体检 500 个数据，超出部分不查。',
+    ].join('\n'));
     cpTip.innerHTML = HINT_ICO;
   }
   $('diagBtn').addEventListener('click', runDiagnose);

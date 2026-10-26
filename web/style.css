@@ -3,6 +3,7 @@
   --panel: #ffffff;
   --panel-alt: #f2f4f7;
   --line: #dfe3e8;
+  --line-soft: #eef1f4;
   --text: #1b1f24;
   --text-dim: #5b6672;
   --accent: #1a6fb0;
@@ -36,6 +37,7 @@
   --panel: #23272e;
   --panel-alt: #2b3038;
   --line: #383f48;
+  --line-soft: #2f353d;
   --text: #e8ebef;
   --text-dim: #9aa5b1;
   --accent: #64b5f6;
@@ -215,6 +217,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 
 .ibtn svg { width: 19px; height: 19px; display: block; }
+/* 体检那颗图标用的是 1024 视图框，内容只占中间 640 高，按 19px 摆会比旁边的图标小一圈。
+   放大到 23px，视觉高度才跟文件夹、设置那几颗对得上 */
+#checkBtn svg { width: 23px; height: 23px; }
 .ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
 .ibtn:active { filter: brightness(.96); }
 /* 激活态：按钮把面板开着的时候一直亮着，关掉自动落回去。
@@ -1354,7 +1359,8 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 
 /* 分点说明：文案里有换行时按行拆开，每行前面一枚小圆点；
    单行文案不加圆点，维持原来的整段样式 */
-.tip-bubble.tip-multi { padding: 9px 11px; }
+/* 分点气泡放宽一些：这类文案是整句说明，300px 会把每行都折得很碎 */
+.tip-bubble.tip-multi { padding: 9px 11px; max-width: 360px; }
 .tip-bubble.tip-multi .tip-li { display: flex; align-items: flex-start; gap: 7px; }
 /* 分点之间留半行：半行是给段落感的，一整行会把几条拧成一堆 */
 .tip-bubble.tip-multi .tip-li + .tip-li { margin-top: 2px; }
@@ -1369,6 +1375,10 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   opacity: 0.55;
 }
 .tip-bubble.tip-multi .tip-txt { min-width: 0; }
+/* 不挂圆点的整段行：首句与末句这种说明性文字。左边不给圆点留位，
+   否则整段会被推得比清单还靠右，看着像缩进错位 */
+.tip-bubble.tip-multi .tip-li.tip-plain { gap: 0; }
+.tip-bubble.tip-multi .tip-li.tip-plain + .tip-li.tip-plain { margin-top: 4px; }
 
 .tip-bubble a.tip-link {
   display: block;
@@ -2439,6 +2449,22 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cp-title { font-size: 13.5px; line-height: 16px; font-weight: 700; color: var(--text); }
 /* 标题旁那颗说明图标：不进浮层的人也得知道"体检到底查了什么" */
 .cp-head .tip-ico { margin-left: 0; }
+/* 标题行左侧那句提示（导出完成、体检失败）：靠右顶到按钮左边，单行省略。
+   没有它的时候按钮自己靠右，所以两条 margin-left:auto 只让其中一个生效 */
+.cp-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 68%;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cp-hint:empty { display: none; }
+.cp-hint:not(:empty) { margin-left: auto; }
+.cp-hint:not(:empty) + .cp-head-btn { margin-left: 6px; }
 /* 导出诊断包：只在有结论时出现，放在标题行最右 */
 .cp-head-btn {
   margin-left: auto;
@@ -2497,19 +2523,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 #checkFilePick { right: 31px; }
 #checkPathPick { right: 3px; }
 .cp-in:hover { color: var(--accent); background: var(--accent-soft); }
+/* 顶栏"选择文件"那颗是同款图标：视图框 1251×1024，按宽度给尺寸，高度自然收起，
+   和内嵌的 24 格线性图标差不多高 */
 .cp-in svg { width: 16px; height: 16px; }
-/* 开始体检：图标按钮，主色底。跟旁边两颗内嵌按钮分开，一眼看出哪个是"执行" */
-.cp-row .btn.cp-go {
-  flex: none;
-  width: var(--ctl-h);
-  height: var(--ctl-h);
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.cp-go svg { width: 17px; height: 17px; display: block; }
-.cp-go:disabled { opacity: 0.55; cursor: default; }
+#checkPathPick svg { width: 17px; height: auto; }
 
 /* 体检进行中：整块浮层盖一层薄幕，转圈图标与说明居中。
    这层是浮层里唯一的东西在动，用户一眼就知道"还在跑"，也不会去点关闭 */
@@ -2537,42 +2554,49 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cp-busy-text { font-size: 12.5px; line-height: 15px; color: var(--text-dim); }
 
 .cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
-.chk-sum {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 6px 9px 6px 1px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-/* 摘要每一项前面挂同款小图标：颜色和形状跟下面文件行一致，一眼对得上。
-   line-height 收成 1（= 12px），字盒子与 12px 图标同高，中心自然重合 */
-.chk-sum-item { display: inline-flex; align-items: center; gap: 4px; line-height: 12px; }
-.chk-sum .chk-ico,
-.chk-sum .chk-ico svg { width: 12px; height: 12px; }
-.chk-sum b { font-family: var(--font-num); font-weight: 600; color: var(--text); }
 .chk-list {
   min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 1px 9px 3px 2px;
 }
-.chk-file { display: flex; flex-direction: column; gap: 1px; }
-.chk-head {
+
+/* ---- 分组（手风琴）：标题和结果行同一个字号，标题用强调色 ----
+   跟信息栏的分节一个做法：标题点一下收起或展开，箭头跟着方向转 */
+.chk-grp { display: flex; flex-direction: column; gap: 6px; }
+.chk-grp + .chk-grp { border-top: 1px solid var(--line); padding-top: 9px; }
+.chk-grp-hd {
   display: flex;
-  /* 文件名可能折行：图标按第一行的中线摆，而不是按整块的竖直中线 */
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
   line-height: 18px;
-  color: var(--text);
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+  user-select: none;
 }
-/* 15px 图标对 18px 行高：上边留 1.5px，跟第一行文字的中线对齐 */
-.chk-head .chk-ico { margin-top: 1.5px; }
-.chk-name { min-width: 0; overflow-wrap: anywhere; }
+.chk-grp-hd:hover { color: var(--text); }
+.chk-grp-hd:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 2px; border-radius: 4px; }
+.chk-grp-n { font-family: var(--font-num); font-weight: 700; opacity: 0.72; }
+.chk-caret {
+  width: 5px;
+  height: 5px;
+  margin-left: 1px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 0.15s;
+  opacity: 0.7;
+}
+.chk-grp.folded .chk-caret { transform: rotate(-45deg) translateY(-1px); }
+.chk-grp.folded .chk-grp-body { display: none; }
+.chk-grp-body { display: flex; flex-direction: column; gap: 8px; }
+.chk-file { display: flex; flex-direction: column; gap: 2px; }
+/* 文件名：跟分组标题同字号、同强调色。图标只留在分组标题上，每行不再重复 */
+.chk-name { font-size: 13px; line-height: 18px; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
 /* 健康度用图标表示：形状和颜色一起说事，红三角和红圆点在缩略列表里也分得开 */
 /* 图标盒：档位类一律带 lv- 前缀。原先直接叫 warn，撞上了样式表里通用的
    .warn 告警框（有边框和内边距），图标被撑成 26×22 的方块 */
@@ -2581,20 +2605,50 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-ico svg { width: 15px; height: 15px; display: block; }
 .chk-ico.lv-bad { color: #cf3b30; }
 .chk-ico.lv-warn { color: var(--warn-ico); }
-.chk-ico.lv-note { color: var(--accent); }
 .chk-ico.lv-ok { color: #2f9e58; }
 :root[data-theme="dark"] .chk-ico.lv-bad { color: #ef7f74; }
 :root[data-theme="dark"] .chk-ico.lv-ok { color: #63c78c; }
-/* 文件名与详情都只写一份，路径不再重复：同一个文件夹里点开体检，路径对每一行都一样 */
-.chk-items { display: flex; flex-direction: column; gap: 2px; padding-left: 21px; }
+/* 条目：短标签固定一列，结论跟在后面。标签一列对齐，扫起来不用来回找 */
+.chk-items { display: flex; flex-direction: column; gap: 2px; }
 .chk-item {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   line-height: 1.55;
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
-.chk-item .t { flex: none; color: var(--text); }
-.cp-hint { font-size: 11.5px; line-height: 1.5; color: var(--text-dim); padding: 0 9px 0 1px; }
-.cp-hint:empty { display: none; }
+.chk-item .t { flex: none; width: 56px; color: var(--text); }
+
+/* ---- 单文件：完整体检表 ---- */
+.chk-meta {
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--text-dim);
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--line);
+}
+/* 行间那道细分隔线比 --line 再淡一级：整张表用 --line 会变成一堆横线，
+   但写死浅灰在深色主题下会亮成白线，所以单独给一个变量 */
+.chk-row { display: flex; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.chk-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+/* 项目名列：图标按第一行文字的中线摆（行高 17px 对 15px 图标，上边让 1px） */
+.chk-row-lab {
+  flex: none;
+  width: 88px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+.chk-row-lab .chk-ico { margin-top: 1px; }
+.chk-row-val { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.6; }
+.chk-row-t { color: var(--text); }
+.chk-row-d { color: var(--text-dim); }
+.chk-row-h { color: #8b95a1; }
+/* 通过的那几行压低一格：体检表要能一眼分出"哪几项没过" */
+.chk-row.lv-ok .chk-row-lab { font-weight: 400; color: var(--text-dim); }
+.chk-row.lv-ok .chk-row-t { color: var(--text-dim); }
