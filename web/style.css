@@ -2639,7 +2639,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 19px;
   color: var(--text-dim);
   overflow-wrap: anywhere;
@@ -2647,48 +2647,52 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-item .t { flex: none; width: 56px; line-height: 19px; color: var(--text); }
 
 /* ---- 单文件：完整体检表 ----
-   摘要行与各行的字号统一到 12.5px/19px：字号一样、行高一样，整块才像一张表。
-   早先标签 12.5、结论 12、摘要 11.5，三档挤在一起，看着忽大忽小 */
+   摘要行与各行的字号统一到 13px/19px，比浮层标题（13.5px）小半档：
+   标题、正文、次要说明三级仍然分得开，又不至于像注脚。
+   早先这里是 12.5px，紧挨着 13.5px 的标题看，整块像被缩小了一号 */
 .chk-meta {
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 19px;
   color: var(--text-dim);
   /* 摘要行下面不再画线：它与第一条结论之间本来就隔着一格，再加一道线就成了分隔条 */
   padding: 0 0 5px;
 }
-/* 行间那道细分隔线比 --line 再淡一级：整张表用 --line 会变成一堆横线，
-   但写死浅灰在深色主题下会亮成白线，所以单独给一个变量 */
+/* 行间那道线用 --line 而不是 --line-soft：虚线本来就是断的，
+   再配最淡的一级灰，浅色主题下几乎看不见，等于没画。
+   线型跟分组之间那条虚线一致：批量体检时组与组之间是虚线，单个文件时行与行之间也是虚线，
+   读者不必去分辨"这条线代表换组还是换行" */
 .chk-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  /* 上下各 3px：文字正好落在两条分隔线中间（行高 19 是字本身的行盒，上下等距才居中），
-     整行也比原来那套 5px + 10px gap 的间距紧凑得多 */
+  /* 上下各 3px：文字落在两条分隔线正中，行高 26。
+     收到 2px（行高 24）时相邻两行的字贴得太近，虚线一淡就糊成一片，读起来费力 */
   padding: 3px 0;
-  border-bottom: 1px solid var(--line-soft);
+  border-bottom: 1px dashed var(--line);
 }
-.chk-row:last-child { border-bottom: 0; padding-bottom: 2px; }
-/* 项目名列：图标与第一行文字的中线对齐。
-   行高 19px、图标 15px，上下各余 2px，所以 align-items:flex-start 再补 2px 才是正中对齐 */
+.chk-row:last-child { border-bottom: 0; padding-bottom: 1px; }
+/* 项目名列：图标与第一行文字对齐。
+   盒子中线对齐只能保证"几何居中"，汉字字面在行盒里偏上，图标跟着显得偏高，
+   所以再往下让 1px（行高 19px 里图标 15px，居中位是 2px，给到 3px 才是视觉居中） */
 .chk-row-lab {
   flex: none;
   width: 88px;
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 19px;
   font-weight: 600;
   color: var(--text);
 }
-.chk-row-lab .chk-ico { margin-top: 2px; }
+.chk-row-lab .chk-ico { margin-top: 3px; }
 .chk-row-val {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 19px;
 }
 .chk-row-t { color: var(--text); }
