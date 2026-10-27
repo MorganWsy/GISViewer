@@ -851,25 +851,38 @@
     // 不然刚拖成斜视的地图"回正"之后还是歪的
     const compass = map.getContainer().querySelector('.maplibregl-ctrl-compass');
     if (compass) {
+      /* 库自带的针是上下两个实心三角，下面再挂一行角度徽标，看着又乱又占地方。
+         换成一支细长的罗盘针：北尖用强调色、南尖用淡色，中心一枚小圆点；
+         角度不单独摆出来，并进指北的气泡文案里。 */
+      compass.innerHTML =
+        '<svg class="compass-needle" viewBox="0 0 20 20" aria-hidden="true">' +
+        '<path d="M10 2.8 L13.1 10 L6.9 10 Z" fill="var(--accent)"/>' +
+        '<path d="M6.9 10 L13.1 10 L10 17.2 Z" fill="var(--text-dim)" opacity="0.5"/>' +
+        '<circle cx="10" cy="10" r="1.7" fill="var(--panel)" stroke="var(--text-dim)" stroke-width="0.9"/>' +
+        '</svg>';
+      const needle = compass.querySelector('.compass-needle');
       tipOf(compass, '指北：回到正北并压平俯仰角');
       compass.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
-      /* 针只指方向，看不出偏了多少度：在针下面补一行方位角。
-         整数度 + 等宽数字，跟状态栏里其他数字一个风格；
-         贴正北时写"正北"两个字，比"0°"更好认。 */
-      const badge = document.createElement('div');
-      badge.className = 'map-bearing';
-      badge.id = 'mapBearing';
-      if (compass.parentNode) compass.parentNode.insertBefore(badge, compass.nextSibling);
+      /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）；
+         旋转的同时把当前方位角写进气泡文案，悬停就能看到偏了多少度 */
       const paintBearing = () => {
         if (!live()) return;
         let b = map.getBearing() % 360;
         if (b < 0) b += 360;
         const near = Math.min(b, 360 - b) < 0.5;
-        badge.textContent = near ? '正北' : Math.round(b) + '°';
+        if (needle) {
+          needle.style.transformOrigin = '50% 50%';
+          needle.style.transform = near ? '' : 'rotate(' + (-b) + 'deg)';
+        }
+        const text = near
+          ? '指北：回到正北并压平俯仰角'
+          : '指北：回到正北并压平俯仰角（当前偏转 ' + Math.round(b) + '°）';
+        compass.setAttribute('data-tip', text);
+        compass.setAttribute('aria-label', text);
       };
       map.on('rotate', paintBearing);
       map.on('move', paintBearing);

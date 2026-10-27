@@ -85,9 +85,9 @@
   </div>
   <div class="bar-sep"></div>
   <div class="winbtns no-drag" id="winBtns" hidden>
-    <button id="winMin" class="win-btn" data-tip="最小化" aria-label="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
-    <button id="winMax" class="win-btn" data-tip="最大化" aria-label="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
-    <button id="winClose" class="win-btn close" data-tip="关闭" aria-label="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
+    <button id="winMin" class="win-btn" aria-label="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
+    <button id="winMax" class="win-btn" aria-label="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
+    <button id="winClose" class="win-btn close" aria-label="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
   </div>
 </header>
 
@@ -121,7 +121,7 @@
       <!-- 一句就说完的小提示：定位到某个坐标这类操作用它，不弹窗口 -->
       <div id="mapToast" class="map-toast" hidden></div>
       <div id="fileChip" class="map-chip" hidden>
-        <button id="chipTab" class="fold-tab" data-tip="展开文件信息" aria-label="展开文件信息"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>文件信息</span></button>
+        <button id="chipTab" class="fold-tab" aria-label="展开文件信息"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>文件信息</span></button>
         <div class="fold-wrap" id="chipFoldWrap"><div class="fold-in">
           <div class="chip-head">
             <!-- 标题两张脸：大字是正在看的图层名（单文件时是文件名），

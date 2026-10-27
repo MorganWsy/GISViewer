@@ -236,22 +236,22 @@ function showTipBox(anchor, text) {
   box.style.top = '0px';
   const r = anchor.getBoundingClientRect();
   const br = box.getBoundingClientRect();
-  /* 气泡默认摆在锚点右侧：控件多在右边，左边往往没地方；
-     右边放不下就翻到左边，两边都放不下才退回上下方。
-     箭头跟着方向换边，始终指向锚点那一侧。 */
+  /* 方向策略：顶栏（#bar）里的控件横着排一排，气泡摆左右会盖住旁边的按钮，
+     所以顶栏一律上下展示；其余区域默认摆右侧，右边放不下翻左边，
+     两边都放不下才退回上下方。箭头跟着方向换边，始终指向锚点。 */
   const GAP = 8, EDGE = 8;
+  const inBar = !!(anchor.closest && anchor.closest('#bar'));
   const spaceRight = window.innerWidth - r.right - GAP - EDGE;
   const spaceLeft = r.left - GAP - EDGE;
-  let side = 'right';
+  let side = inBar ? 'v' : 'right';
   let x;
-  if (br.width <= spaceRight) {
+  if (side !== 'v' && br.width <= spaceRight) {
     x = r.right + GAP;
-  } else if (br.width <= spaceLeft) {
+  } else if (side !== 'v' && br.width <= spaceLeft) {
     side = 'left';
     x = r.left - GAP - br.width;
   } else {
-    /* 左右都放不下（锚点贴边又靠中间）：退回上下方，
-       并把气泡宽度压到窗口能容下的尺寸，不然还是会溢出 */
+    /* 竖向：左不放（或顶栏锚点），把气泡宽度压到窗口能容下的尺寸，不然还是会溢出 */
     side = 'v';
     const fit = Math.max(160, window.innerWidth - EDGE * 2);
     if (br.width > fit) { box.style.maxWidth = fit + 'px'; }
@@ -259,6 +259,7 @@ function showTipBox(anchor, text) {
     x = Math.max(EDGE, Math.min(window.innerWidth - b2.width - EDGE, r.left + r.width / 2 - b2.width / 2));
   }
   let y = r.top + r.height / 2 - br.height / 2;
+  let vert = 'below';
   if (side === 'v') {
     /* 竖向时贴着锚点那一侧摆：下方优先，放不下再上翻。
        锚点自己可能在视口外（长列表里滚到一半的那种），
@@ -266,6 +267,8 @@ function showTipBox(anchor, text) {
     if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
     else if (r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
     y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
+    /* 气泡整段落在锚点上沿之上才算 above：被夹回来卡在中间时仍按 below 画箭头 */
+    if (y + br.height < r.top - 2) vert = 'above';
   } else {
     /* 横向时竖直居中对齐锚点，但不许顶出窗口 */
     y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
@@ -278,8 +281,8 @@ function showTipBox(anchor, text) {
     const b3 = box.getBoundingClientRect();
     y = Math.max(EDGE, Math.min(window.innerHeight - b3.height - EDGE, y));
   }
-  box.classList.remove('below', 'left', 'right');
-  box.classList.add(side === 'v' ? 'below' : side);
+  box.classList.remove('below', 'above', 'left', 'right');
+  box.classList.add(side === 'v' ? vert : side);
   /* 箭头对准锚点中心：横向时按竖直位置定，竖向时按水平位置定，
      但不许贴到气泡的圆角外面 */
   if (side === 'v') {
@@ -295,7 +298,8 @@ function showTipBox(anchor, text) {
   box.style.top = Math.round(y) + 'px';
 }
 
-/* 收起前留一点时间：从标签移到气泡上这一小段路不该让气泡先消失 */
+/* 收起前留一小段：从锚点移到气泡上这一小段路不该让气泡先消失。
+   120ms 足够跨过 8px 的间隙，再长就显拖泥带水——用户嫌之前收得慢 */
 function scheduleHideTip() {
   clearTimeout(tipState.timer);
   tipState.timer = setTimeout(() => {
@@ -308,7 +312,7 @@ function scheduleHideTip() {
       if (b && !b.hidden && b.matches(':hover')) return;
     } catch (err) { /* matches 不支持就算了 */ }
     hideTipBox();
-  }, 400);
+  }, 120);
 }
 
 function hideTipBox() {
@@ -4069,34 +4073,41 @@ function reportDropArea() {
    网页能看到指针位置，就把"进了哪条边"报给壳，由壳启动系统的缩放循环。
 
    边带取 6px：窄了不好按，宽了会挡住最外圈按钮。
-   上边缘不参与：那里是顶栏，拖动是移动窗口，缩放会打架。 */
+   四条边全参与：顶栏最上沿 6px 交给缩放，其余顶栏区域仍是拖动窗口——
+   两个意图都从"按下那一刻"分流，不会打架（见 edgePress 的 pointerdown 捕获）。 */
 const EDGE_BAND = 6;
+const CORNER_BAND = 12;   // 角部给宽一点：贴角斜拖是常用手势，6px 太挑剔，差一两像素就落空
 let edgeZone = 0;   // 0=不在边缘带，10/11/12/15=四边，13/14/16/17=四角
 
-/* 算指针落在哪条边：返回系统那套命中码，0 表示不在边缘带 */
+/* 算指针落在哪条边：返回系统那套命中码，0 表示不在边缘带。
+   角用 12px 圈（两轴同时进圈才算角），边用 6px 条。 */
 function edgeAt(x, y) {
   const w = window.innerWidth, h = window.innerHeight;
+  const cL = x <= CORNER_BAND, cR = x >= w - CORNER_BAND;
+  const cT = y <= CORNER_BAND, cB = y >= h - CORNER_BAND;
+  if (cL && cB) return 16;   // 左下
+  if (cR && cB) return 17;   // 右下
+  if (cL && cT) return 13;   // 左上
+  if (cR && cT) return 14;   // 右上
   const nearL = x <= EDGE_BAND, nearR = x >= w - EDGE_BAND;
   const nearT = y <= EDGE_BAND, nearB = y >= h - EDGE_BAND;
-  if (nearL && nearB) return 16;   // 左下
-  if (nearR && nearB) return 17;   // 右下
-  if (nearL && nearT) return 13;   // 左上
-  if (nearR && nearT) return 14;   // 右上
   if (nearL) return 10;            // 左
   if (nearR) return 11;            // 右
+  if (nearT) return 12;            // 上
   if (nearB) return 15;            // 下
   return 0;
 }
 
-/* 缩放方向对应的鼠标光标。顶边不算：那里留给顶栏拖动 */
+/* 缩放方向对应的鼠标光标：这是用户唯一能看出"这里可以拖"的提示 */
 const EDGE_CURSOR = {
-  10: 'w-resize', 11: 'e-resize', 15: 'n-resize',
+  10: 'w-resize', 11: 'e-resize', 12: 'n-resize', 15: 'n-resize',
+  13: 'nwse-resize', 14: 'nesw-resize',
   16: 'nesw-resize', 17: 'nwse-resize',
 };
 
 function wireEdgeResize() {
   if (!NATIVE) return;
-  /* 光标形状跟着边缘换：这是用户唯一能看出"这里可以拖"的提示 */
+  /* 光标形状跟着边缘换：顶栏上沿也要变，不然用户不知道顶边能缩放 */
   document.addEventListener('mousemove', (e) => {
     if (e.buttons) return;          // 正在拖别的东西，别改光标
     const z = edgeAt(e.clientX, e.clientY);
@@ -4108,18 +4119,27 @@ function wireEdgeResize() {
     else document.body.style.cursor = '';
   }, true);
 
-  /* 按下就把方向报给壳：真正的拖动由系统接管 */
-  document.addEventListener('mousedown', (e) => {
+  /* 按下就把方向报给壳：真正的拖动由系统接管。
+     必须挂在 pointerdown 捕获上：顶栏的窗口拖动绑在 #bar 的 pointerdown 冒泡上，
+     而 pointerdown 先于 mousedown——只挂 mousedown 的话，顶栏那一按早就把窗口
+     交给系统拖动循环了，缩放永远轮不到。捕获阶段拦下（preventDefault 顺带
+     取消后续的 mousedown），其余顶栏区域照旧拖动，两边不打架。 */
+  function edgePress(e) {
     if (e.button !== 0) return;
     const z = edgeAt(e.clientX, e.clientY);
     if (!z) return;
-    /* 边缘带里如果正好压着按钮或输入框，优先让控件自己处理：
-       顶栏最右那几颗按钮就紧贴右边缘，不让的话点不中 */
-    if (e.target && e.target.closest && e.target.closest('button, input, select, textarea, a')) return;
+    /* 边缘带里如果正好压着按钮或输入框，优先让控件自己处理。
+       四角例外：右上角那 6px 压在关闭按钮顶端，让位的话角部永远轮不到缩放
+       （用户点按钮按中心，顶上 6px 几乎不会点到）；四边仍然让位。 */
+    const corner = z === 13 || z === 14 || z === 16 || z === 17;
+    if (!corner && e.target && e.target.closest
+        && e.target.closest('button, input, select, textarea, a')) return;
     e.preventDefault();
     e.stopPropagation();
     toShell('resize:' + z);
-  }, true);
+  }
+  document.addEventListener('pointerdown', edgePress, true);
+  document.addEventListener('mousedown', edgePress, true);   // 兜底：pointer 事件被吞的环境里仍能触发
 
   /* 指针离开窗口后光标要还原，不然会一直挂着缩放光标 */
   document.addEventListener('mouseleave', () => {

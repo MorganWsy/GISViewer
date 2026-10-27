@@ -1335,49 +1335,76 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   pointer-events: auto;
 }
 
-/* 指向锚点的小三角：位置由脚本按锚点算。
-   气泡默认在锚点右侧，三角贴左边朝右指；翻到左侧时三角贴右边朝左指；
-   退回复选的上下方时三角贴底边朝上、或贴顶边朝下。 */
+/* 指向锚点的小箭头：双层实心三角（外层描边色、内层面板色），四方向同一套写法。
+   之前用旋转方块描边：方块和气泡边框在交叠处各画一条线，看起来就是两条线。
+   双层三角的面板色会盖住气泡边框穿过箭头根部的那一段，斜边正好接上，不会再出双线 */
+.tip-bubble::before,
 .tip-bubble::after {
   content: "";
   position: absolute;
-  width: 8px;
-  height: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
-/* 在锚点右侧：三角贴左边，尖朝左（指向锚点） */
+/* 在锚点右侧：箭头贴左缘，尖朝左 */
+.tip-bubble.right::before {
+  left: -9px;
+  top: calc(var(--tip-arrow-y, 50%) - 9px);
+  border: 9px solid transparent;
+  border-left-width: 0;
+  border-right-color: var(--line);
+}
 .tip-bubble.right::after {
-  left: -5px;
-  top: var(--tip-arrow-y, 50%);
-  margin-top: -4px;
-  border-right: 0;
-  border-bottom: 0;
-  border-left: 1px solid var(--line);
-  border-top: 1px solid var(--line);
-  transform: rotate(45deg);
+  left: -8px;
+  top: calc(var(--tip-arrow-y, 50%) - 8px);
+  border: 8px solid transparent;
+  border-left-width: 0;
+  border-right-color: var(--panel);
 }
-/* 在锚点左侧：三角贴右边，尖朝右（指向锚点） */
+/* 在锚点左侧：箭头贴右缘，尖朝右 */
+.tip-bubble.left::before {
+  right: -9px;
+  top: calc(var(--tip-arrow-y, 50%) - 9px);
+  border: 9px solid transparent;
+  border-right-width: 0;
+  border-left-color: var(--line);
+}
 .tip-bubble.left::after {
-  right: -5px;
-  top: var(--tip-arrow-y, 50%);
-  margin-top: -4px;
-  border-left: 0;
-  border-bottom: 0;
-  border-right: 1px solid var(--line);
-  border-top: 1px solid var(--line);
-  transform: rotate(225deg);
+  right: -8px;
+  top: calc(var(--tip-arrow-y, 50%) - 8px);
+  border: 8px solid transparent;
+  border-right-width: 0;
+  border-left-color: var(--panel);
 }
-/* 退回到锚点下方：三角贴顶边朝上 */
+/* 在锚点下方：箭头贴顶缘，尖朝上 */
+.tip-bubble.below::before {
+  top: -9px;
+  left: calc(var(--tip-arrow-x, 50%) - 9px);
+  border: 9px solid transparent;
+  border-top-width: 0;
+  border-bottom-color: var(--line);
+}
 .tip-bubble.below::after {
-  left: var(--tip-arrow-x, 50%);
-  bottom: auto;
-  top: -5px;
-  border-right: 0;
-  border-bottom: 0;
-  border-left: 1px solid var(--line);
-  border-top: 1px solid var(--line);
-  transform: rotate(45deg);
+  top: -8px;
+  left: calc(var(--tip-arrow-x, 50%) - 8px);
+  border: 8px solid transparent;
+  border-top-width: 0;
+  border-bottom-color: var(--panel);
+}
+/* 在锚点上方：箭头贴底缘，尖朝下 */
+.tip-bubble.above::before {
+  bottom: -9px;
+  left: calc(var(--tip-arrow-x, 50%) - 9px);
+  border: 9px solid transparent;
+  border-bottom-width: 0;
+  border-top-color: var(--line);
+}
+.tip-bubble.above::after {
+  bottom: -8px;
+  left: calc(var(--tip-arrow-x, 50%) - 8px);
+  border: 8px solid transparent;
+  border-bottom-width: 0;
+  border-top-color: var(--panel);
 }
 
 /* 分点说明：文案里有换行时按行拆开，每行前面一枚小圆点；
@@ -1507,21 +1534,12 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass { cursor: pointer; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
 
-/* 指北针下面那行方位角：整数度、等宽数字，宽度跟着控件组固定，
-   数字一变不会把整组推着晃。贴正北时写"正北"两个字 */
-#map .maplibregl-ctrl-group .map-bearing {
-  height: 19px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  line-height: 19px;
-  font-family: inherit;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-dim);
-  border-top: 1px solid var(--line);
-  user-select: none;
-  pointer-events: none;
+/* 自绘罗盘针：北尖强调色、南尖淡色，中间一枚小圆点。
+   尺寸跟组里其他图标一致；旋转由 map.js 按 bearing 写 transform */
+#map .compass-needle {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 
 .pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
