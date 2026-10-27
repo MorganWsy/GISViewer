@@ -224,17 +224,73 @@ function showTipBox(anchor, text) {
   }
   box.hidden = false;
   tipState.anchor = anchor;
+  /* 上一次如果压过宽度或高度，这里先还原，否则会带着旧尺寸显示 */
+  box.style.maxWidth = '';
+  box.style.maxHeight = '';
+  box.style.overflowY = '';
+  /* 量之前先把 left 归零：气泡是 position:fixed 且只设了 left，宽度按收缩适配算，
+     可用宽度 = 视口宽 - left。上一次若把气泡摆到了右边（left 很大），
+     这里可用宽度会变成负数，浏览器只能收缩到最小内容宽（实测 46px），
+     照着这个宽度定位，气泡就会被甩到窗口外面去。 */
+  box.style.left = '0px';
+  box.style.top = '0px';
   const r = anchor.getBoundingClientRect();
   const br = box.getBoundingClientRect();
-  let x = r.left + r.width / 2 - br.width / 2;
-  x = Math.max(8, Math.min(window.innerWidth - br.width - 8, x));
-  let y = r.top - br.height - 8;
-  let below = false;
-  if (y < 8) { y = r.bottom + 8; below = true; }
-  box.classList.toggle('below', below);
-  // 三角对准锚点中心，但不许贴到气泡的圆角外面
-  const arrow = Math.max(12, Math.min(br.width - 12, r.left + r.width / 2 - x));
-  box.style.setProperty('--tip-arrow-x', Math.round(arrow) + 'px');
+  /* 气泡默认摆在锚点右侧：控件多在右边，左边往往没地方；
+     右边放不下就翻到左边，两边都放不下才退回上下方。
+     箭头跟着方向换边，始终指向锚点那一侧。 */
+  const GAP = 8, EDGE = 8;
+  const spaceRight = window.innerWidth - r.right - GAP - EDGE;
+  const spaceLeft = r.left - GAP - EDGE;
+  let side = 'right';
+  let x;
+  if (br.width <= spaceRight) {
+    x = r.right + GAP;
+  } else if (br.width <= spaceLeft) {
+    side = 'left';
+    x = r.left - GAP - br.width;
+  } else {
+    /* 左右都放不下（锚点贴边又靠中间）：退回上下方，
+       并把气泡宽度压到窗口能容下的尺寸，不然还是会溢出 */
+    side = 'v';
+    const fit = Math.max(160, window.innerWidth - EDGE * 2);
+    if (br.width > fit) { box.style.maxWidth = fit + 'px'; }
+    const b2 = box.getBoundingClientRect();
+    x = Math.max(EDGE, Math.min(window.innerWidth - b2.width - EDGE, r.left + r.width / 2 - b2.width / 2));
+  }
+  let y = r.top + r.height / 2 - br.height / 2;
+  if (side === 'v') {
+    /* 竖向时贴着锚点那一侧摆：下方优先，放不下再上翻。
+       锚点自己可能在视口外（长列表里滚到一半的那种），
+       这时不能跟着锚点走，得把气泡夹回窗口里。 */
+    if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
+    else if (r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
+    y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
+  } else {
+    /* 横向时竖直居中对齐锚点，但不许顶出窗口 */
+    y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
+  }
+  /* 气泡比窗口还高时（窄窗口 + 长文案），再怎么夹位置也会溢出。
+     这时把高度压到窗口内，内容超出部分由气泡自己滚动。 */
+  if (br.height > window.innerHeight - EDGE * 2) {
+    box.style.maxHeight = (window.innerHeight - EDGE * 2) + 'px';
+    box.style.overflowY = 'auto';
+    const b3 = box.getBoundingClientRect();
+    y = Math.max(EDGE, Math.min(window.innerHeight - b3.height - EDGE, y));
+  }
+  box.classList.remove('below', 'left', 'right');
+  box.classList.add(side === 'v' ? 'below' : side);
+  /* 箭头对准锚点中心：横向时按竖直位置定，竖向时按水平位置定，
+     但不许贴到气泡的圆角外面 */
+  if (side === 'v') {
+    const arrow = Math.max(12, Math.min(br.width - 12, r.left + r.width / 2 - x));
+    box.style.setProperty('--tip-arrow-x', Math.round(arrow) + 'px');
+    box.style.removeProperty('--tip-arrow-y');
+  } else {
+    const arrow = Math.max(12, Math.min(br.height - 12, r.top + r.height / 2 - y));
+    box.style.setProperty('--tip-arrow-y', Math.round(arrow) + 'px');
+    box.style.removeProperty('--tip-arrow-x');
+  }
   box.style.left = Math.round(x) + 'px';
   box.style.top = Math.round(y) + 'px';
 }
@@ -391,7 +447,8 @@ function wireRailFolds(body) {
       tr.__fold = [];
       tr.setAttribute('role', 'button');
       tr.tabIndex = 0;
-      tr.title = '收起或展开这一节';
+      tr.setAttribute('data-tip', '收起或展开这一节');
+      tr.setAttribute('aria-label', '收起或展开这一节');
       if (railFolds[name]) tr.classList.add('folded');
       const flip = () => {
         const off = tr.classList.toggle('folded');
@@ -1028,9 +1085,11 @@ function paintChipTitle() {
     }
   }
   btn.classList.toggle('no-switch', !multi);
-  btn.title = multi
+  const layerTip = multi
     ? '切换图层（当前：' + (active.label || '') + '）'
     : '这份文件只有一个可以画到地图上的图层';
+  btn.setAttribute('data-tip', layerTip);
+  btn.setAttribute('aria-label', layerTip);
 }
 
 function showLayerPop() {
@@ -1042,7 +1101,8 @@ function showLayerPop() {
   layerItems.forEach((it, i) => {
     const b = el('button', i === layerActive ? 'on' : '');
     b.type = 'button';
-    b.title = it.full || it.label || '';
+    b.setAttribute('data-tip', it.full || it.label || '');
+    b.setAttribute('aria-label', it.full || it.label || '');
     b.innerHTML = '<svg class="lp-check" viewBox="0 0 12 12" fill="none" stroke="currentColor" ' +
       'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M2 6.2l2.6 2.6L10 3.4"/></svg>';
@@ -1124,7 +1184,8 @@ function setChip(d) {
   body.appendChild(table);
   if (f.path) {
     const p = el('div', 'chip-path', f.path);
-    p.title = f.path;
+    p.setAttribute('data-tip', f.path);
+    p.setAttribute('aria-label', f.path);
     body.appendChild(p);
   } else if (f.temp_copy || d.temp_copy) {
     body.appendChild(el('div', 'chip-path', '网页版读不到拖进来文件的原始位置，先复制了一份临时副本，退出即删'));
@@ -1783,7 +1844,8 @@ function attrShell(c) {
     th.appendChild(el('i', 'attr-rsz'));
     const cp = el('button', 'attr-copy');
     cp.type = 'button';
-    cp.title = '复制整列';
+    cp.setAttribute('data-tip', '复制整列');
+    cp.setAttribute('aria-label', '复制整列');
     cp.innerHTML = COPY_ICO;
     cp.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1840,7 +1902,10 @@ function appendAttrRows(c, feats) {
     tr.appendChild(el('td', 'attr-idx', String(start + i + 1)));
     c.keys.forEach((k, ci) => {
       const td = el('td', null, valText(props[k]));
-      if (td.textContent.length > 40) td.title = td.textContent;
+      if (td.textContent.length > 40) {
+        td.setAttribute('data-tip', td.textContent);
+        td.setAttribute('aria-label', td.textContent);
+      }
       if (ci === attrCol - 1) td.classList.add('col-sel');
       tr.appendChild(td);
     });
@@ -2225,7 +2290,8 @@ const folds = [];
 function wireFold(btn, tab, hostId, foldTitle, unfoldTitle) {
   const host = $(hostId);
   const paint = (folded) => {
-    btn.title = folded ? unfoldTitle : foldTitle;
+    btn.setAttribute('data-tip', (folded ? unfoldTitle : foldTitle));
+    btn.setAttribute('aria-label', (folded ? unfoldTitle : foldTitle));
     btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
   };
   btn.addEventListener('click', () => { paint(host.classList.toggle('folded')); });
@@ -2237,7 +2303,8 @@ function wireFold(btn, tab, hostId, foldTitle, unfoldTitle) {
 function unfoldPanels() {
   folds.forEach((f) => {
     f.host.classList.remove('folded');
-    f.btn.title = f.foldTitle;
+    f.btn.setAttribute('data-tip', f.foldTitle);
+    f.btn.setAttribute('aria-label', f.foldTitle);
     f.btn.setAttribute('aria-expanded', 'true');
   });
 }
@@ -2707,9 +2774,11 @@ function renderRecent() {
      一眼能看出还没到上限还是已经满了；悬停时说明记录池里还存着多少 */
   const title = el('span', 'rp-title', '最近打开');
   title.appendChild(el('b', 'rp-num', list.length + '/' + recentMax()));
-  title.title = all.length > list.length
+  const recentTip = all.length > list.length
     ? '这里显示最近 ' + list.length + ' 条，共用上限 ' + recentMax() + ' 条，记录池里存着 ' + all.length + ' 条'
     : '这里显示 ' + list.length + ' 条，上限 ' + recentMax() + ' 条';
+  title.setAttribute('data-tip', recentTip);
+  title.setAttribute('aria-label', recentTip);
   head.appendChild(title);
   const clear = el('button', 'rp-clear');
   clear.type = 'button';
@@ -2730,7 +2799,8 @@ function renderRecent() {
     item.appendChild(text);
     const del = el('button', 'rp-del');
     del.type = 'button';
-    del.title = '删除这条记录';
+    del.setAttribute('data-tip', '删除这条记录');
+    del.setAttribute('aria-label', '删除这条记录');
     del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     del.addEventListener('mousedown', (e) => e.preventDefault());
     del.addEventListener('click', (e) => {
@@ -2740,7 +2810,8 @@ function renderRecent() {
       commitConfig();
     });
     item.appendChild(del);
-    item.title = p;
+    item.setAttribute('data-tip', p);
+    item.setAttribute('aria-label', p);
     // 按下不抢焦点，否则路径框先失焦、下拉被收掉，这一下就点不着
     item.addEventListener('mousedown', (e) => e.preventDefault());
     item.addEventListener('click', () => {
@@ -2939,7 +3010,8 @@ function paintThemeBtn() {
   const mode = THEME_LABELS[config.theme] ? config.theme : 'auto';
   btn.dataset.mode = mode;
   btn.innerHTML = '<span class="btn-ico">' + THEME_ICONS[mode] + '</span>';
-  btn.title = '当前主题：' + THEME_LABELS[mode] + '，点击切换';
+  btn.setAttribute('data-tip', '当前主题：' + THEME_LABELS[mode] + '，点击切换');
+  btn.setAttribute('aria-label', '当前主题：' + THEME_LABELS[mode] + '，点击切换');
 }
 
 /* 色带下拉：整张清单由引擎给（20 条，含连续与分类），界面不维护第二份。
@@ -3249,8 +3321,13 @@ function setHint(text) {
   const hint = $('checkHint');
   if (!hint) return;
   hint.textContent = text || '';
-  if (text) hint.title = text;
-  else hint.removeAttribute('title');
+  if (text) {
+    hint.setAttribute('data-tip', text);
+    hint.setAttribute('aria-label', text);
+  } else {
+    hint.removeAttribute('data-tip');
+    hint.removeAttribute('aria-label');
+  }
 }
 
 function toggleCheckPop() {
@@ -3287,7 +3364,8 @@ function renderGroups(files, host) {
     hd.className = 'chk-grp-hd';
     hd.setAttribute('role', 'button');
     hd.tabIndex = 0;
-    hd.title = '收起或展开这一组';
+    hd.setAttribute('data-tip', '收起或展开这一组');
+    hd.setAttribute('aria-label', '收起或展开这一组');
     const ico = document.createElement('i');
     // 档位色由 lv- 前缀决定（红 / 橙 / 绿）。早先只写 chk-ico，图标只好继承标题的
     // 强调色，三种档位在列表里长得一模一样
@@ -3550,10 +3628,6 @@ window.GisHost = function (name, value) {
   if (name === 'askClose') { showCloseAsk(); return; }
   if (name === 'drag') { showDropVeil(value === 'true'); return; }
   if (name === 'maximized') { document.body.classList.toggle('maxed', value === 'on'); return; }
-  if (name === 'frame') {
-    document.documentElement.style.setProperty('--max-inset', (Number(value) || 7) + 'px');
-    return;
-  }
 };
 
 /* 浏览器里没有壳来报字体，给一份常见名单顶住 */
@@ -3662,7 +3736,8 @@ function paintPageKeys() {
     const btn = $(id);
     if (!btn || keyArming === id.slice(7)) return;
     btn.textContent = keyOf(map[id]) || '停用';
-    btn.title = keyOf(map[id]) ? '点击后按下新的组合键' : '当前停用，点击设置';
+    btn.setAttribute('data-tip', (keyOf(map[id]) ? '点击后按下新的组合键' : '当前停用，点击设置'));
+    btn.setAttribute('aria-label', (keyOf(map[id]) ? '点击后按下新的组合键' : '当前停用，点击设置'));
   });
 }
 
@@ -3987,6 +4062,73 @@ function reportDropArea() {
   ].join(','));
 }
 
+/* ---------- 窗口边缘拖动改大小 ----------
+
+   为什么要在网页里做：窗口是 WebView2 铺满的，鼠标消息全被那个渲染子窗口接走，
+   壳的窗口过程根本收不到 WM_NCHITTEST（实测一条都没有），系统那套边缘缩放自然也用不上。
+   网页能看到指针位置，就把"进了哪条边"报给壳，由壳启动系统的缩放循环。
+
+   边带取 6px：窄了不好按，宽了会挡住最外圈按钮。
+   上边缘不参与：那里是顶栏，拖动是移动窗口，缩放会打架。 */
+const EDGE_BAND = 6;
+let edgeZone = 0;   // 0=不在边缘带，10/11/12/15=四边，13/14/16/17=四角
+
+/* 算指针落在哪条边：返回系统那套命中码，0 表示不在边缘带 */
+function edgeAt(x, y) {
+  const w = window.innerWidth, h = window.innerHeight;
+  const nearL = x <= EDGE_BAND, nearR = x >= w - EDGE_BAND;
+  const nearT = y <= EDGE_BAND, nearB = y >= h - EDGE_BAND;
+  if (nearL && nearB) return 16;   // 左下
+  if (nearR && nearB) return 17;   // 右下
+  if (nearL && nearT) return 13;   // 左上
+  if (nearR && nearT) return 14;   // 右上
+  if (nearL) return 10;            // 左
+  if (nearR) return 11;            // 右
+  if (nearB) return 15;            // 下
+  return 0;
+}
+
+/* 缩放方向对应的鼠标光标。顶边不算：那里留给顶栏拖动 */
+const EDGE_CURSOR = {
+  10: 'w-resize', 11: 'e-resize', 15: 'n-resize',
+  16: 'nesw-resize', 17: 'nwse-resize',
+};
+
+function wireEdgeResize() {
+  if (!NATIVE) return;
+  /* 光标形状跟着边缘换：这是用户唯一能看出"这里可以拖"的提示 */
+  document.addEventListener('mousemove', (e) => {
+    if (e.buttons) return;          // 正在拖别的东西，别改光标
+    const z = edgeAt(e.clientX, e.clientY);
+    if (z === edgeZone) return;
+    edgeZone = z;
+    const cur = EDGE_CURSOR[z];
+    document.documentElement.style.cursor = cur || '';
+    if (cur) document.body.style.cursor = cur;
+    else document.body.style.cursor = '';
+  }, true);
+
+  /* 按下就把方向报给壳：真正的拖动由系统接管 */
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const z = edgeAt(e.clientX, e.clientY);
+    if (!z) return;
+    /* 边缘带里如果正好压着按钮或输入框，优先让控件自己处理：
+       顶栏最右那几颗按钮就紧贴右边缘，不让的话点不中 */
+    if (e.target && e.target.closest && e.target.closest('button, input, select, textarea, a')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toShell('resize:' + z);
+  }, true);
+
+  /* 指针离开窗口后光标要还原，不然会一直挂着缩放光标 */
+  document.addEventListener('mouseleave', () => {
+    edgeZone = 0;
+    document.documentElement.style.cursor = '';
+    document.body.style.cursor = '';
+  });
+}
+
 function wireDrop() {
   const veil = $('dropVeil');
   let depth = 0;
@@ -4062,6 +4204,7 @@ function wireSettingNav() {
 function init() {
   wireSplitter();
   wireDrop();
+  wireEdgeResize();
 
   $('pathForm').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -4226,7 +4369,9 @@ function init() {
     box.type = show ? 'text' : 'password';
     // 眼睛图标：睁开=正显示，划掉=正藏着；标题跟着换，一眼看懂现在是哪种
     $('keyPeek').classList.toggle('peeking', show);
-    $('keyPeek').title = show ? '隐藏密钥' : '显示密钥';
+    const peekTip = show ? '隐藏密钥' : '显示密钥';
+    $('keyPeek').setAttribute('data-tip', peekTip);
+    $('keyPeek').setAttribute('aria-label', peekTip);
     if (show) box.focus();
   });
   $('histBtn').addEventListener('click', toggleHist);

@@ -20,6 +20,9 @@
   let token = 0;
   let debounce = null;
   let lastVec = null;
+  /* 相机指纹：中心点、缩放、朝向、俯仰。窗口还原时画布尺寸会变，但相机没动，
+     拿它就能分辨"只是画布变大了"和"用户真的动过地图"——前者不该重取要素 */
+  let resizeCam = '';
 
   function emit(name, detail) {
     const box = document.getElementById('map');
@@ -29,6 +32,14 @@
   // 内联 style 在构造时就能用，不必等渲染帧；页面不可见时 requestAnimationFrame 会被挂起
   function live() {
     return !!map && !!map.getStyle();
+  }
+
+  /* 相机指纹：中心、缩放、朝向、俯仰。用来分辨"只是画布变大了"和"用户真的动过地图" */
+  function cameraKey() {
+    if (!map) return '';
+    const c = map.getCenter();
+    return [c.lng.toFixed(6), c.lat.toFixed(6), map.getZoom().toFixed(4),
+            map.getBearing().toFixed(2), map.getPitch().toFixed(2)].join(',');
   }
 
   function css(name, fallback) {
@@ -809,6 +820,20 @@
         group.appendChild(btn);
       });
     }
+    /* 控件提示一律走项目自己的气泡（data-tip → showTipBox）：
+       库自带的 title 是英文，而且原生提示会跟我们的气泡同时冒出来，两个叠着更乱。
+       去掉 title，中文挂到 data-tip，读屏用的 aria-label 照旧补上 */
+    const tipOf = (el, text) => {
+      if (!el) return;
+      el.removeAttribute('title');
+      el.setAttribute('data-tip', text);
+      el.setAttribute('aria-label', text);
+    };
+    tipOf(group && group.querySelector('.maplibregl-ctrl-zoom-in'), '放大：拉近一档');
+    tipOf(group && group.querySelector('.maplibregl-ctrl-zoom-out'), '缩小：拉远一档');
+    tipOf(document.getElementById('homeBtn'), '复位：回到初始视野');
+    tipOf(document.getElementById('histBtn'), '波段值分布');
+    tipOf(document.getElementById('attrBtn'), '属性表');
     // 复位：回到"当前打开图层"的范围，不是全国视野。
     // 有真实范围用范围；本地坐标的 CAD 用已绘制要素的范围。
     // 用 flyTo 而不是 jumpTo——一秒钟的移动能让人看清"从哪飞到哪"
@@ -826,31 +851,64 @@
     // 不然刚拖成斜视的地图"回正"之后还是歪的
     const compass = map.getContainer().querySelector('.maplibregl-ctrl-compass');
     if (compass) {
-      compass.title = '指北：转正北并压平俯仰角';
+      tipOf(compass, '指北：回到正北并压平俯仰角');
       compass.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
+      /* 针只指方向，看不出偏了多少度：在针下面补一行方位角。
+         整数度 + 等宽数字，跟状态栏里其他数字一个风格；
+         贴正北时写"正北"两个字，比"0°"更好认。 */
+      const badge = document.createElement('div');
+      badge.className = 'map-bearing';
+      badge.id = 'mapBearing';
+      if (compass.parentNode) compass.parentNode.insertBefore(badge, compass.nextSibling);
+      const paintBearing = () => {
+        if (!live()) return;
+        let b = map.getBearing() % 360;
+        if (b < 0) b += 360;
+        const near = Math.min(b, 360 - b) < 0.5;
+        badge.textContent = near ? '正北' : Math.round(b) + '°';
+      };
+      map.on('rotate', paintBearing);
+      map.on('move', paintBearing);
+      paintBearing();
     }
     /* 容器尺寸在栅格里会被右栏挤动，MapLibre 只监听窗口，不监听容器，得自己补。
        拖动窗口一次会连着触发几十次布局，每次都重建画布就是用户看到的闪烁——
-       攒成每帧最多一次，尺寸没真变就不动手。 */
+       攒成每帧最多一次，尺寸没真变就不动手。
+
+       窗口最小化时客户区只剩一条边框（容器缩到 133×2），这时千万别碰地图：
+       map.resize() 会把视口压成一条细缝，相机跟着动一下，MapLibre 重新排瓦片；
+       还原时又来一轮重排，重取一遍要素。屏幕上就是闪一下，数据也白取一遍。
+       所以尺寸小到不像给人看的样子就整个跳过，等窗口回来再补一次。 */
     if (window.ResizeObserver) {
       const box = document.getElementById('map');
+      const TINY = 8;          // 最小化时容器只剩两像素
       let lastW = 0, lastH = 0, settle = 0;
       const apply = () => {
         settle = 0;
         box.classList.remove('resizing');
         if (!live()) return;
         const r = box.getBoundingClientRect();
+        if (r.width < TINY || r.height < TINY) return;   // 还是最小着，别动
         lastW = r.width; lastH = r.height;
+        resizeCam = cameraKey();
         map.resize();
       };
       // 拖动过程中一次都不 resize，只让画布跟着容器拉伸（.resizing 那条样式），
       // 等尺寸稳住 140 毫秒再补一次真重绘
       new ResizeObserver(() => {
         const r = box.getBoundingClientRect();
+        if (r.width < TINY || r.height < TINY) {
+          /* 最小化：连 .resizing 都不能加——那条样式会把画布拉成 100%，
+             窗口只剩一条缝时画布也跟着塌成一团，还原后第一眼就是花的 */
+          if (settle) { clearTimeout(settle); settle = 0; }
+          box.classList.remove('resizing');
+          lastW = r.width; lastH = r.height;
+          return;
+        }
         if (!settle && Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return;
         box.classList.add('resizing');
         if (settle) clearTimeout(settle);
@@ -866,7 +924,13 @@
       fail('初始化', err);
     });
     map.on('moveend', () => {
-      if (data && data.kind === 'vector') scheduleVector();
+      /* 画布只是变大了（窗口还原），相机没动：视野里的要素还是那批，
+         再取一遍只是多一次往返，画面还要再重绘一次，看着就是闪。
+         相机动过（用户拖了、滚了）就照旧按新视野取。 */
+      if (data && data.kind === 'vector') {
+        if (resizeCam && cameraKey() === resizeCam) resizeCam = '';
+        else { resizeCam = ''; scheduleVector(); }
+      }
       emitView();
     });
     map.on('move', scheduleView);
@@ -1220,7 +1284,8 @@
     const mkBtn = (icon, title, cls) => {
       const b = el2('button', 'idp-tbtn' + (cls ? ' ' + cls : ''));
       b.type = 'button';
-      b.title = title;
+      b.setAttribute('data-tip', title);
+      b.setAttribute('aria-label', title);
       b.innerHTML = icon;
       return b;
     };
@@ -1249,12 +1314,14 @@
       const ok = fidOf(f) !== null && canMeasure(f.geometry);
       measure.disabled = busy || !ok;
       measure.classList.toggle('busy', busy);
-      measure.title = busy ? '正在计算…'
+      const measureTip = busy ? '正在计算…'
         : (hasResult ? '收起量算结果'
           : (!ok
             ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
             : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
               ? '计算面积和周长' : '计算长度')));
+      measure.setAttribute('data-tip', measureTip);
+      measure.setAttribute('aria-label', measureTip);
     };
     if (total > 1) {
       let idx = 0;

@@ -251,9 +251,11 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .win-btn .ico-max-b { display: none; }
 body.maxed .win-btn .ico-max-a { display: none; }
 body.maxed .win-btn .ico-max-b { display: block; }
-/* 无边框窗口最大化后客户区是贴着屏幕边的，按系统边框的宽度让内容缩回去，
-   才和还原状态下看到的边距一致（这个宽度由壳报过来） */
-body.maxed { padding: var(--max-inset, 7px); }
+/* 最大化不再额外加内边距：Windows 最大化时客户区本来就比工作区小一圈
+   （那条隐形边框已经让出来了），再加一次就等于多缩一圈，
+   顶栏会离屏幕上沿比还原状态下更远，两种状态看着不一致。
+   还原状态下客户区就是窗口本身，没有隐形边框，所以也不需要内边距。 */
+body.maxed { padding: 0; }
 
 .layout {
   position: relative;
@@ -1333,28 +1335,49 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   pointer-events: auto;
 }
 
-/* 指向锚点的小三角：位置由脚本按锚点算，默认在正中 */
+/* 指向锚点的小三角：位置由脚本按锚点算。
+   气泡默认在锚点右侧，三角贴左边朝右指；翻到左侧时三角贴右边朝左指；
+   退回复选的上下方时三角贴底边朝上、或贴顶边朝下。 */
 .tip-bubble::after {
   content: "";
   position: absolute;
-  left: var(--tip-arrow-x, 50%);
-  bottom: -5px;
   width: 8px;
   height: 8px;
-  margin-left: -4px;
   background: var(--panel);
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+}
+/* 在锚点右侧：三角贴左边，尖朝左（指向锚点） */
+.tip-bubble.right::after {
+  left: -5px;
+  top: var(--tip-arrow-y, 50%);
+  margin-top: -4px;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   transform: rotate(45deg);
 }
-/* 气泡翻到锚点下方时，三角朝上 */
+/* 在锚点左侧：三角贴右边，尖朝右（指向锚点） */
+.tip-bubble.left::after {
+  right: -5px;
+  top: var(--tip-arrow-y, 50%);
+  margin-top: -4px;
+  border-left: 0;
+  border-bottom: 0;
+  border-right: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(225deg);
+}
+/* 退回到锚点下方：三角贴顶边朝上 */
 .tip-bubble.below::after {
+  left: var(--tip-arrow-x, 50%);
   bottom: auto;
   top: -5px;
   border-right: 0;
   border-bottom: 0;
   border-left: 1px solid var(--line);
   border-top: 1px solid var(--line);
+  transform: rotate(45deg);
 }
 
 /* 分点说明：文案里有换行时按行拆开，每行前面一枚小圆点；
@@ -1483,6 +1506,23 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
    真按住拖动时仍给"抓取中"的反馈 */
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass { cursor: pointer; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
+
+/* 指北针下面那行方位角：整数度、等宽数字，宽度跟着控件组固定，
+   数字一变不会把整组推着晃。贴正北时写"正北"两个字 */
+#map .maplibregl-ctrl-group .map-bearing {
+  height: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 19px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  border-top: 1px solid var(--line);
+  user-select: none;
+  pointer-events: none;
+}
 
 .pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
 

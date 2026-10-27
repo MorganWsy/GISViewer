@@ -20,7 +20,7 @@
   <form id="pathForm" class="path-form no-drag" autocomplete="off">
     <!-- 占位符给出两类例子：文件路径长什么样、坐标认哪几种写法（逗号分隔、先经后纬、带 N/E） -->
     <input id="pathInput" type="text" placeholder="粘贴路径（如 D:\data\省界.shp），或坐标定位（如 116.4,39.9 或 39.9N 116.4E）" spellcheck="false">
-    <button type="submit" class="btn ico-btn-only" title="查看：打开路径里的数据，或按坐标定位">
+    <button type="submit" class="btn ico-btn-only" data-tip="查看：打开路径里的数据，或按坐标定位" aria-label="查看：打开路径里的数据，或按坐标定位">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.4" cy="10.4" r="6.3"/><path d="M15.1 15.1L20 20"/></svg>
     </button>
   </form>
@@ -38,7 +38,7 @@
       <!-- 提示文案（导出完成、体检失败之类）放在导出按钮左边：一行说明配一颗按钮，
            比另起一行占地方强，也不会把结果往下挤 -->
       <span class="cp-hint" id="checkHint"></span>
-      <button id="diagBtn" class="cp-head-btn" type="button" title="导出诊断包：环境信息与这次体检的结论打成 zip" hidden>
+      <button id="diagBtn" class="cp-head-btn" type="button" data-tip="导出诊断包：环境信息与这次体检的结论打成 zip" aria-label="导出诊断包：环境信息与这次体检的结论打成 zip" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v10"/><path d="M8.2 9.9L12 13.7l3.8-3.8"/><path d="M4.5 16v3.2h15V16"/></svg>
       </button>
     </div>
@@ -47,10 +47,10 @@
            少一次点击，也不会出现"点了没反应是因为没点开始"这种误会 -->
       <div class="cp-field">
         <input id="checkPath" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="check-path" placeholder="文件或文件夹，留空就查当前打开的">
-        <button id="checkFilePick" class="cp-in" type="button" title="选择文件">
+        <button id="checkFilePick" class="cp-in" type="button" data-tip="选择文件" aria-label="选择文件">
           <svg viewBox="0 0 1050 1024" fill="currentColor" aria-hidden="true"><path d="M923.864307 267.722105v574.275369c0 48.586105-10.320842 86.096842-30.935579 112.505263-20.641684 26.408421-60.739368 38.588632-120.32 36.513684H128.674413c-36.298105-0.781474-66.425263-12.934737-90.408422-36.513684C14.336728 930.923789 1.590623 901.389474 0.027676 865.818947V126.302316c1.562947-35.489684 14.282105-65.077895 38.265263-88.656842C62.222202 14.093474 92.322413 1.886316 128.647465 1.131789h464.842105v133.281685c0.754526 37.861053 12.934737 69.362526 36.486737 94.477473 23.578947 25.114947 53.140211 38.049684 88.68379 38.831158h205.177263z m-49.852631-64.943158H718.713991c-16.222316-0.727579-29.911579-7.491368-41.148631-20.264421-11.210105-12.746105-17.192421-28.779789-17.946947-48.101052V1.131789h13.904842l200.515368 201.674106zM221.157781 323.422316c-8.730947 0.538947-16.976842 4.230737-23.174737 10.428631a31.474526 31.474526 0 0 0-9.323789 23.174737c0 9.242947 3.125895 16.976842 9.323789 23.174737 6.117053 6.170947 14.497684 9.512421 23.174737 9.269895H550.292939c10.078316 0 18.135579-3.098947 24.333474-9.269895 6.197895-6.117053 9.539368-14.497684 9.323789-23.174737a31.474526 31.474526 0 0 0-9.323789-23.201684c-6.144-6.197895-14.282105-9.647158-24.333474-10.428632H221.157781v0.026948z m7.356632 165.726316a43.600842 43.600842 0 0 0-28.429474 9.296842c-7.545263 6.117053-11.695158 14.497684-11.398737 23.174737 0 9.269895 3.772632 16.976842 11.398737 23.174736 7.545263 6.170947 17.030737 9.647158 28.429474 10.428632h403.941052c12.314947-0.781474 22.231579-4.257684 29.830737-10.428632 7.545263-6.117053 11.695158-14.497684 11.425684-23.174736 0.269474-8.677053-3.853474-17.057684-11.425684-23.174737-7.545263-6.197895-17.515789-9.296842-29.857684-9.296842H228.54136z m-19.833264 164.621473c-5.335579-0.269474-10.509474 3.072-14.282105 9.216a43.493053 43.493053 0 0 0-5.739789 23.228632c0 9.269895 1.913263 17.003789 5.739789 23.174737 3.799579 6.197895 8.569263 9.647158 14.282105 10.455579h283.324632c5.739789-0.808421 10.509474-4.311579 14.309053-10.455579 3.772632-6.117053 5.847579-14.524632 5.712842-23.174737a43.573895 43.573895 0 0 0-5.712842-23.174737c-3.772632-6.170947-8.946526-9.512421-14.282106-9.269895H208.654202z"/></svg>
         </button>
-        <button id="checkPathPick" class="cp-in" type="button" title="选择文件夹">
+        <button id="checkPathPick" class="cp-in" type="button" data-tip="选择文件夹" aria-label="选择文件夹">
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
       </div>
@@ -66,10 +66,10 @@
   </div>
   <div class="tools no-drag">
     <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
-    <button id="filePickBtn" class="ibtn" type="button" title="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
+    <button id="filePickBtn" class="ibtn" type="button" data-tip="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件" aria-label="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
       <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
     </button>
-    <button id="checkBtn" class="ibtn" type="button" title="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论">
+    <button id="checkBtn" class="ibtn" type="button" data-tip="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论" aria-label="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论">
       <!-- 跟旁边几颗一样是单色图标：加号不做成另一种颜色，而是从卡片上挖空（fill-rule=evenodd），
            露出来的就是顶栏底色。这样悬停、激活、深浅主题都不用为它单独定一套配色 -->
       <svg viewBox="0 0 1024 1024" aria-hidden="true">
@@ -78,16 +78,16 @@
       </svg>
     </button>
     <button id="themeBtn" class="ibtn" type="button"></button>
-    <button id="settingsBtn" class="ibtn" type="button" title="设置：底图、密钥、显示与快捷键">
+    <button id="settingsBtn" class="ibtn" type="button" data-tip="设置：底图、密钥、显示与快捷键" aria-label="设置：底图、密钥、显示与快捷键">
       <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M656 576a144.064 144.064 0 0 1 140.448 112H864a32 32 0 0 1 3.744 63.776L864 752l-67.584 0.032a144.064 144.064 0 0 1-280.832 0L160 752a32 32 0 0 1-3.744-63.776L160 688h355.552A144.064 144.064 0 0 1 656 576z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z m-288-480c69.12 0 126.816 48.64 140.8 113.6H864a32 32 0 0 1 3.744 63.776L864 337.6l-355.936 0.032a144.064 144.064 0 0 1-280.128 0L160 337.6a32 32 0 0 1-3.744-63.776L160 273.6h67.2A144.064 144.064 0 0 1 368 160z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z"/></svg>
     </button>
     <input id="filePick" type="file" multiple hidden>
   </div>
   <div class="bar-sep"></div>
   <div class="winbtns no-drag" id="winBtns" hidden>
-    <button id="winMin" class="win-btn" title="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
-    <button id="winMax" class="win-btn" title="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
-    <button id="winClose" class="win-btn close" title="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
+    <button id="winMin" class="win-btn" data-tip="最小化" aria-label="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
+    <button id="winMax" class="win-btn" data-tip="最大化" aria-label="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
+    <button id="winClose" class="win-btn close" data-tip="关闭" aria-label="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
   </div>
 </header>
 
@@ -121,7 +121,7 @@
       <!-- 一句就说完的小提示：定位到某个坐标这类操作用它，不弹窗口 -->
       <div id="mapToast" class="map-toast" hidden></div>
       <div id="fileChip" class="map-chip" hidden>
-        <button id="chipTab" class="fold-tab" title="展开文件信息"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>文件信息</span></button>
+        <button id="chipTab" class="fold-tab" data-tip="展开文件信息" aria-label="展开文件信息"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>文件信息</span></button>
         <div class="fold-wrap" id="chipFoldWrap"><div class="fold-in">
           <div class="chip-head">
             <!-- 标题两张脸：大字是正在看的图层名（单文件时是文件名），
@@ -133,8 +133,8 @@
               </span>
               <svg class="chip-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
             </button>
-            <button id="chipFold" class="fold-btn" title="收起文件信息"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
-            <button id="chipClose" class="fold-btn close" title="关闭图层，回到初始界面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+            <button id="chipFold" class="fold-btn" data-tip="收起文件信息" aria-label="收起文件信息"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+            <button id="chipClose" class="fold-btn close" data-tip="关闭图层，回到初始界面" aria-label="关闭图层，回到初始界面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
           </div>
           <div id="chipBody"></div>
         </div></div>
@@ -142,9 +142,9 @@
       <!-- 图层切换：挂在文件信息标题上，点开是一张自绘的列表 -->
       <div id="layerPop" class="layer-pop" hidden></div>
       <div class="map-tools">
-        <button id="histBtn" class="map-fab" hidden title="波段值分布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19.2h16"/><rect x="5.4" y="11" width="3.1" height="6.2" rx="1"/><rect x="10.5" y="6.4" width="3.1" height="10.8" rx="1"/><rect x="15.6" y="13.6" width="3.1" height="3.6" rx="1"/></svg></button>
-        <button id="attrBtn" class="map-fab" hidden title="属性表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg></button>
-        <button id="homeBtn" class="map-fab" title="复位：回到初始视野（中国全图）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.4 12 3.8l8 6.6"/><path d="M5.9 9.2V19a1.2 1.2 0 0 0 1.2 1.2h9.8a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M10 20.2v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8"/></svg></button>
+        <button id="histBtn" class="map-fab" hidden data-tip="波段值分布" aria-label="波段值分布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19.2h16"/><rect x="5.4" y="11" width="3.1" height="6.2" rx="1"/><rect x="10.5" y="6.4" width="3.1" height="10.8" rx="1"/><rect x="15.6" y="13.6" width="3.1" height="3.6" rx="1"/></svg></button>
+        <button id="attrBtn" class="map-fab" hidden data-tip="属性表" aria-label="属性表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg></button>
+        <button id="homeBtn" class="map-fab" data-tip="复位：回到初始视野" aria-label="复位：回到初始视野"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.4 12 3.8l8 6.6"/><path d="M5.9 9.2V19a1.2 1.2 0 0 0 1.2 1.2h9.8a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M10 20.2v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8"/></svg></button>
       </div>
       <div id="histPop" class="map-pop" hidden>
         <div class="pop-title" id="histTitle"></div>
@@ -153,11 +153,11 @@
       </div>
       <div class="map-bar">
         <div id="legend" class="map-legend" hidden>
-          <button id="legendTab" class="fold-tab" title="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>图例</span></button>
+          <button id="legendTab" class="fold-tab" data-tip="展开图例" aria-label="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>图例</span></button>
           <div class="fold-wrap" id="legendFoldWrap"><div class="fold-in">
             <div class="legend-head">
               <select id="legendBand" class="legend-band"></select>
-              <button id="legendFold" class="fold-btn" title="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+              <button id="legendFold" class="fold-btn" data-tip="收起图例" aria-label="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
             </div>
             <div id="legendBody" class="legend-body"></div>
           </div></div>
@@ -173,7 +173,7 @@
       </div>
       <!-- 属性表浮在地图里面：切文件时地图不用重排，也就不会抖 -->
       <div id="attrPanel" class="map-attr" hidden>
-        <div class="attr-grip" id="attrGrip" title="拖动调整高度"><i></i></div>
+        <div class="attr-grip" id="attrGrip" data-tip="拖动调整高度" aria-label="拖动调整高度"><i></i></div>
         <div class="attr-head">
           <svg class="attr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg>
           <span class="attr-title">属性表</span>
@@ -197,7 +197,7 @@
       </div>
       <div class="map-note" id="mapNote"></div>
     </div>
-    <div id="splitter" class="splitter" title="拖动调整地图与信息栏的宽度"></div>
+    <div id="splitter" class="splitter" data-tip="拖动调整地图与信息栏的宽度" aria-label="拖动调整地图与信息栏的宽度"></div>
     <aside id="rail" class="rail"></aside>
   </section>
 </main>
@@ -233,7 +233,7 @@
 <div id="settings" class="modal" hidden>
   <div class="modal-card set-card">
     <div class="card-title">设置
-      <button id="cfgClose" class="modal-x" title="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+      <button id="cfgClose" class="modal-x" data-tip="关闭设置" aria-label="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
     </div>
     <div class="set-main">
       <nav class="set-nav" id="setNav">
@@ -269,7 +269,7 @@
         <label for="cfgKey">天地图密钥</label>
         <div class="key-row">
           <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
-          <button id="keyPeek" class="key-eye" type="button" title="显示密钥">
+          <button id="keyPeek" class="key-eye" type="button" data-tip="显示密钥" aria-label="显示密钥">
             <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/></svg>
             <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/><path d="M4.4 19.6 19.6 4.4"/></svg>
           </button>
@@ -406,7 +406,7 @@
         <label for="cfgOpenDir">文件框起始目录</label>
         <div class="icon-row">
           <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空则用上次打开文件所在的文件夹">
-          <button id="cfgOpenDirPick" class="icon-btn" type="button" title="选择一个固定目录">
+          <button id="cfgOpenDirPick" class="icon-btn" type="button" data-tip="选择一个固定目录" aria-label="选择一个固定目录">
             <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
           </button>
         </div>
@@ -443,7 +443,7 @@
         <label for="cachePath">缓存位置</label>
         <div class="icon-row">
           <input id="cachePath" type="text" readonly value="">
-          <button id="cachePathOpen" class="icon-btn" type="button" title="打开缓存文件夹">
+          <button id="cachePathOpen" class="icon-btn" type="button" data-tip="打开缓存文件夹" aria-label="打开缓存文件夹">
             <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
           </button>
         </div>
@@ -480,32 +480,32 @@
           <tbody>
             <tr>
               <td>唤出或收起窗口</td>
-              <td class="k"><button id="hkBtn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+Alt+G</button></td>
+              <td class="k"><button id="hkBtn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+G</button></td>
               <td class="act"><button id="hkReset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>打开资源管理器中选中的文件</td>
-              <td class="k"><button id="hk2Btn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+空格</button></td>
+              <td class="k"><button id="hk2Btn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+空格</button></td>
               <td class="act"><button id="hk2Reset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>对资源管理器中选中的文件做体检</td>
-              <td class="k"><button id="hk3Btn" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+Alt+D</button></td>
+              <td class="k"><button id="hk3Btn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+D</button></td>
               <td class="act"><button id="hk3Reset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>收起提示、识别弹窗与属性表</td>
-              <td class="k"><button id="pageKeyClose" class="key-chip" type="button" title="点击后按下新的组合键">Esc</button></td>
+              <td class="k"><button id="pageKeyClose" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Esc</button></td>
               <td class="act"><button id="pageKeyCloseReset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>回到全图</td>
-              <td class="k"><button id="pageKeyFit" class="key-chip" type="button" title="点击后按下新的组合键">F</button></td>
+              <td class="k"><button id="pageKeyFit" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">F</button></td>
               <td class="act"><button id="pageKeyFitReset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr>
               <td>定位到属性表查找框</td>
-              <td class="k"><button id="pageKeyFind" class="key-chip" type="button" title="点击后按下新的组合键">Ctrl+F</button></td>
+              <td class="k"><button id="pageKeyFind" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+F</button></td>
               <td class="act"><button id="pageKeyFindReset" class="mini-btn" type="button">恢复默认</button></td>
             </tr>
             <tr><td>路径框回车：打开文件或按坐标定位</td><td class="k">Enter</td><td></td></tr>
@@ -525,7 +525,7 @@
       </div>
       <div class="field inline">
         <label>项目仓库</label>
-        <a class="repo-btn" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer" title="在浏览器中打开 github.com/MorganWsy/GISViewer">
+        <a class="repo-btn" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer" data-tip="在浏览器中打开 github.com/MorganWsy/GISViewer" aria-label="在浏览器中打开 github.com/MorganWsy/GISViewer">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
           <span>GitHub</span>
         </a>
@@ -540,7 +540,7 @@
             <option value="week">每周</option>
             <option value="month">每月</option>
           </select>
-          <button id="updBtn" class="icon-btn2" type="button" title="现在检查">
+          <button id="updBtn" class="icon-btn2" type="button" data-tip="现在检查" aria-label="现在检查">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a8 8 0 1 0-2.2 6"/><path d="M20 5v6.5h-6.5"/></svg>
           </button>
         </div>
