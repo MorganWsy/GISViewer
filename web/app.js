@@ -237,13 +237,16 @@ function showTipBox(anchor, text) {
   const r = anchor.getBoundingClientRect();
   const br = box.getBoundingClientRect();
   /* 方向策略：顶栏（#bar）里的控件横着排一排，气泡摆左右会盖住旁边的按钮，
-     所以顶栏一律上下展示；其余区域默认摆右侧，右边放不下翻左边，
-     两边都放不下才退回上下方。箭头跟着方向换边，始终指向锚点。 */
+     所以顶栏一律上下展示；标了 data-tip-dir="up" 的锚点（信息窗标题栏、
+     属性表表头这类贴近底部的浮层件）同样走上下、且优先向上；
+     其余区域默认摆右侧，右边放不下翻左边，两边都放不下才退回上下方。
+     箭头跟着方向换边，始终指向锚点。 */
   const GAP = 8, EDGE = 8;
   const inBar = !!(anchor.closest && anchor.closest('#bar'));
+  const dirUp = anchor.getAttribute && anchor.getAttribute('data-tip-dir') === 'up';
   const spaceRight = window.innerWidth - r.right - GAP - EDGE;
   const spaceLeft = r.left - GAP - EDGE;
-  let side = inBar ? 'v' : 'right';
+  let side = (inBar || dirUp) ? 'v' : 'right';
   let x;
   if (side !== 'v' && br.width <= spaceRight) {
     x = r.right + GAP;
@@ -251,7 +254,8 @@ function showTipBox(anchor, text) {
     side = 'left';
     x = r.left - GAP - br.width;
   } else {
-    /* 竖向：左不放（或顶栏锚点），把气泡宽度压到窗口能容下的尺寸，不然还是会溢出 */
+    /* 竖向：左右放不下（或顶栏/上展锚点），把气泡宽度压到窗口能容下的尺寸，
+       不然还是会溢出 */
     side = 'v';
     const fit = Math.max(160, window.innerWidth - EDGE * 2);
     if (br.width > fit) { box.style.maxWidth = fit + 'px'; }
@@ -261,10 +265,11 @@ function showTipBox(anchor, text) {
   let y = r.top + r.height / 2 - br.height / 2;
   let vert = 'below';
   if (side === 'v') {
-    /* 竖向时贴着锚点那一侧摆：下方优先，放不下再上翻。
-       锚点自己可能在视口外（长列表里滚到一半的那种），
+    /* 竖向时贴着锚点那一侧摆：上展锚点先试上方，其余先试下方；
+       放不下再翻另一侧。锚点自己可能在视口外（长列表里滚到一半的那种），
        这时不能跟着锚点走，得把气泡夹回窗口里。 */
-    if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
+    if (dirUp && r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
+    else if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
     else if (r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
     y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
     /* 气泡整段落在锚点上沿之上才算 above：被夹回来卡在中间时仍按 below 画箭头 */
@@ -299,7 +304,7 @@ function showTipBox(anchor, text) {
 }
 
 /* 收起前留一小段：从锚点移到气泡上这一小段路不该让气泡先消失。
-   120ms 足够跨过 8px 的间隙，再长就显拖泥带水——用户嫌之前收得慢 */
+   200ms 够跨过 8px 的间隙，太长显拖泥带水，太短容易闪没 */
 function scheduleHideTip() {
   clearTimeout(tipState.timer);
   tipState.timer = setTimeout(() => {
@@ -312,7 +317,7 @@ function scheduleHideTip() {
       if (b && !b.hidden && b.matches(':hover')) return;
     } catch (err) { /* matches 不支持就算了 */ }
     hideTipBox();
-  }, 120);
+  }, 200);
 }
 
 function hideTipBox() {
@@ -451,8 +456,6 @@ function wireRailFolds(body) {
       tr.__fold = [];
       tr.setAttribute('role', 'button');
       tr.tabIndex = 0;
-      tr.setAttribute('data-tip', '收起或展开这一节');
-      tr.setAttribute('aria-label', '收起或展开这一节');
       if (railFolds[name]) tr.classList.add('folded');
       const flip = () => {
         const off = tr.classList.toggle('folded');
@@ -1094,6 +1097,7 @@ function paintChipTitle() {
     : '这份文件只有一个可以画到地图上的图层';
   btn.setAttribute('data-tip', layerTip);
   btn.setAttribute('aria-label', layerTip);
+  btn.setAttribute('data-tip-dir', 'up');   // 信息窗标题栏贴近底部，气泡向上展开不盖正文
 }
 
 function showLayerPop() {
@@ -1188,8 +1192,6 @@ function setChip(d) {
   body.appendChild(table);
   if (f.path) {
     const p = el('div', 'chip-path', f.path);
-    p.setAttribute('data-tip', f.path);
-    p.setAttribute('aria-label', f.path);
     body.appendChild(p);
   } else if (f.temp_copy || d.temp_copy) {
     body.appendChild(el('div', 'chip-path', '网页版读不到拖进来文件的原始位置，先复制了一份临时副本，退出即删'));
@@ -1844,7 +1846,7 @@ function attrShell(c) {
     const kind = kindText(f);
     if (kind) th.appendChild(el('div', 'attr-kind', kind));
     const tip = typeExplain(f);
-    if (tip) th.setAttribute('data-tip', tip);
+    if (tip) { th.setAttribute('data-tip', tip); th.setAttribute('data-tip-dir', 'up'); }
     th.appendChild(el('i', 'attr-rsz'));
     const cp = el('button', 'attr-copy');
     cp.type = 'button';
@@ -2803,8 +2805,6 @@ function renderRecent() {
     item.appendChild(text);
     const del = el('button', 'rp-del');
     del.type = 'button';
-    del.setAttribute('data-tip', '删除这条记录');
-    del.setAttribute('aria-label', '删除这条记录');
     del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     del.addEventListener('mousedown', (e) => e.preventDefault());
     del.addEventListener('click', (e) => {
@@ -2814,8 +2814,6 @@ function renderRecent() {
       commitConfig();
     });
     item.appendChild(del);
-    item.setAttribute('data-tip', p);
-    item.setAttribute('aria-label', p);
     // 按下不抢焦点，否则路径框先失焦、下拉被收掉，这一下就点不着
     item.addEventListener('mousedown', (e) => e.preventDefault());
     item.addEventListener('click', () => {

@@ -1323,7 +1323,7 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   position: fixed;
   z-index: 90;
   max-width: 300px;
-  padding: 8px 10px;
+  padding: 5px 8px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text);
@@ -1410,7 +1410,7 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 /* 分点说明：文案里有换行时按行拆开，每行前面一枚小圆点；
    单行文案不加圆点，维持原来的整段样式 */
 /* 分点气泡放宽一些：这类文案是整句说明，300px 会把每行都折得很碎 */
-.tip-bubble.tip-multi { padding: 9px 11px; max-width: 360px; }
+.tip-bubble.tip-multi { padding: 7px 9px; max-width: 360px; }
 .tip-bubble.tip-multi .tip-li { display: flex; align-items: flex-start; gap: 7px; }
 /* 分点之间留半行：半行是给段落感的，一整行会把几条拧成一堆 */
 .tip-bubble.tip-multi .tip-li + .tip-li { margin-top: 2px; }
@@ -1534,12 +1534,28 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass { cursor: pointer; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
 
-/* 自绘罗盘针：北尖强调色、南尖淡色，中间一枚小圆点。
-   尺寸跟组里其他图标一致；旋转由 map.js 按 bearing 写 transform */
+/* 自绘红白罗盘针：北半红、南半白描灰边，中心一枚红点。
+   17px 在按钮里占满一档，太细小了看不清朝向；旋转由 map.js 按 bearing 写 transform */
 #map .compass-needle {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
   display: block;
+}
+
+/* 指北针下面那行方位角：整数度、等宽数字，宽度固定不把整组推着晃；
+   贴正北写"正北"两个字。不带横线不带底色，一行小字浮在组外沿 */
+#map .maplibregl-ctrl-group .map-bearing {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 20px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  user-select: none;
+  pointer-events: none;
 }
 
 .pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }

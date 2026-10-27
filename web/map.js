@@ -851,16 +851,20 @@
     // 不然刚拖成斜视的地图"回正"之后还是歪的
     const compass = map.getContainer().querySelector('.maplibregl-ctrl-compass');
     if (compass) {
-      /* 库自带的针是上下两个实心三角，下面再挂一行角度徽标，看着又乱又占地方。
-         换成一支细长的罗盘针：北尖用强调色、南尖用淡色，中心一枚小圆点；
-         角度不单独摆出来，并进指北的气泡文案里。 */
+      /* 库自带的针是上下两个实心三角，看着小气。换成经典红白针：
+         北半红、南半白（描一圈灰边，浅底上白针才看得见），中心一枚红点；
+         针下面一行方位角（无横线无边框），贴正北写"正北"。 */
       compass.innerHTML =
         '<svg class="compass-needle" viewBox="0 0 20 20" aria-hidden="true">' +
-        '<path d="M10 2.8 L13.1 10 L6.9 10 Z" fill="var(--accent)"/>' +
-        '<path d="M6.9 10 L13.1 10 L10 17.2 Z" fill="var(--text-dim)" opacity="0.5"/>' +
-        '<circle cx="10" cy="10" r="1.7" fill="var(--panel)" stroke="var(--text-dim)" stroke-width="0.9"/>' +
+        '<path d="M10 1.8 L12.6 10 L7.4 10 Z" fill="#e05252"/>' +
+        '<path d="M7.4 10 L12.6 10 L10 18.2 Z" fill="#ffffff" stroke="#98a0a8" stroke-width="0.9"/>' +
+        '<circle cx="10" cy="10" r="1.7" fill="#e05252" stroke="#ffffff" stroke-width="0.8"/>' +
         '</svg>';
       const needle = compass.querySelector('.compass-needle');
+      const badge = document.createElement('div');
+      badge.className = 'map-bearing';
+      badge.id = 'mapBearing';
+      if (compass.parentNode) compass.parentNode.insertBefore(badge, compass.nextSibling);
       tipOf(compass, '指北：回到正北并压平俯仰角');
       compass.addEventListener('click', (e) => {
         e.preventDefault();
@@ -868,7 +872,7 @@
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
       /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）；
-         旋转的同时把当前方位角写进气泡文案，悬停就能看到偏了多少度 */
+         角度一式两份：针下徽标常显，气泡文案同步（悬停能看到同一句） */
       const paintBearing = () => {
         if (!live()) return;
         let b = map.getBearing() % 360;
@@ -878,6 +882,8 @@
           needle.style.transformOrigin = '50% 50%';
           needle.style.transform = near ? '' : 'rotate(' + (-b) + 'deg)';
         }
+        const angleText = near ? '正北' : Math.round(b) + '°';
+        badge.textContent = angleText;
         const text = near
           ? '指北：回到正北并压平俯仰角'
           : '指北：回到正北并压平俯仰角（当前偏转 ' + Math.round(b) + '°）';
