@@ -851,20 +851,22 @@
     // 不然刚拖成斜视的地图"回正"之后还是歪的
     const compass = map.getContainer().querySelector('.maplibregl-ctrl-compass');
     if (compass) {
-      /* 库自带的针是上下两个实心三角，看着小气。换成经典红白针：
-         北半红、南半白（描一圈灰边，浅底上白针才看得见），中心一枚红点；
-         针下面一行方位角（无横线无边框），贴正北写"正北"。 */
+      /* 经典红白针：北半红、南半白描灰边，中心一枚红点。
+         viewBox 只框住针形：同样的格子里墨迹铺得更满，看着才够大。
+         角度胶囊不能放组内——组有 overflow:hidden（裁按钮圆角用），
+         组外的胶囊会被整个裁掉，所以挂到组的外层容器。 */
       compass.innerHTML =
-        '<svg class="compass-needle" viewBox="0 0 20 20" aria-hidden="true">' +
-        '<path d="M10 1.8 L12.6 10 L7.4 10 Z" fill="#e05252"/>' +
-        '<path d="M7.4 10 L12.6 10 L10 18.2 Z" fill="#ffffff" stroke="#98a0a8" stroke-width="0.9"/>' +
-        '<circle cx="10" cy="10" r="1.7" fill="#e05252" stroke="#ffffff" stroke-width="0.8"/>' +
+        '<svg class="compass-needle" viewBox="6.2 0.4 7.6 19.2" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
+        '<path d="M10 1.4 L12.9 10 L7.1 10 Z" fill="#e05252"/>' +
+        '<path d="M7.1 10 L12.9 10 L10 18.6 Z" fill="#ffffff" stroke="#8f979f" stroke-width="1.1"/>' +
+        '<circle cx="10" cy="10" r="1.8" fill="#e05252" stroke="#ffffff" stroke-width="0.9"/>' +
         '</svg>';
       const needle = compass.querySelector('.compass-needle');
       const badge = document.createElement('div');
       badge.className = 'map-bearing';
       badge.id = 'mapBearing';
-      if (compass.parentNode) compass.parentNode.insertBefore(badge, compass.nextSibling);
+      const group = compass.closest('.maplibregl-ctrl-group');
+      if (group && group.parentElement) group.parentElement.appendChild(badge);
       tipOf(compass, '指北：回到正北并压平俯仰角');
       compass.addEventListener('click', (e) => {
         e.preventDefault();
@@ -872,7 +874,15 @@
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
       /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）；
-         角度一式两份：针下徽标常显，气泡文案同步（悬停能看到同一句） */
+         徽标竖直方向对齐针那一格的中心——布局定下来才能量 rect，
+         攒到下一帧算一次就够（组内格子位置是固定的）。 */
+      const alignBadge = () => {
+        const cr = compass.getBoundingClientRect();
+        const pr = group.parentElement.getBoundingClientRect();
+        badge.style.top = Math.round(cr.top - pr.top + (cr.height - badge.offsetHeight) / 2) + 'px';
+      };
+      if (window.requestAnimationFrame) requestAnimationFrame(alignBadge);
+      else alignBadge();
       const paintBearing = () => {
         if (!live()) return;
         let b = map.getBearing() % 360;
@@ -882,13 +892,7 @@
           needle.style.transformOrigin = '50% 50%';
           needle.style.transform = near ? '' : 'rotate(' + (-b) + 'deg)';
         }
-        const angleText = near ? '正北' : Math.round(b) + '°';
-        badge.textContent = angleText;
-        const text = near
-          ? '指北：回到正北并压平俯仰角'
-          : '指北：回到正北并压平俯仰角（当前偏转 ' + Math.round(b) + '°）';
-        compass.setAttribute('data-tip', text);
-        compass.setAttribute('aria-label', text);
+        badge.textContent = near ? '正北' : Math.round(b) + '°';
       };
       map.on('rotate', paintBearing);
       map.on('move', paintBearing);

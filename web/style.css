@@ -1529,33 +1529,46 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
    最下面（复位）那个按钮悬停时，方角会从组的圆角里冒出来 */
 #map .maplibregl-ctrl-group { overflow: hidden; }
 
-/* 指北针库默认给"抓起"光标（表盘可以拖着转），悬停时看着突兀，改成普通指针；
-   真按住拖动时仍给"抓取中"的反馈 */
-#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass { cursor: pointer; }
-#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
-
-/* 自绘红白罗盘针：北半红、南半白描灰边，中心一枚红点。
-   17px 在按钮里占满一档，太细小了看不清朝向；旋转由 map.js 按 bearing 写 transform */
-#map .compass-needle {
-  width: 17px;
-  height: 17px;
-  display: block;
-}
-
-/* 指北针下面那行方位角：整数度、等宽数字，宽度固定不把整组推着晃；
-   贴正北写"正北"两个字。不带横线不带底色，一行小字浮在组外沿 */
-#map .maplibregl-ctrl-group .map-bearing {
-  height: 20px;
+/* 指北针按钮：针要在格子正中间——maplibre 的按钮默认不居中内容，换成 flex 对中；
+   组本身开 relative，角度徽标才能贴着组外左侧定位 */
+#map .maplibregl-ctrl-group { position: relative; }
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  cursor: pointer;
+}
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-compass:active { cursor: grabbing; }
+
+/* 经典红白罗盘针：北半红、南半白描灰边，中心一枚红点。
+   24px 一档铺满，viewBox 只框针形，墨迹顶满边；旋转由 map.js 按 bearing 写 transform */
+#map .compass-needle {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+/* 角度徽标：脱离格子的胶囊，浮在组外针的左侧，字号跟气泡一致。
+   带底色描边，地图亮底上也能认；竖直位置由 map.js 对齐针那一格 */
+#map .maplibregl-ctrl-top-right .map-bearing {
+  position: absolute;
+  right: calc(100% + 8px);
+  height: 20px;
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  font-size: 12px;
   line-height: 20px;
   font-family: inherit;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  white-space: nowrap;
   user-select: none;
   pointer-events: none;
+  z-index: 2;
 }
 
 .pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }
