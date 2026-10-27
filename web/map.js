@@ -873,9 +873,8 @@
         e.stopPropagation();
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
-      /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）；
-         徽标竖直方向对齐针那一格的中心——布局定下来才能量 rect，
-         攒到下一帧算一次就够（组内格子位置是固定的）。 */
+      /* 徽标竖直方向对齐针那一格的中心——布局定下来才能量 rect，
+         攒到下一帧算一次就够（组内格子位置是固定的） */
       const alignBadge = () => {
         const cr = compass.getBoundingClientRect();
         const pr = group.parentElement.getBoundingClientRect();
@@ -883,6 +882,10 @@
       };
       if (window.requestAnimationFrame) requestAnimationFrame(alignBadge);
       else alignBadge();
+      /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）。
+         徽标平时不显眼：贴正北就藏起来，转出角度才浮现——常亮反而像坏了个格子。
+         俯仰角不显示：这个软件看图是俯视为主，3D 斜视是顺带能力，一格里塞两个
+         数值既挤又要解释哪对哪；指北按钮按下会把俯仰一起压平。 */
       const paintBearing = () => {
         if (!live()) return;
         let b = map.getBearing() % 360;
@@ -892,7 +895,8 @@
           needle.style.transformOrigin = '50% 50%';
           needle.style.transform = near ? '' : 'rotate(' + (-b) + 'deg)';
         }
-        badge.textContent = near ? '正北' : Math.round(b) + '°';
+        badge.hidden = near;
+        if (!near) badge.textContent = Math.round(b) + '°';
       };
       map.on('rotate', paintBearing);
       map.on('move', paintBearing);

@@ -336,6 +336,13 @@ document.addEventListener('mouseout', (e) => {
   if (t && t === tipState.anchor) scheduleHideTip();
 });
 window.addEventListener('scroll', hideTipBox, true);
+/* 窗口一缩放，锚点在屏幕上的位置就全变了：开着的浮层（最近打开、打开菜单、
+   体检）各自按新锚点重摆一遍，不然留在原地盖住别的东西 */
+window.addEventListener('resize', () => {
+  if (!$('recentPop').hidden) placeRecent();
+  if (!$('pickPop').hidden) placePickPop();
+  if (!$('checkPop').hidden) placeCheckPop();
+});
 
 /* 提示只挂在 i 图标上：别的页面hover到图标才出气泡（属性表表头例外，
    那里的 data-tip 直接挂在 th 上，整格都能触发）。箭头对准图标中心 */
@@ -2833,11 +2840,20 @@ function showRecent() {
   // 有弹窗开着就不凑热闹：这时候点不到路径框，别在弹窗后面露出一块列表
   if (!$('settings').hidden) return;
   hidePickPop();
+  placeRecent();
+  pop.hidden = false;
+}
+
+/* 定位与显示分开：窗口一缩放，锚点（路径框、按钮）的屏幕位置就变了，
+   开着的浮层得按新位置重摆一遍，不然留在原地盖住别的 */
+function placeRecent() {
+  const pop = $('recentPop');
+  const input = $('pathInput');
+  if (!pop || !input) return;
   const r = input.getBoundingClientRect();
   pop.style.left = Math.round(r.left) + 'px';
   pop.style.top = Math.round(r.bottom + 6) + 'px';
   pop.style.width = Math.round(Math.max(r.width, 340)) + 'px';
-  pop.hidden = false;
 }
 
 function hideRecent() {
@@ -2871,11 +2887,18 @@ function showPickPop() {
   };
   mk('打开文件…', '本地数据文件，一次看一个', () => toShell('pickfile'));
   mk('打开文件夹…', '.gdb、瓦片目录等以文件夹形式的数据', () => toShell('pickfolder'));
+  placePickPop();
+  pop.hidden = false;
+  markBtn('filePickBtn', true);
+}
+
+function placePickPop() {
+  const pop = $('pickPop');
+  const btn = $('filePickBtn');
+  if (!pop || !btn) return;
   const r = btn.getBoundingClientRect();
   pop.style.left = Math.round(r.left) + 'px';
   pop.style.top = Math.round(r.bottom + 6) + 'px';
-  pop.hidden = false;
-  markBtn('filePickBtn', true);
 }
 
 function hidePickPop() {
@@ -3247,10 +3270,7 @@ function showCheckPop() {
   if (!pop || !btn) return;
   hideRecent();
   hidePickPop();
-  const r = btn.getBoundingClientRect();
-  const w = pop.offsetWidth || 560;
-  pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
-  pop.style.top = Math.round(r.bottom + 6) + 'px';
+  placeCheckPop();
   pop.hidden = false;
   markBtn('checkBtn', true);
   const input = $('checkPath');
@@ -3264,6 +3284,18 @@ function showCheckPop() {
   } else if (input && input.value.trim()) {
     setHint('按回车键重新体检');
   }
+}
+
+/* 体检浮层的定位：贴着顶栏"数据体检"按钮下方，左右夹回窗口内。
+   显示与重摆共用：窗口缩放时开着的话按新锚点重摆一遍 */
+function placeCheckPop() {
+  const pop = $('checkPop');
+  const btn = $('checkBtn');
+  if (!pop || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth || 560;
+  pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
 }
 
 /* 壳那边按"对选中项体检"的快捷键：把资源管理器里选中的路径整批发过来，
