@@ -151,8 +151,8 @@ namespace GISViewer
             Text = Title;
             // 系统标题栏整条不要了，顶栏兼任：拖动、双击最大化、右上角三键都在网页里画
             FormBorderStyle = FormBorderStyle.None;
-            StartPosition = FormStartPosition.CenterScreen;
             Size = new Size(1440, 900);
+            PlaceAtStartup();
             MinimumSize = new Size(900, 560);
             BackColor = LightBack;
             AllowDrop = true;
@@ -564,6 +564,20 @@ namespace GISViewer
                 return;
             }
             if (msg == "titlebar:drag") { Frame.StartDrag(Handle); return; }
+            /* 边缘拖动改大小：网页感知到鼠标进了窗口边缘带，把方向报过来。
+               命中码沿用系统那一套（10=左 11=右 12=上 15=下，四角 13/14/16/17），
+               由壳启动系统的缩放循环。最大化时不受理：那时候没有边缘可拖。 */
+            if (msg.StartsWith("resize:"))
+            {
+                if (WindowState == FormWindowState.Maximized) return;
+                int hit;
+                if (int.TryParse(msg.Substring(7), out hit) && hit >= 10 && hit <= 17)
+                {
+                    Log("边缘缩放开始，方向码 " + hit);
+                    Frame.StartResize(Handle, hit);
+                }
+                return;
+            }
             if (msg == "win:min") { WindowState = FormWindowState.Minimized; return; }
             if (msg == "win:max") { ToggleMax(); return; }
             if (msg == "win:close")
@@ -676,8 +690,31 @@ namespace GISViewer
 
         void ToggleMax()
         {
-            WindowState = WindowState == FormWindowState.Maximized
-                ? FormWindowState.Normal : FormWindowState.Maximized;
+            if (WindowState != FormWindowState.Maximized)
+            {
+                _preMaxRect = Bounds;   // 最大化前记下普通矩形，还原时才有摆回的依据
+                WindowState = FormWindowState.Maximized;
+                return;
+            }
+            // 还原：系统按"窗口有隐形边框"来算普通态矩形，会多出一圈（实测 900x620
+            // 还原成 914x634，跟最小化再还原的毛病同源）。按最大化前记下的矩形摆回去。
+            WindowState = FormWindowState.Normal;
+            if (_preMaxRect.Width > 0)
+            {
+                _restoring = true;
+                // 延后一拍再摆：还原这一刻系统还在改布局，抢在它前面改尺寸会被它盖掉
+                BeginInvoke((Action)(() =>
+                {
+                    if (IsHandleCreated && WindowState == FormWindowState.Normal
+                        && Bounds != _preMaxRect)
+                    {
+                        Log("最大化还原后窗口被系统撑大，已摆回 "
+                            + _preMaxRect.Width + "x" + _preMaxRect.Height);
+                        Bounds = _preMaxRect;
+                    }
+                    _restoring = false;
+                }));
+            }
         }
 
         /* 文件框的起始目录：设置页可以填一个固定目录，留空就用上次打开文件所在的文件夹。
@@ -815,7 +852,6 @@ namespace GISViewer
         void PushHostState()
         {
             if (_web == null || _web.CoreWebView2 == null) return;
-            Push("frame", Frame.Inset().ToString());
             var names = new List<string>();
             try { names = Fonts.Usable(); }
             catch (Exception ex) { Log("字体清单失败 " + ex.Message); }
@@ -1726,13 +1762,16 @@ namespace GISViewer
 
         /* FormBorderStyle.None 会把这些样式位一起摘掉，手动加回来：
            有 WS_THICKFRAME 才有边缘缩放和 Aero Snap，有 WS_CAPTION 拖动标题栏才生效。
-           它们本该画出来的非客户区由下面的 WM_NCCALCSIZE 抹平。 */
+           标题栏的拖动这个软件用不着——顶栏是网页画的，拖动由网页发消息过来；
+           而留着 WS_CAPTION，系统就一直认为窗口有一条标题栏（高度 31 + 边框 8 = 39），
+           最小化再还原时按它换算客户区，窗口就一次比一次大。
+           所以这里只加回缩放与系统按钮需要的样式，不要标题栏。 */
         protected override CreateParams CreateParams
         {
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.Style |= Frame.WS_CAPTION | Frame.WS_THICKFRAME | Frame.WS_MINIMIZEBOX
+                cp.Style |= Frame.WS_THICKFRAME | Frame.WS_MINIMIZEBOX
                     | Frame.WS_MAXIMIZEBOX | Frame.WS_SYSMENU;
                 return cp;
             }
@@ -1740,10 +1779,23 @@ namespace GISViewer
 
         protected override void WndProc(ref Message m)
         {
+            // 最小化/还原会发 WM_SIZE：这里只记一笔，尺寸校正要等布局定下来
+            if (m.Msg == 0x0005) NoteWindowSize((int)(m.WParam.ToInt64() & 0xFFFF));
+            // 拖动移动/边缘缩放结束（WM_EXITSIZEMOVE）：把新位置记进 win.json，
+            // 就算之后异常退出，下次也还能回到这里
+            if (m.Msg == 0x0232) SaveWinRect();
             if (m.Msg == Frame.WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
-                // 非客户区整个抹掉：客户区就是窗口本身，不做任何内缩
-                m.Result = IntPtr.Zero;
+                /* 按规范处理：返回 TRUE，RECT 就保持系统给的那个（整个窗口矩形）——
+                   客户区等于窗口本身，标题栏和那条隐形边框整个抹掉。
+
+                   原来这里返回 FALSE，等于告诉系统"这个窗口没有自定义非客户区"，
+                   系统就按标准窗口算，替我们留了一条隐形的标题栏和边框。
+                   平时看不出来，可是一最小化再还原，系统会把那条隐形边框当成
+                   新的客户区尺寸，窗口就一次比一次大（实测每还原一次宽 +16、高 +39）。
+
+                   边缘缩放不走这里：见 Frame.StartResize 的说明。 */
+                m.Result = (IntPtr)1;   // TRUE：按我们给的 RECT 算
                 return;
             }
             if (m.Msg == Frame.WM_GETMINMAXINFO)
@@ -1804,12 +1856,143 @@ namespace GISViewer
             if (_dragPane != null && _dragPane.Visible) _dragPane.Bounds = DropAreaScreen();
             Frame.Round(Handle, WindowState != FormWindowState.Maximized);
             Push("maximized", Json(WindowState == FormWindowState.Maximized ? "on" : "off"));
-            // 最大化后内容要缩回去的边距，量的是系统边框有多厚
-            Push("frame", Frame.Inset().ToString());
+            // 记住最近一次普通窗口的尺寸：最小化再还原时系统会把它撑大，
+            // 还原后按这份尺寸摆回去（见 NoteWindowSize）
+            if (WindowState == FormWindowState.Normal && !_restoring && Size.Width > 0) _lastNormalSize = Size;
+        }
+
+        /* 最小化再还原，窗口会一次比一次大（实测每次宽 +16、高 +39；去掉隐形标题栏后
+           仍有 +14、+14）。原因在 WndProc 里处理 WM_NCCALCSIZE 的写法：那里直接返回 FALSE，
+           等于告诉系统"这个窗口没有自定义非客户区"，系统就按标准窗口算，替我们留了一条
+           隐形边框；而 WinForms 只认客户区，保存与还原用的又是窗口矩形，
+           两边差的那一圈就每还原一次攒一次。
+
+           这里不去动 WndProc 的老写法（那关系到边缘缩放能不能用），改为记住
+           最小化前的客户区尺寸，还原后若被撑大了就摆回去。 */
+        Size _lastNormalSize;
+        bool _wasMinimized;
+        bool _restoring;   // 正在把尺寸摆回去：这期间不要用漂移后的值覆盖记录
+        Rectangle _preMaxRect;   // 最大化前的普通矩形：还原时系统会多算一圈，按它摆回（见 ToggleMax）
+
+        /* WM_SIZE 的 wParam 低 16 位是尺寸类型：1=最小化，0=还原，3=最大化 */
+        void NoteWindowSize(int kind)
+        {
+            if (kind == 1)
+            {
+                _wasMinimized = true;
+                return;
+            }
+            if (kind != 0 || !_wasMinimized) return;
+            _wasMinimized = false;
+            Size want = _lastNormalSize;
+            if (want.Width < 1) return;
+            _restoring = true;
+            // 延后一拍再摆：还原这一刻系统还在改布局，抢在它前面改尺寸会被它盖掉
+            BeginInvoke((Action)(() =>
+            {
+                if (IsHandleCreated && Size != want)
+                {
+                    Log("还原后窗口被系统撑大，已摆回 " + want.Width + "x" + want.Height);
+                    Size = want;
+                }
+                _restoring = false;
+            }));
+        }
+
+        /* 启动摆位。WinForms 的 CenterScreen 取的是鼠标当前所在的那块屏（.NET 源码里
+           就是 Screen.FromPoint(Control.MousePosition)），窗口每次启动都跳到光标那边，
+           正好盖住用户正在干活的窗口。改为记住上一次的位置：退出时和每次拖动/缩放
+           结束都把矩形写进 win.json，下次按它摆回去，窗口就一直待在用户自己放定的
+           那块屏。记录读不到（首次运行）或那块屏已经不在了，才退回屏幕居中。 */
+        void PlaceAtStartup()
+        {
+            bool maxed = false;
+            Rectangle r = RectFromEnv();
+            if (r.IsEmpty) r = RectFromFile(out maxed);
+            if (r.IsEmpty) { StartPosition = FormStartPosition.CenterScreen; return; }
+            StartPosition = FormStartPosition.Manual;
+            Bounds = r;
+            if (maxed) { _preMaxRect = r; WindowState = FormWindowState.Maximized; }
+            Log("启动位置 " + r.X + "," + r.Y + " " + r.Width + "x" + r.Height + (maxed ? "（最大化）" : ""));
+        }
+
+        /* 自动化测试用：GISVIEWER_START_RECT=x,y,宽,高 把窗口摆到指定处，
+           免得调试实例盖住正在用的屏幕。参数不合法就忽略。 */
+        Rectangle RectFromEnv()
+        {
+            string v = Environment.GetEnvironmentVariable("GISVIEWER_START_RECT");
+            if (string.IsNullOrEmpty(v)) return Rectangle.Empty;
+            int[] n = Ints(v);
+            if (n == null || n.Length != 4 || n[2] < 400 || n[3] < 300) return Rectangle.Empty;
+            Rectangle r = new Rectangle(n[0], n[1], n[2], n[3]);
+            return OnScreen(r) ? r : Rectangle.Empty;
+        }
+
+        Rectangle RectFromFile(out bool maxed)
+        {
+            maxed = false;
+            string s = null;
+            try { s = File.ReadAllText(Path.Combine(DataDir, "win.json")); }
+            catch { }
+            if (string.IsNullOrEmpty(s)) return Rectangle.Empty;
+            int[] n = Ints(s);
+            if (n == null || n.Length < 4) return Rectangle.Empty;
+            Rectangle r = new Rectangle(n[0], n[1], n[2], n[3]);
+            if (r.Width < 400 || r.Height < 300) return Rectangle.Empty;
+            if (s.Contains("\"maxed\":true")) maxed = true;
+            return OnScreen(r) ? r : Rectangle.Empty;
+        }
+
+        /* 矩形至少要有 200x200 落在现有屏幕上才认：换机器、拔显示器之后，
+           存的位置可能整块落在已经不存在的地方 */
+        bool OnScreen(Rectangle r)
+        {
+            r.Intersect(SystemInformation.VirtualScreen);
+            return r.Width >= 200 && r.Height >= 200;
+        }
+
+        /* 从文本里按出现顺序抠出所有整数。win.json 就四个数字，壳不带 JSON 库，
+           手抠比引依赖划算 */
+        static int[] Ints(string s)
+        {
+            List<int> list = new List<int>();
+            int i = 0;
+            while (i < s.Length)
+            {
+                char c = s[i];
+                if (c == '-' || (c >= '0' && c <= '9'))
+                {
+                    int j = i + 1;
+                    while (j < s.Length && s[j] >= '0' && s[j] <= '9') j++;
+                    int v;
+                    if (int.TryParse(s.Substring(i, j - i), out v)) list.Add(v);
+                    i = j;
+                }
+                else i++;
+            }
+            return list.ToArray();
+        }
+
+        /* 把当前窗口位置记进 win.json。最大化时记 RestoreBounds（普通态的矩形），
+           下次先摆到普通位置再最大化，还原时才有地方可回 */
+        void SaveWinRect()
+        {
+            try
+            {
+                bool maxed = WindowState == FormWindowState.Maximized;
+                Rectangle r = maxed ? RestoreBounds : Bounds;
+                if (r.Width < 400 || r.Height < 300) return;
+                File.WriteAllText(Path.Combine(DataDir, "win.json"),
+                    "{\"left\":" + r.X + ",\"top\":" + r.Y + ",\"width\":" + r.Width
+                    + ",\"height\":" + r.Height + ",\"maxed\":" + (maxed ? "true" : "false") + "}");
+            }
+            catch { /* 记不住位置不拦主流程 */ }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            // 退出前把窗口位置记下：下次启动摆在原处，不跟着鼠标所在屏跑
+            SaveWinRect();
             // 真正退出的路径才走到这里（关闭按钮默认只最小化；托盘菜单的"退出"或设置里选了直接退出才会关）。这是个"看一眼"的工具，弹一句"要不要留在托盘"只会拖慢下一次
             // 拖放轮询先停：窗体开始拆以后定时器再打一拍就会抛异常，
             // 弹出的 .NET 崩溃框就是用户反复看到的那一闪

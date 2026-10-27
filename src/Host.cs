@@ -332,14 +332,6 @@ namespace GISViewer
         [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr h, ref MONITORINFO mi);
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
 
-        /* 最大化之后内容要往里缩多少：就是系统那条可拖动边框有多厚。
-           无边框窗口铺满工作区时是贴着屏幕边的，不缩一下顶栏会紧贴屏幕上沿 */
-        public static int Inset()
-        {
-            int w = SystemInformation.FrameBorderSize.Width;
-            return w > 0 ? w : 7;
-        }
-
         /* 最大化铺到"窗口所在那块屏"的工作区。注意 ptMaxPosition 是相对那块屏左上角的偏移，
            不是屏幕绝对坐标：主屏上两者恰好相同所以看不出问题，副屏上写成绝对坐标
            会把窗口推到屏外去（表现是最大化一下窗口滑出屏幕） */
@@ -362,6 +354,29 @@ namespace GISViewer
         {
             ReleaseCapture();
             SendMessage(h, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+        }
+
+        /* 边缘拖动改大小：网页那边感知到鼠标进了窗口边缘，就把方向报过来。
+           这里交给系统的缩放循环来做——发 WM_NCLBUTTONDOWN，wParam 带上命中码
+           （HTLEFT/HTRIGHT/HTTOP/HTBOTTOM 与四个角），DefWindowProc 就会接管鼠标，
+           拖到哪算哪，松手结束。
+
+           为什么用 WM_NCLBUTTONDOWN 而不是 WM_SYSCOMMAND+SC_SIZE：
+           SC_SIZE 那条路要求"按下"这件事由系统自己观察到，
+           而真实的按下发生在网页那个子窗口上，系统那边不认；
+           WM_NCLBUTTONDOWN 是主动告诉系统"从这条边开始缩放"，
+           和上面顶栏拖动用 HTCAPTION 是同一个入口，已验证可用。
+
+           为什么不让网页自己算尺寸：网页只看得见客户区，看不见窗口外那圈，
+           而且拖出窗口后指针坐标会丢，缩到一半就断了。 */
+        public static void StartResize(IntPtr h, int hit)
+        {
+            /* hit 用的就是系统命中测试那套编码：
+               10=HTLEFT 11=HTRIGHT 12=HTTOP 13=HTTOPLEFT 14=HTTOPRIGHT
+               15=HTBOTTOM 16=HTBOTTOMLEFT 17=HTBOTTOMRIGHT */
+            if (hit < 10 || hit > 17) return;
+            ReleaseCapture();
+            SendMessage(h, WM_NCLBUTTONDOWN, (IntPtr)hit, IntPtr.Zero);
         }
 
         /* Win11 才认这个属性，Win10 上调用直接失败，直角放着不管也不影响使用 */
