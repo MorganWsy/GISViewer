@@ -780,7 +780,9 @@ table.chip-table td {
 }
 
 /* 属性表浮窗打开时，图例和读数让开它，别被压住 */
-.map-stage.attr-on .map-bar { bottom: calc(var(--attr-h, 260px) + 2px); }
+/* 工具行跟着属性表往上让位。上限与面板本身一致：竖排的小窗口里地图只有两百来像素高，
+   260 的表被 max-height 压到 131，工具行还按 260 让位就会跑到地图外面去 */
+.map-stage.attr-on .map-bar { bottom: calc(min(var(--attr-h, 260px), calc(100% - 96px)) + 2px); }
 
 .map-bar > * { pointer-events: auto; }
 
@@ -929,7 +931,9 @@ table.chip-table td {
   z-index: 7;
   display: flex;
   flex-direction: column;
-  height: var(--attr-h, 260px);
+  /* 高度同样封顶：拖动记忆里可能是 260，容器矮的时候要跟着压下来，
+     .map-bar 那边用的是同一个上限，两边的对齐才不会散 */
+  height: min(var(--attr-h, 260px), calc(100% - 96px));
   max-height: calc(100% - 96px);
   transition: transform 0.2s ease, opacity 0.2s ease;
   background: var(--overlay);
@@ -2539,7 +2543,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-radius: 999px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 }
-.map-stage.attr-on #vecBusy { bottom: calc(var(--attr-h, 260px) + 43px); }
+.map-stage.attr-on #vecBusy { bottom: calc(min(var(--attr-h, 260px), calc(100% - 96px)) + 43px); }
 #vecBusy[hidden] { display: none; }
 #vecBusy::before {
   content: "";

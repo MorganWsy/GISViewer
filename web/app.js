@@ -327,6 +327,8 @@ function hideTipBox() {
 }
 
 document.addEventListener('mouseover', (e) => {
+  /* 按着鼠标拖动时不弹气泡：拖分隔条、拖属性表高度这类操作，气泡跟着走只会碍事 */
+  if (e.buttons) return;
   const t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
   if (!t || t === tipState.anchor) return;
   showTipBox(t, t.getAttribute('data-tip'));
@@ -338,10 +340,16 @@ document.addEventListener('mouseout', (e) => {
 window.addEventListener('scroll', hideTipBox, true);
 /* 窗口一缩放，锚点在屏幕上的位置就全变了：开着的浮层（最近打开、打开菜单、
    体检）各自按新锚点重摆一遍，不然留在原地盖住别的东西 */
+let stackedBefore = stackedStage();
 window.addEventListener('resize', () => {
   if (!$('recentPop').hidden) placeRecent();
   if (!$('pickPop').hidden) placePickPop();
   if (!$('checkPop').hidden) placeCheckPop();
+  /* 从宽屏切到竖排（地图在上、信息栏在下）时把属性表收起来。竖排的地图只剩两百来像素高，
+     那张 260 高的表会把地图连同上面的按钮一起盖住；只在这一下收，之后用户自己点开的不干预 */
+  const nowStacked = stackedStage();
+  if (nowStacked && !stackedBefore && attrOpen()) closeAttr();
+  stackedBefore = nowStacked;
 });
 
 /* 提示只挂在 i 图标上：别的页面hover到图标才出气泡（属性表表头例外，
@@ -2280,6 +2288,7 @@ function wireAttrGrip() {
   }
   handle.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
+    hideTipBox();   // 拖动过程中不要那条"拖动调整高度"的气泡跟着走
     handle.setPointerCapture(ev.pointerId);
     handle.classList.add('dragging');
     const move = (e) => {
