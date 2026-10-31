@@ -209,17 +209,67 @@ def _readable(path):
     return os.path.exists(path)
 
 
+# 配置文件是"读—改—写"三步：界面改一项设置就整份发过来，服务端读出旧内容、
+# 改掉这一项、再整份写回。多个请求同时进来会互相踩——A 读到时还没 B 的改动，
+# B 读到时也还没 A 的，各自写回就只剩后写的那个；更糟的是 write_text 先截断再写，
+# 同一瞬间读到的可能是半个文件，json 解析失败后 read_config 返回空字典，
+# 落盘就只剩本次那一项，其余设置全部丢失。一把锁串起整个流程，写盘换成
+# 临时文件 + 原子替换，读的一侧永远看到完整的旧版或新版，不会是半截。
+#
+# 锁必须是可重入的：写配置的第一步就是 read_config()，普通 Lock 会当场自锁。
+# 读也要在同一把锁里——Windows 上目标文件正被读着时 os.replace 会报"拒绝访问"，
+# 光把写串起来没用，读的一端照样能把替换撞掉。
+_cfg_lock = threading.RLock()
+
+
+def _write_text_atomic(path, text):
+    """整份替换而不是原地覆盖：写到一半断电/被杀，留下的还是上一次的完整内容。"""
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".cfg-", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # 别的进程（命令行同一份配置、杀毒软件扫文件）读着的窗口只有几十微秒，
+        # 短等重试几次就过去了；一直不放就退回原地覆盖——本进程的读写已被锁串起来，
+        # 这一步只防外部，退化也不至于写出半截，总比让界面报"保存失败"强
+        for i in range(8):
+            try:
+                os.replace(tmp, path)
+                tmp = None
+                return
+            except PermissionError:
+                if i == 7:
+                    break
+                time.sleep(0.02)
+        path.write_text(text, encoding="utf-8")
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def read_config():
     path = config_dir() / "config.json"
-    if not path.is_file():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    with _cfg_lock:
+        if not path.is_file():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
 
 
 def write_config(data):
+    """把界面发来的改动合进配置文件。整段加锁，理由见 _cfg_lock。"""
+    with _cfg_lock:
+        return _write_config(data)
+
+
+def _write_config(data):
     global _cache_note
     path = config_dir() / "config.json"
     allowed = {"theme", "basemap", "tianditu_key", "annotation", "max_features", "last_paths",
@@ -251,7 +301,7 @@ def write_config(data):
             seen.add(clean)
             fixed.append(clean)
         payload[key] = fixed
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_text_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
     # 本轮的副本目录已经建好，中途换会把已复制的文件丢在原处，所以只能下次启动生效
     if _upload_root and str(payload.get("cache_dir") or "").strip() != _cache_dir_used:
         _cache_note = "本轮仍用 " + str(_upload_root) + "，副本目录下次启动才换"
