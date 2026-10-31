@@ -698,6 +698,7 @@ namespace GISViewer
             }
             // 还原：系统按"窗口有隐形边框"来算普通态矩形，会多出一圈（实测 900x620
             // 还原成 914x634，跟最小化再还原的毛病同源）。按最大化前记下的矩形摆回去。
+            _maxRestoring = true;   // 先挂旗：系统那几次尺寸变化就发生在下面这一行里
             WindowState = FormWindowState.Normal;
             if (_preMaxRect.Width > 0)
             {
@@ -710,10 +711,19 @@ namespace GISViewer
                     {
                         Log("最大化还原后窗口被系统撑大，已摆回 "
                             + _preMaxRect.Width + "x" + _preMaxRect.Height);
-                        Bounds = _preMaxRect;
+                        /* 直接摆窗口，不走 Bounds/Size：WinForms 会先按它记的边框尺寸
+                           发一次带 914 的 SetWindowPos、再补一次正确的，网页白挨一次重排 */
+                        Frame.MoveSize(Handle, _preMaxRect.X, _preMaxRect.Y,
+                            _preMaxRect.Width, _preMaxRect.Height,
+                            Frame.SWP_NOZORDER | Frame.SWP_NOACTIVATE);
                     }
                     _restoring = false;
+                    _maxRestoring = false;
                 }));
+            }
+            else
+            {
+                _maxRestoring = false;
             }
         }
 
@@ -1784,6 +1794,31 @@ namespace GISViewer
             // 拖动移动/边缘缩放结束（WM_EXITSIZEMOVE）：把新位置记进 win.json，
             // 就算之后异常退出，下次也还能回到这里
             if (m.Msg == 0x0232) SaveWinRect();
+            /* 最小化还原那一次，系统按"标准带边框窗口"重算窗口矩形，比记下的宽高各多一圈
+               （就是那条看不见的边框）。等它算完再摆回，网页要经历"撑大→回缩"两轮重排，
+               用户看到的就是界面抖一下。这里赶在系统动手之前把目标尺寸改回去，让它一次到位。
+               守卫卡得很紧：只在刚从最小化回来的那一次、且只差一点点时才改，
+               换过分辨率或插拔过屏（差得多）交给下面 NoteWindowSize 兜底。 */
+            if (m.Msg == Frame.WM_WINDOWPOSCHANGING && (_wasMinimized || _restoring || _maxRestoring))
+            {
+                /* 两处还原共用这一手：最小化回来用记下的普通尺寸，最大化回来用最大化前的矩形。
+                   系统按"标准带边框窗口"重算时都会比这两份宽高各多一圈，赶在它前面改回去 */
+                Size target = _maxRestoring && _preMaxRect.Width > 0 ? _preMaxRect.Size : _lastNormalSize;
+                if (target.Width > 0)
+                {
+                    Frame.WINDOWPOS wp = (Frame.WINDOWPOS)Marshal.PtrToStructure(
+                        m.LParam, typeof(Frame.WINDOWPOS));
+                    int dw = wp.cx - target.Width;
+                    int dh = wp.cy - target.Height;
+                    if ((wp.flags & Frame.SWP_NOSIZE) == 0 &&
+                        dw > 0 && dw <= 32 && dh >= 0 && dh <= 32)
+                    {
+                        wp.cx = target.Width;
+                        wp.cy = target.Height;
+                        Marshal.StructureToPtr(wp, m.LParam, true);
+                    }
+                }
+            }
             if (m.Msg == Frame.WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
             {
                 /* 按规范处理：返回 TRUE，RECT 就保持系统给的那个（整个窗口矩形）——
@@ -1861,17 +1896,15 @@ namespace GISViewer
             if (WindowState == FormWindowState.Normal && !_restoring && Size.Width > 0) _lastNormalSize = Size;
         }
 
-        /* 最小化再还原，窗口会一次比一次大（实测每次宽 +16、高 +39；去掉隐形标题栏后
-           仍有 +14、+14）。原因在 WndProc 里处理 WM_NCCALCSIZE 的写法：那里直接返回 FALSE，
-           等于告诉系统"这个窗口没有自定义非客户区"，系统就按标准窗口算，替我们留了一条
-           隐形边框；而 WinForms 只认客户区，保存与还原用的又是窗口矩形，
-           两边差的那一圈就每还原一次攒一次。
+        /* 最小化再还原，系统会把那条隐形边框算回窗口矩形（实测宽高各 +7），窗口先被撑大。
+           WndProc 里处理 WM_WINDOWPOSCHANGING 的那一段已经尽量赶在系统动手之前把尺寸改回来；
+           这里是第二道保险：万一还是大了，还原后把窗口摆回记下的那一份。
 
-           这里不去动 WndProc 的老写法（那关系到边缘缩放能不能用），改为记住
-           最小化前的客户区尺寸，还原后若被撑大了就摆回去。 */
+           同时这里负责记录普通状态下的尺寸，供上面两处使用 */
         Size _lastNormalSize;
         bool _wasMinimized;
         bool _restoring;   // 正在把尺寸摆回去：这期间不要用漂移后的值覆盖记录
+        bool _maxRestoring;   // 正在从最大化还原：这一段里的尺寸变化也要拦（见 WndProc）
         Rectangle _preMaxRect;   // 最大化前的普通矩形：还原时系统会多算一圈，按它摆回（见 ToggleMax）
 
         /* WM_SIZE 的 wParam 低 16 位是尺寸类型：1=最小化，0=还原，3=最大化 */
@@ -1893,7 +1926,11 @@ namespace GISViewer
                 if (IsHandleCreated && Size != want)
                 {
                     Log("还原后窗口被系统撑大，已摆回 " + want.Width + "x" + want.Height);
-                    Size = want;
+                    /* 直接摆窗口，不走 Size 属性：WinForms 那个 setter 会先按它自己
+                       记的边框尺寸发一次带 914 的 SetWindowPos，再补一次正确的，
+                       网页就白挨一次重排 */
+                    Frame.MoveSize(Handle, 0, 0, want.Width, want.Height,
+                        Frame.SWP_NOMOVE | Frame.SWP_NOZORDER | Frame.SWP_NOACTIVATE);
                 }
                 _restoring = false;
             }));

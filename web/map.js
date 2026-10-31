@@ -865,6 +865,17 @@
       const badge = document.createElement('div');
       badge.className = 'map-bearing';
       badge.id = 'mapBearing';
+      /* 两个数值各带一枚小图标：斜面＝俯仰角，环形箭头＝旋转角，
+         光有两个数字谁也分不清哪个是哪个。顺序按"先俯仰后旋转"走 */
+      badge.innerHTML =
+        '<span class="mb-item"><svg class="mb-ico" viewBox="0 0 14 14" aria-hidden="true">' +
+        '<path d="M1.9 11.4h10.2"/><path d="M1.9 11.4 10.4 3.2"/></svg>' +
+        '<b class="mb-p">0°</b></span>' +
+        '<span class="mb-item"><svg class="mb-ico" viewBox="0 0 14 14" aria-hidden="true">' +
+        '<path d="M11.8 7.6a5 5 0 1 1-1.6-4.2"/><path d="M9.1 1.3l1.4 2.3-2.4 1"/></svg>' +
+        '<b class="mb-b">0°</b></span>';
+      const outPitch = badge.querySelector('.mb-p');
+      const outBearing = badge.querySelector('.mb-b');
       const group = compass.closest('.maplibregl-ctrl-group');
       if (group && group.parentElement) group.parentElement.appendChild(badge);
       tipOf(compass, '指北：回到正北并压平俯仰角');
@@ -873,15 +884,20 @@
         e.stopPropagation();
         if (live()) map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
       }, true);   // 捕获阶段拦下，别让库自己再转一次
-      /* 徽标竖直方向对齐针那一格的中心——布局定下来才能量 rect，
-         攒到下一帧算一次就够（组内格子位置是固定的） */
+      /* 徽标竖直方向对齐针那一格的中心。徽标平时是 visibility:hidden，
+         几何仍然在，offsetHeight 量得到——早先换成 display:none 时量到 0，
+         算出来的位置整整偏了半个徽标高，就是看着不居中的来由 */
       const alignBadge = () => {
         const cr = compass.getBoundingClientRect();
         const pr = group.parentElement.getBoundingClientRect();
         badge.style.top = Math.round(cr.top - pr.top + (cr.height - badge.offsetHeight) / 2) + 'px';
       };
-      if (window.requestAnimationFrame) requestAnimationFrame(alignBadge);
-      else alignBadge();
+      const alignSoon = () => {
+        if (window.requestAnimationFrame) requestAnimationFrame(alignBadge);
+        else alignBadge();
+      };
+      alignSoon();
+      window.addEventListener('resize', alignSoon);
       /* 针随地图转（地图顺时针转 b 度，针就逆时针转回 b 度）。
          徽标平时不显眼：贴正北就藏起来，转出角度才浮现——常亮反而像坏了个格子。
          俯仰角不显示：这个软件看图是俯视为主，3D 斜视是顺带能力，一格里塞两个
@@ -891,12 +907,18 @@
         let b = map.getBearing() % 360;
         if (b < 0) b += 360;
         const near = Math.min(b, 360 - b) < 0.5;
+        const pitch = Math.abs(map.getPitch()) < 0.5 ? 0 : Math.round(map.getPitch());
         if (needle) {
           needle.style.transformOrigin = '50% 50%';
           needle.style.transform = near ? '' : 'rotate(' + (-b) + 'deg)';
         }
-        badge.hidden = near;
-        if (!near) badge.textContent = Math.round(b) + '°';
+        /* 正北且没有俯仰，就是"正着看"：徽标不必占地方，转出角度才浮现 */
+        if (near && !pitch) { badge.classList.remove('on'); return; }
+        outBearing.textContent = Math.round(b) + '°';
+        outPitch.textContent = pitch + '°';
+        const was = badge.classList.contains('on');
+        badge.classList.add('on');
+        if (!was) alignSoon();   // 刚浮现时位置还没定过，补一次对齐
       };
       map.on('rotate', paintBearing);
       map.on('move', paintBearing);
@@ -1311,8 +1333,12 @@
     const mkBtn = (icon, title, cls) => {
       const b = el2('button', 'idp-tbtn' + (cls ? ' ' + cls : ''));
       b.type = 'button';
-      b.setAttribute('data-tip', title);
-      b.setAttribute('aria-label', title);
+      /* 翻页两颗只说"上一个/下一个"，箭头本身就写着这层意思，
+         挂在弹窗里还会盖住字段，索性不给气泡；无障碍名仍然留着 */
+      if (title) {
+        b.setAttribute('data-tip', title);
+        b.setAttribute('aria-label', title);
+      }
       b.innerHTML = icon;
       return b;
     };
@@ -1354,8 +1380,10 @@
       let idx = 0;
       const pagerNode = el2('div', 'idp-pager');
       const label = el2('span', 'idp-page', '1/' + total);
-      const prev = mkBtn(ICON_CHEV, '上一个', 'idp-chev');
-      const next = mkBtn(ICON_CHEV, '下一个', 'idp-chev flip');
+      const prev = mkBtn(ICON_CHEV, '', 'idp-chev');
+      const next = mkBtn(ICON_CHEV, '', 'idp-chev flip');
+      prev.setAttribute('aria-label', '上一个');
+      next.setAttribute('aria-label', '下一个');
       const sync = () => {
         label.textContent = (idx + 1) + '/' + total;
         prev.disabled = idx === 0;

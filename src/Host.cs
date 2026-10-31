@@ -296,6 +296,9 @@ namespace GISViewer
     {
         public const int WM_NCCALCSIZE = 0x0083;
         public const int WM_GETMINMAXINFO = 0x0024;
+        public const int WM_WINDOWPOSCHANGING = 0x0046;
+        public const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010;
         public const int WM_NCLBUTTONDOWN = 0x00A1;
         public const int HTCAPTION = 0x2;
         public const int WS_CAPTION = 0x00C00000, WS_THICKFRAME = 0x00040000;
@@ -308,6 +311,16 @@ namespace GISViewer
 
         [StructLayout(LayoutKind.Sequential)]
         public struct POINT { public int X, Y; }
+
+        /* tagWINDOWPOS：改目标位置/尺寸要在 WM_WINDOWPOSCHANGING 里改这个结构，
+           字段顺序同样不能动（前面两个句柄，然后 x/y/cx/cy，最后 flags） */
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWPOS
+        {
+            public IntPtr hwnd, hwndInsertAfter;
+            public int x, y, cx, cy;
+            public uint flags;
+        }
 
         /* 字段顺序必须和 Win32 的 tagMINMAXINFO 一字不差：
            reserved、maxSize、maxPosition、minTrackSize、maxTrackSize。
@@ -328,6 +341,8 @@ namespace GISViewer
 
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] static extern bool SetWindowPos(
+            IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr h, int flags);
         [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr h, ref MONITORINFO mi);
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int value, int size);
@@ -369,6 +384,13 @@ namespace GISViewer
 
            为什么不让网页自己算尺寸：网页只看得见客户区，看不见窗口外那圈，
            而且拖出窗口后指针坐标会丢，缩到一半就断了。 */
+        /* 直接摆窗口，绕开 WinForms 的 Size 属性：那个 setter 会先按它自己记的边框尺寸
+           发一次 SetWindowPos、再补一次 FRAMECHANGED，中间那一手会让网页白挨一次重排 */
+        public static void MoveSize(IntPtr h, int x, int y, int cx, int cy, uint flags)
+        {
+            SetWindowPos(h, IntPtr.Zero, x, y, cx, cy, flags);
+        }
+
         public static void StartResize(IntPtr h, int hit)
         {
             /* hit 用的就是系统命中测试那套编码：

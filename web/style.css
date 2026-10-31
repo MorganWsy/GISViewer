@@ -1549,18 +1549,20 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 
 /* 角度徽标：脱离格子的胶囊，浮在组外针的左侧，字号跟气泡一致。
-   带底色描边，地图亮底上也能认；竖直位置由 map.js 对齐针那一格 */
+   带底色描边，地图亮底上也能认；竖直位置由 map.js 对齐针那一格。
+   隐藏用 visibility 而不是 display：display:none 时量不到高度，
+   居中会整整偏半个徽标——这是之前看着不齐的根子 */
 #map .maplibregl-ctrl-top-right .map-bearing {
   position: absolute;
   right: calc(100% + 8px);
   height: 20px;
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 0 7px;
   font-size: 12px;
   line-height: 20px;
   font-family: inherit;
-  font-variant-numeric: tabular-nums;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1569,6 +1571,40 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   user-select: none;
   pointer-events: none;
   z-index: 2;
+  visibility: hidden;
+  opacity: 0;
+}
+/* 正北且没俯仰时不占位置；有角度才浮现 */
+#map .maplibregl-ctrl-top-right .map-bearing.on {
+  visibility: visible;
+  opacity: 1;
+}
+
+#map .map-bearing .mb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* 两枚小图标：斜面＝俯仰角，环形箭头＝旋转角。
+   跟数字同一个行盒，靠 flex 对中；stroke 用 currentColor 换主题自动跟 */
+#map .map-bearing .mb-ico {
+  width: 11px;
+  height: 11px;
+  display: block;
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 数字与图标同字号同行高，盒子中线才对得上 */
+#map .map-bearing b {
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
 }
 
 .pop-title { margin-bottom: 8px; font-size: 14px; font-weight: 700; }

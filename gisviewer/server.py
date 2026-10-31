@@ -228,7 +228,7 @@ def write_config(data):
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "hk3_mods", "hk3_vk",
-               "upd_freq", "close_act",
+               "upd_freq", "close_act", "close_ask",
                "open_dir", "toast_sec", "set_sec",
                "key_close", "key_fit", "key_find", "draw_limit"}
     payload = read_config()
