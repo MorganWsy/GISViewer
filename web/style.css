@@ -360,10 +360,16 @@ body.native-drop .empty { border-color: transparent; background: transparent; }
 .splitter:hover, .splitter.dragging { background: var(--accent); }
 
 @media (max-width: 1120px) {
-  .stage { grid-template-columns: minmax(0, 1fr); height: auto; }
+  /* 窄屏＝竖排（地图在上、信息栏在下）。上下各占一半，舞台仍然撑满可用高度：
+     早先按 62vh + 60vh 排，整页比窗口还高，要滚才能看到信息栏下半截 */
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    height: 100%;
+  }
   .splitter { display: none; }
-  .rail { max-height: 60vh; }
-  .map-pane { height: 62vh; }
+  .rail { max-height: none; }
+  .map-pane { height: auto; }
 }
 
 .card-title {

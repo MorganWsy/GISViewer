@@ -284,7 +284,13 @@
   }
 
   function fitTo(box, willReserve) {
-    const bottom = 26 + Math.max(attrReserve(), willReserve ? 260 : 0);
+    /* 属性表要让出来的高度，最多只给到容器的四成：竖排的小窗口里地图才三百来像素高，
+       真留出 260 就只剩几十像素可用，fitBounds 在这么窄的高度里会算出退化的视野
+       （宽高反转、甚至无穷），取要素时带上这种框，服务端换算必然失败 */
+    const h = map.getContainer().clientHeight || 0;
+    const want = Math.max(attrReserve(), willReserve ? 260 : 0);
+    const cap = h > 0 ? Math.max(24, Math.round(h * 0.4)) : want;
+    const bottom = 26 + Math.min(want, cap);
     map.fitBounds([[box[0], box[1]], [box[2], box[3]]],
       { padding: { top: 26, left: 26, right: 26, bottom }, duration: 0, maxZoom: 12 });
   }
@@ -341,6 +347,10 @@
     }
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    /* 视野还没定下来时（容器刚变小、地图还没重新量过）getBounds 会给出反转的
+       或非有限的框。这种框发给服务端只会换回一句"转不到经纬度"，连要素都不给；
+       宁可这一趟不带框、按全量取，回来再按需补 */
+    const boxOk = bbox.every((v) => isFinite(v)) && bbox[0] < bbox[2] && bbox[1] < bbox[3];
     // 容差按图层规模分档：大图层照旧；两万要素以内给 1/3 容差（0.5 像素级，
     // 肉眼看不出损失）。完全不抽稀不行——实测 China2019（35 个要素但顶点极密）
     // 全精度一次视野要 22 秒，1/3 容差 3 秒
@@ -352,7 +362,7 @@
       '&limit=' + drawLimit +
       // 别用 toExponential：0 会写成 "0.00e+0"，查询串里的 + 会被当成空格，服务端解析就炸了
       '&tolerance=' + String(tol) +
-      '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',');
+      (boxOk ? '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',') : '');
     const mine = ++token;
     const wanted = data;
     const busy = document.getElementById('vecBusy');

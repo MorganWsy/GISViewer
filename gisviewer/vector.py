@@ -2,6 +2,7 @@
 
 import functools
 import json
+import math
 import os
 import re
 import threading
@@ -533,8 +534,14 @@ def _pair(wkt):
 
 
 def _rect_for_src(reverse, bbox, densify=2):
-    """把经纬度视野框变到数据坐标系；沿边取点，斜经线投影下不会漏角。"""
+    """把经纬度视野框变到数据坐标系；沿边取点，斜经线投影下不会漏角。
+
+    视野框本身就是坏的（NaN、正负无穷、经纬度反着写）时返回 None：
+    这种框不该拿去算过滤范围，更不该把整份数据连坐。
+    """
     left, bottom, right, top = [float(v) for v in bbox]
+    if not all(math.isfinite(v) for v in (left, bottom, right, top)) or left >= right or bottom >= top:
+        return None
     fx = [left + (right - left) * i / densify for i in range(densify + 1)]
     fy = [bottom + (top - bottom) * i / densify for i in range(densify + 1)]
     xs, ys = [], []
@@ -545,6 +552,9 @@ def _rect_for_src(reverse, bbox, densify=2):
             return None
         xs.append(px)
         ys.append(py)
+    # 转换在一些投影边界上会给出 inf：这种范围同样不能用来过滤
+    if not all(math.isfinite(v) for v in (min(xs), min(ys), max(xs), max(ys))):
+        return None
     return min(xs), min(ys), max(xs), max(ys)
 
 
@@ -669,14 +679,19 @@ def feature_props(feat, specs):
 
 
 def _src_rect(src, dst, ct, bbox, assumed_local):
-    """经纬度视野框 -> 源坐标系矩形；没有视野框、或本地坐标摆法时返回 None。"""
+    """经纬度视野框 -> 源坐标系矩形；没有视野框、或本地坐标摆法时返回 None。
+
+    视野框换不出有效范围（退化视野、落在投影有效区之外、框里是 NaN）时也返回 None，
+    让上层按"不裁剪"处理。早先这里直接抛 InspectError，一个小窗口里算歪的视野框
+    就能把整份数据判成"画不了"——那是个过滤条件的问题，不该连累数据本身。
+    """
     if not bbox or assumed_local:
         return None
     if ct is None:
         return [float(v) for v in bbox]
     rect = _rect_for_src(osr.CoordinateTransformation(dst, src), bbox)
     if rect is None:
-        raise InspectError("这个坐标系转不到经纬度，画不了")
+        return None
     return [float(v) for v in rect]
 
 

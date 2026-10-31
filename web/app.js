@@ -995,7 +995,7 @@ async function renderResult(data, path, opts) {
 
   $('empty').hidden = true;
   $('panels').hidden = false;
-  attrAuto = data.kind === 'vector' || data.kind === 'archive';
+  attrAuto = (data.kind === 'vector' || data.kind === 'archive') && !stackedStage();
   attrLayer = 0;
   attrCache = {};   // 换了文件，属性表的缓存全部作废
   attrShown = null;
@@ -1212,6 +1212,12 @@ function setChip(d) {
 let raster = null;
 /* 图层带属性时打开文件就自动展开属性表，用户手动关过就不再自动弹 */
 let attrAuto = false;
+
+/* 与样式里的断点一致：窄到这个宽度，舞台是"地图在上、信息栏在下"的竖排。
+   竖排时地图本来就不高，再弹一张 260 起高的属性表就把它压没了，所以不自动开 */
+function stackedStage() {
+  return !!(window.matchMedia && window.matchMedia('(max-width: 1120px)').matches);
+}
 
 function resetRasterView() {
   raster = null;
