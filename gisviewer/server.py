@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import __version__
 from . import cache
 from . import formats
+from .textutil import clean_text
 
 # GDAL 那一坨导入是启动耗时的大头。先绑上端口、先把界面发出去，
 # 这些名字由 load_engine() 填上；真正要读数据时才会用到。
@@ -89,8 +90,17 @@ LIGHT_ROUTES = ("/api/formats", "/api/config", "/api/preload", "/api/cache")
 
 
 def _need_engine(route):
+    """读数据的接口先确认引擎在。GDAL 缺失时不能直接抛：处理线程里一抛，
+    连接就被关掉，界面拿到的是空白而不是原因——早先连 /api/config 都因为
+    响应里那句 import 一起断连，排查时看不出是引擎没起来。"""
     if route.startswith("/api/") and route not in LIGHT_ROUTES:
-        load_engine()
+        try:
+            load_engine()
+        except Exception as exc:
+            return {"title": "读取引擎没能启动",
+                    "detail": "%s: %s" % (exc.__class__.__name__, exc),
+                    "hint": "GIS 读取模块（GDAL）缺失或损坏，重新安装本软件即可恢复。"}
+    return None
 
 _upload_root = None
 _upload_lock = threading.Lock()
@@ -575,12 +585,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)):
-            # 元数据里可能带着非 UTF-8 的原始字节（见 report.clean_text），
+            # 元数据里可能带着非 UTF-8 的原始字节（见 textutil.clean_text），
             # 直接 encode 会让整条响应 500，这里统一洗一遍再发
-            from . import report
             text = json.dumps(engine_body(body) if isinstance(body, dict) else body,
                               ensure_ascii=False, default=str)
-            body = report.clean_text(text).encode("utf-8")
+            body = clean_text(text).encode("utf-8")
         elif isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
@@ -626,7 +635,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path
         query = parse_qs(parsed.query)
-        _need_engine(route)
+        failed = _need_engine(route)
+        if failed:
+            return self._send(500, {"ok": False, "error": failed})
         if route in ("/", "/index.html"):
             return self._static("index.html")
         if route.startswith("/web/"):
@@ -706,7 +717,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = urlparse(self.path).path
-        _need_engine(route)
+        failed = _need_engine(route)
+        if failed:
+            return self._send(500, {"ok": False, "error": failed})
         if route == "/api/path":
             body = self._json_body()
             return self._inspect(str(body.get("path", "")).strip(),

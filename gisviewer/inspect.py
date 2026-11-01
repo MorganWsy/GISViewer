@@ -69,6 +69,43 @@ def _vsi_exists(path):
     return gdal.VSIStatL(path) is not None
 
 
+def _long_path(path):
+    """Windows 上超过 MAX_PATH（260）的路径，Python 的 os.stat 认不出来。
+
+    GDAL 自己会补 `\\\\?\\` 前缀（实测 316 字符的 geojson 能正常打开），所以数据是读得了的，
+    卡住的是前面"这个文件到底在不在"这一步判断：os.path.exists 返回 False，用户看到的是
+    "找不到这个文件"。只在我们自己探测时补前缀，回给界面和交给 GDAL 的仍是原路径。
+    """
+    if os.name != "nt" or path.startswith("\\\\?\\"):
+        return path
+    full = os.path.abspath(str(path))
+    if len(full) < 248:      # 留出与 260 之间的余量，短路径不动，免得凭空多出前缀
+        return path
+    return "\\\\?\\" + full.replace("/", "\\")
+
+
+def _stat(path):
+    try:
+        return os.stat(path)
+    except OSError:
+        long = _long_path(path)
+        if long == path:
+            raise
+        return os.stat(long)
+
+
+def _isdir(path):
+    return os.path.isdir(_long_path(path))
+
+
+def _exists(path):
+    try:
+        _stat(path)
+        return True
+    except OSError:
+        return False
+
+
 def _file_block(path):
     if _is_vsi(path):
         st = gdal.VSIStatL(path)
@@ -82,8 +119,8 @@ def _file_block(path):
             "size_label": labels.human_size(size) if size else None,
             "modified": None,
         }
-    st = os.stat(path)
-    is_dir = os.path.isdir(path)
+    st = _stat(path)
+    is_dir = _isdir(path)
     items, total = (_dir_total(path) if is_dir else (None, None))
     return {
         "path": path,
@@ -274,8 +311,8 @@ def _count_feature_markers(path, chunk=1 << 20):
 
 def _json_sniff(path):
     """GeoJSON 之外的 JSON：给出结构概要，并说清它是不是地理数据。"""
-    size = os.path.getsize(path)
-    with open(path, "rb") as fh:
+    size = _stat(path).st_size
+    with open(_long_path(path), "rb") as fh:
         head = fh.read(4096).decode("utf-8-sig", errors="replace").lstrip()
 
     looks_geo = '"FeatureCollection"' in head or '"Feature"' in head or '"coordinates"' in head
@@ -356,14 +393,14 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
         if not _vsi_exists(path):
             raise InspectError("找不到这个文件", detail=path,
                                hint="压缩包内的写法：/vsizip/盘:/路径/包.zip/里面的文件.shp。")
-    elif not os.path.exists(path):
+    elif not _exists(path):
         raise InspectError("找不到这个文件", detail=path,
                            hint="路径里多余的空格和引号要去掉；网络盘上的文件请先复制到本地。")
 
     result = {"ok": True, "file": _file_block(path)}
     ext = Path(path).suffix.lower()
 
-    if os.path.isdir(path):
+    if _isdir(path):
         if ext == ".gdb":
             result.update(vector.inspect(path, quick=quick))
         elif ext == ".zarr":

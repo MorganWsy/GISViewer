@@ -326,9 +326,31 @@ function hideTipBox() {
   tipState.anchor = null;
 }
 
+/* 气泡只在"鼠标悬停"时出现：点击和拖动算动作，不算悬停。
+   点击常伴随重绘（换图层、刷右栏、展开属性表），指针底下的元素一换，浏览器就补发一次
+   mouseover——那一下不是用户想悬停，所以按下的瞬间进入静默期，松手后再留一小段；
+   纯悬停（没按过鼠标）完全不受影响 */
+let tipMuteUntil = 0;
+let tipPress = null;
+document.addEventListener('pointerdown', (e) => {
+  /* 就按在气泡上（选中文字、点里面的链接）不算：这时把气泡收掉，那一下点击就废了 */
+  if (e.target && e.target.closest && e.target.closest('.tip-bubble')) return;
+  tipPress = { x: e.clientX, y: e.clientY };
+  tipMuteUntil = Date.now() + 1000;
+  hideTipBox();
+}, true);
+document.addEventListener('pointerup', (e) => {
+  const moved = tipPress ? Math.abs(e.clientX - tipPress.x) + Math.abs(e.clientY - tipPress.y) : 0;
+  tipMuteUntil = Date.now() + (moved > 6 ? 250 : 420);
+  tipPress = null;
+}, true);
+document.addEventListener('pointercancel', () => { tipPress = null; tipMuteUntil = 0; }, true);
+
 document.addEventListener('mouseover', (e) => {
   /* 按着鼠标拖动时不弹气泡：拖分隔条、拖属性表高度这类操作，气泡跟着走只会碍事 */
   if (e.buttons) return;
+  /* 刚点过（或刚拖完）的这一下不算悬停：这是重绘补发的 mouseover，不是鼠标移过来的 */
+  if (Date.now() < tipMuteUntil) return;
   const t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
   if (!t || t === tipState.anchor) return;
   showTipBox(t, t.getAttribute('data-tip'));

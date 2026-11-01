@@ -16,6 +16,7 @@ from . import __version__
 from . import inspect as engine
 from . import verdict
 from . import xlsx
+from .textutil import clean_text
 
 SKIP_EXT = {".hdr", ".ovr", ".rrd"}    # 只是配件，不单独体检
 DIR_LIMIT = 500                        # 一个文件夹最多体检这么多，超了先给前 500 个
@@ -89,16 +90,6 @@ def build(results, with_verdict=False):
 
 def norm(path):
     return str(path or "").replace("\\", "/").casefold()
-
-
-def clean_text(text):
-    """把代理字符还原成原来的字节，再按 UTF-8 容错解码。
-
-    有些驱动（MapInfo 的 .tab/.mif 之类）把中文元数据按本地代码页原样吐回来，
-    Python 用代理字符记着那串字节。这种字符串写不进 UTF-8，写报告和回接口时
-    都会抛 UnicodeEncodeError，一次就把整份结果带崩。坏字节换成替换符，其余照常。
-    """
-    return str(text).encode("utf-8", "surrogateescape").decode("utf-8", "replace")
 
 
 def save(report, path):
