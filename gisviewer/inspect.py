@@ -10,6 +10,10 @@ from pathlib import Path
 from . import bootstrap, dwg, labels, raster, tileset, vector
 from .errors import InspectError
 from .formats import HEAVY_ARCHIVE_EXT, JSON_EXT, RASTER_EXT, VECTOR_EXT, ZIP_LIKE
+from .winpath import exists as _exists
+from .winpath import isdir as _isdir
+from .winpath import long_path as _long_path
+from .winpath import stat as _stat
 
 gdal = bootstrap.gdal
 
@@ -67,43 +71,6 @@ def _is_vsi(path):
 
 def _vsi_exists(path):
     return gdal.VSIStatL(path) is not None
-
-
-def _long_path(path):
-    """Windows 上超过 MAX_PATH（260）的路径，Python 的 os.stat 认不出来。
-
-    GDAL 自己会补 `\\\\?\\` 前缀（实测 316 字符的 geojson 能正常打开），所以数据是读得了的，
-    卡住的是前面"这个文件到底在不在"这一步判断：os.path.exists 返回 False，用户看到的是
-    "找不到这个文件"。只在我们自己探测时补前缀，回给界面和交给 GDAL 的仍是原路径。
-    """
-    if os.name != "nt" or path.startswith("\\\\?\\"):
-        return path
-    full = os.path.abspath(str(path))
-    if len(full) < 248:      # 留出与 260 之间的余量，短路径不动，免得凭空多出前缀
-        return path
-    return "\\\\?\\" + full.replace("/", "\\")
-
-
-def _stat(path):
-    try:
-        return os.stat(path)
-    except OSError:
-        long = _long_path(path)
-        if long == path:
-            raise
-        return os.stat(long)
-
-
-def _isdir(path):
-    return os.path.isdir(_long_path(path))
-
-
-def _exists(path):
-    try:
-        _stat(path)
-        return True
-    except OSError:
-        return False
 
 
 def _file_block(path):

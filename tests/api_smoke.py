@@ -146,6 +146,17 @@ def main(argv=None):
         need(back["config"]["theme"] == "dark", "读回来的不是刚写的值")
         cli.post("/api/config", {"theme": "auto"})
 
+    @check("stamp 报文件大小与修改时间")
+    def _(cli):
+        status, data, _ = cli.get("/api/stamp", path=str(tif))
+        need(status == 200 and data.get("ok"), "200/ok 不对")
+        s = data.get("stamp") or {}
+        need(s.get("exists") is True, "存在的文件被判成不存在")
+        need(s.get("size") == tif.stat().st_size, "大小对不上")
+        need(isinstance(s.get("mtime_ns"), int), "没有纳秒级修改时间")
+        _, gone, _ = cli.get("/api/stamp", path=str(tif) + ".nope")
+        need((gone.get("stamp") or {}).get("exists") is False, "不存在的文件应报 exists=false")
+
     @check("inspect 栅格")
     def _(cli):
         status, data, _ = cli.get("/api/inspect", path=str(tif))

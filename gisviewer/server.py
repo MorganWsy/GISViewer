@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from . import __version__
 from . import cache
 from . import formats
+from . import winpath
 from .textutil import clean_text
 
 # GDAL 那一坨导入是启动耗时的大头。先绑上端口、先把界面发出去，
@@ -86,7 +87,21 @@ def __getattr__(name):
 
 
 # 这几个接口不碰数据，答完就能让界面先跑起来
-LIGHT_ROUTES = ("/api/formats", "/api/config", "/api/preload", "/api/cache")
+LIGHT_ROUTES = ("/api/formats", "/api/config", "/api/preload", "/api/cache", "/api/stamp")
+
+
+def _file_stamp(path):
+    """只取大小与修改时间，给界面判断"文件有没有被外部改过"。
+
+    不碰 GDAL：界面每隔几秒问一次，为此把引擎拉起来不值当。
+    """
+    if not path:
+        return {"exists": False, "size": None, "mtime_ns": None}
+    try:
+        st = winpath.stat(path)
+    except OSError:
+        return {"exists": False, "size": None, "mtime_ns": None}
+    return {"exists": True, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
 
 
 def _need_engine(route):
@@ -688,6 +703,9 @@ class Handler(BaseHTTPRequestHandler):
                     for key, stops in formats.RAMPS.items()
                 ],
             })
+        if route == "/api/stamp":
+            return self._send(200, {"ok": True,
+                                    "stamp": _file_stamp((query.get("path") or [""])[0].strip())})
         if route == "/api/inspect":
             path = (query.get("path") or [""])[0]
             return self._inspect(path.strip())

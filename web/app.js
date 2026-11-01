@@ -326,35 +326,78 @@ function hideTipBox() {
   tipState.anchor = null;
 }
 
-/* 气泡只在"鼠标悬停"时出现：点击和拖动算动作，不算悬停。
-   点击常伴随重绘（换图层、刷右栏、展开属性表），指针底下的元素一换，浏览器就补发一次
-   mouseover——那一下不是用户想悬停，所以按下的瞬间进入静默期，松手后再留一小段；
-   纯悬停（没按过鼠标）完全不受影响 */
-let tipMuteUntil = 0;
-let tipPress = null;
+/* 气泡按 DOM 原生 title 的语义来：指针进到带 data-tip 的元素上就出现，离开就消失，
+   停着不动也一直在。三条额外规则：
+   · 按着鼠标拖动时不出——拖分隔条、拖属性表高度，气泡跟着走只会碍事；
+   · 已经打开的东西（菜单、体检浮层、设置弹窗）那颗按钮不出：这一下点的是"打开"，
+     指针还停在原处，再飘一句说明是噪音；
+   · 点击引起的重绘会补发 mouseover，那不是用户在悬停，所以显示改由 pointermove 驱动。
+   关掉菜单之后要主动补看一次：指针没动过，浏览器不会再发 mouseover，
+   不查一下那颗按钮就再也不出提示了。 */
+let tipPointer = { x: -1, y: -1 };
+let tipPressed = false;
+let tipPress = null;          // { wasOn }：按下时这颗按钮是否正处于打开状态
+let tipRetry = 0;
+
+function tipRawAnchor(node) {
+  if (!node || !node.closest) return null;
+  const t = node.closest('[data-tip]');
+  return t && t.getAttribute('data-tip') ? t : null;
+}
+
+function tipAnchorOf(node) {
+  const t = tipRawAnchor(node);
+  if (!t) return null;
+  /* 打开状态的按钮（菜单已经弹出来、面板已经开着）不提示：这一下点的是"打开"，
+     指针还停在同一颗按钮上，再飘一句说明是噪音 */
+  if (t.classList.contains('on') || t.getAttribute('aria-expanded') === 'true') return null;
+  return t;
+}
+
+function tipInBubble(node) {
+  return !!(node && node.closest && node.closest('.tip-bubble'));
+}
+
+document.addEventListener('pointermove', (e) => {
+  tipPointer = { x: e.clientX, y: e.clientY };
+  if (e.buttons || tipPressed) { hideTipBox(); return; }   // 拖动中
+  if (tipInBubble(e.target)) return;                       // 移到气泡上：留着，里面的字要能选
+  const t = tipAnchorOf(e.target);
+  if (t) {
+    if (t !== tipState.anchor) showTipBox(t, t.getAttribute('data-tip'));
+  } else if (tipState.anchor) {
+    hideTipBox();
+  }
+}, true);
+
 document.addEventListener('pointerdown', (e) => {
-  /* 就按在气泡上（选中文字、点里面的链接）不算：这时把气泡收掉，那一下点击就废了 */
-  if (e.target && e.target.closest && e.target.closest('.tip-bubble')) return;
-  tipPress = { x: e.clientX, y: e.clientY };
-  tipMuteUntil = Date.now() + 1000;
+  if (tipInBubble(e.target)) return;   // 按在气泡上（选字、点链接）不算
+  /* 这里必须看原始锚点：按下时那颗按钮正开着，tipAnchorOf 会把它滤掉，
+     于是永远记不到"刚才是打开的"，关掉之后就补不上那一次提示 */
+  const raw = tipRawAnchor(e.target);
+  tipPress = { wasOn: !!(raw && raw.classList.contains('on')) };
+  tipPressed = true;
   hideTipBox();
 }, true);
-document.addEventListener('pointerup', (e) => {
-  const moved = tipPress ? Math.abs(e.clientX - tipPress.x) + Math.abs(e.clientY - tipPress.y) : 0;
-  tipMuteUntil = Date.now() + (moved > 6 ? 250 : 420);
-  tipPress = null;
-}, true);
-document.addEventListener('pointercancel', () => { tipPress = null; tipMuteUntil = 0; }, true);
 
-document.addEventListener('mouseover', (e) => {
-  /* 按着鼠标拖动时不弹气泡：拖分隔条、拖属性表高度这类操作，气泡跟着走只会碍事 */
-  if (e.buttons) return;
-  /* 刚点过（或刚拖完）的这一下不算悬停：这是重绘补发的 mouseover，不是鼠标移过来的 */
-  if (Date.now() < tipMuteUntil) return;
-  const t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
-  if (!t || t === tipState.anchor) return;
-  showTipBox(t, t.getAttribute('data-tip'));
-});
+document.addEventListener('pointerup', () => {
+  tipPressed = false;
+  const wasOpen = !!(tipPress && tipPress.wasOn);
+  tipPress = null;
+  if (!wasOpen) return;
+  /* 刚把菜单/浮层关掉：等重绘落定，再看一眼指针底下是谁 */
+  clearTimeout(tipRetry);
+  tipRetry = setTimeout(() => {
+    if (tipPressed || tipPointer.x < 0) return;
+    const el = document.elementFromPoint(tipPointer.x, tipPointer.y);
+    if (tipInBubble(el)) return;
+    const t = tipAnchorOf(el);
+    if (t) showTipBox(t, t.getAttribute('data-tip'));
+  }, 250);
+}, true);
+
+document.addEventListener('pointercancel', () => { tipPressed = false; tipPress = null; }, true);
+
 document.addEventListener('mouseout', (e) => {
   const t = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
   if (t && t === tipState.anchor) scheduleHideTip();
@@ -2397,6 +2440,7 @@ function closeLayer() {
   /* 文件都关了，属性表不能还挂着一份旧行；缓存留着，同一个文件再打开是瞬时的 */
   closeAttr();
   attrShown = null;
+  watchStale('');   // 文件关了就不必再盯着它的改动
   if (window.GisMap) GisMap.clear();
   $('rail').textContent = '';
   $('panels').hidden = true;
@@ -2630,16 +2674,84 @@ async function inspectPath(path) {
         data = full;
       }
       await renderResult(data, path);   // 带着范围正式渲染（右栏重画 + 画地图）
-      if (data.ok) rememberLast(path, data);
+      if (data.ok) { rememberLast(path, data); watchStale(path, data); }
       return;
     }
-    if (data.ok) rememberLast(path, data);
+    if (data.ok) { rememberLast(path, data); watchStale(path, data); }
   } catch (err) {
     releaseVeil();
     renderError('界面渲染出错', (err && err.message) || String(err));
   } finally {
     if (!staged) { releaseVeil(); loadTip(false); }
   }
+}
+
+/* ---------- 外部改动监测 ---------- */
+
+/* 数据打开后可能被别的软件改、被同步盘替换、被删掉，而画面停在打开那一刻。
+   这里每 4 秒问一句服务端"这个文件还是不是原样"，变了就出一条横幅给一键重读。
+   只在页面可见时问：切到后台就停，回来补一次。临时副本不盯（它本来就在我们自己手里）。 */
+let stalePath = '';
+let staleSize = null;
+let staleMtime = null;
+let staleIgnored = '';     // 用户点过"×"的那个路径：重新打开前不再提示
+let staleBusy = false;
+let staleTimer = 0;
+
+function staleBarEl() {
+  return $('staleBar');
+}
+
+function hideStale() {
+  const bar = staleBarEl();
+  if (bar && !bar.hidden) bar.hidden = true;
+}
+
+function showStale(kind) {
+  const bar = staleBarEl();
+  if (!bar || !stalePath) return;
+  const name = String(stalePath).split(/[\\/]/).pop();
+  const text = $('staleText');
+  if (text) {
+    text.textContent = kind === 'gone'
+      ? '「' + name + '」已被移走或删除，画面还是打开时的样子。'
+      : '「' + name + '」已在别处被修改，画面还是打开时的样子。';
+  }
+  const btn = $('staleReload');
+  if (btn) btn.textContent = kind === 'gone' ? '重新检查' : '重新载入';
+  bar.dataset.kind = kind;
+  bar.hidden = false;
+}
+
+async function checkStale() {
+  if (!stalePath || staleBusy || stalePath === staleIgnored || document.hidden) return;
+  staleBusy = true;
+  const mine = stalePath;
+  try {
+    const res = await fetch('/api/stamp?path=' + encodeURIComponent(mine));
+    const data = await res.json();
+    const s = (data && data.stamp) || {};
+    if (stalePath !== mine) return;      // 这中间换了文件，这一拍的结果作废
+    if (!s.exists) { showStale('gone'); return; }
+    if (staleSize === null) { staleSize = s.size; staleMtime = s.mtime_ns; return; }
+    if (s.size !== staleSize || s.mtime_ns !== staleMtime) showStale('changed');
+  } catch (err) {
+    /* 服务端忙或刚重启：下一拍再问，不必打扰用户 */
+  } finally {
+    staleBusy = false;
+  }
+}
+
+function watchStale(path, data) {
+  const temp = !!(data && (data.temp_copy || (data.file && data.file.temp_copy)));
+  stalePath = temp ? '' : String(path || '');
+  staleSize = null;
+  staleMtime = null;
+  staleIgnored = '';
+  hideStale();
+  if (!stalePath) return;
+  if (!staleTimer) staleTimer = setInterval(checkStale, 4000);
+  checkStale();   // 立刻取一次基准，省得"刚打开就被改"这一段落在空档里
 }
 
 /* 记住这次打开的是哪个文件：一条给"启动时恢复上次的文件"，
@@ -4464,6 +4576,20 @@ function init() {
   $('histBtn').addEventListener('click', toggleHist);
   $('attrBtn').addEventListener('click', () => { attrAuto = false; toggleAttr(); });
   $('chipClose').addEventListener('click', () => { hideLayerPop(); closeLayer(); });
+  /* 文件被外部改过的那条横幅：重读一次，或者这次先不管 */
+  $('staleReload').addEventListener('click', () => {
+    if (!stalePath) return;
+    if (staleBarEl() && staleBarEl().dataset.kind === 'gone') { checkStale(); return; }
+    const btn = $('staleReload');
+    btn.disabled = true;
+    inspectPath(stalePath).finally(() => { btn.disabled = false; });
+  });
+  $('staleIgnore').addEventListener('click', () => {
+    staleIgnored = stalePath;
+    hideStale();
+  });
+  /* 从后台切回来补查一次：这期间可能刚在别的软件里存过盘 */
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkStale(); });
   $('chipLayerBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     if (layerItems.length < 2) return;

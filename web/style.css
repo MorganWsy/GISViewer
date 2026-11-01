@@ -230,6 +230,55 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 /* 图标区和窗口三键之间的一道细线，把"软件的事"和"窗口的事"分开 */
 .bar-sep { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line); }
 
+/* 文件被别处改过的横幅：一条 32px 高，平时不出现，出现时把主体整体往下推。
+   配色借"要留意"那套 warn 变量，深浅主题各有定义 */
+.stale-bar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text);
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-line);
+}
+.stale-bar[hidden] { display: none; }
+.sb-ico { display: block; flex: none; width: 14px; height: 14px; color: var(--warn-ico); }
+.sb-text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-btn {
+  flex: none;
+  height: 22px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--warn-line);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.sb-btn:hover { border-color: var(--warn-ico); }
+.sb-btn[disabled] { opacity: .55; cursor: default; }
+.sb-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.sb-close:hover { color: var(--text); background: var(--panel-alt); }
+
 /* 窗口三键：无边框之后由界面自己画，只在原生壳里出现 */
 .winbtns { display: flex; align-items: center; gap: 2px; }
 .win-btn {

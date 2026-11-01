@@ -91,6 +91,19 @@
   </div>
 </header>
 
+<!-- 文件在别处被改过：画面还是打开时那一刻的样子，说清楚，给一键重读。
+     这条只在"确实变了"时出现，平时不占高度 -->
+<div id="staleBar" class="stale-bar" hidden>
+  <svg class="sb-ico" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M8 2.2 15 14H1z" fill="currentColor"/>
+    <path d="M8 6.4v3.4" stroke="var(--panel)" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="8" cy="12" r="0.9" fill="var(--panel)"/>
+  </svg>
+  <span id="staleText" class="sb-text"></span>
+  <button id="staleReload" class="sb-btn" type="button">重新载入</button>
+  <button id="staleIgnore" class="sb-close" type="button" data-tip="这次先不管，重新打开文件前不再提示" aria-label="关闭提示">×</button>
+</div>
+
 <main id="drop" class="layout">
   <section id="empty" class="empty">
     <p class="empty-title">把文件拖到这里</p>
