@@ -51,7 +51,9 @@ const THEME_ICONS = {
   light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>',
   dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2z"/></svg>',
   paper: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.4 3.6h9.4l4 4v12.8H5.4z"/><path d="M14.6 3.6v4.2h4.2"/><path d="M8.6 12.4h7.2M8.6 16h5"/></svg>',
-  ink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3.2c3.4 4.2 5.6 7 5.6 9.8a5.6 5.6 0 1 1-11.2 0c0-2.8 2.2-5.6 5.6-9.8z"/></svg>',
+  /* 墨黑：实心墨滴，左侧挖一道月牙当高光。描边的滴水在 19px 下只有一圈细线，
+     深色底上糊成一团；实心块加负空间才立得住 */
+  ink: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 2.3c3.8 4.8 6.3 8 6.3 11a6.3 6.3 0 1 1-12.6 0c0-3 2.5-6.2 6.3-11zm-2.7 8.4a3.4 3.4 0 0 0 2.9 5.4 4.8 4.8 0 0 1-2.9-5.4z"/></svg>',
   slate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.6 19.2l6-9.4 3.6 5.4 2.6-3.8 6.6 7.8z"/><circle cx="16.4" cy="6.6" r="2.2"/></svg>',
 };
 const THEME_LABELS = {
@@ -195,7 +197,7 @@ function tipBubble() {
     tipState.box.hidden = true;
     /* 鼠标可以移进气泡：里面的说明文字要能选中复制，链接要能点。
        移进来时取消"即将收起"的定时器，移出去再收起 */
-    tipState.box.addEventListener('mouseenter', () => clearTimeout(tipState.timer));
+    tipState.box.addEventListener('mouseenter', () => { clearTimeout(tipState.timer); tipState.timer = 0; });
     tipState.box.addEventListener('mouseleave', hideTipBox);
     document.body.appendChild(tipState.box);
   }
@@ -205,6 +207,7 @@ function tipBubble() {
 function showTipBox(anchor, text) {
   const box = tipBubble();
   clearTimeout(tipState.timer);
+  tipState.timer = 0;
   box.textContent = '';
   // 文案里有换行就按行拆开。以"· "开头的行画圆点，其余行整段排：
   // 有的气泡是"一句总述 + 几条清单 + 一句收尾"，不能每行都挂圆点
@@ -280,11 +283,15 @@ function showTipBox(anchor, text) {
   if (side === 'v') {
     /* 竖向时贴着锚点那一侧摆：上展锚点先试上方，其余先试下方；
        放不下再翻另一侧。锚点自己可能在视口外（长列表里滚到一半的那种），
-       这时不能跟着锚点走，得把气泡夹回窗口里。 */
-    if (dirUp && r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
+       这时不能跟着锚点走，得把气泡夹回窗口里。
+       上方还得让开顶栏：紧贴窗口顶的锚点（文件信息卡的表头）往上展只会压在
+       标题栏上，既难看又挡住拖动区，那种情况直接改走下方 */
+    const barEl = document.getElementById('bar');
+    const topSafe = Math.max(EDGE, (barEl ? barEl.getBoundingClientRect().bottom : 0) + 4);
+    if (dirUp && r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
     else if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
-    else if (r.top - GAP - br.height >= EDGE) y = r.top - GAP - br.height;
-    y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
+    else if (r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
+    y = Math.max(topSafe, Math.min(window.innerHeight - br.height - EDGE, y));
     /* 气泡整段落在锚点上沿之上才算 above：被夹回来卡在中间时仍按 below 画箭头 */
     if (y + br.height < r.top - 2) vert = 'above';
   } else {
@@ -321,6 +328,7 @@ function showTipBox(anchor, text) {
 function scheduleHideTip() {
   clearTimeout(tipState.timer);
   tipState.timer = setTimeout(() => {
+    tipState.timer = 0;     // 定时器已经烧掉：这个 id 留着会让下次"离开锚点"以为还有一条在等
     /* 有些情况下会收到一个"假"的 mouseout（元素被重画、气泡盖住光标），
        所以真正收起前再问一次：鼠标是不是还在锚点或气泡上 */
     const a = tipState.anchor;
@@ -335,6 +343,7 @@ function scheduleHideTip() {
 
 function hideTipBox() {
   clearTimeout(tipState.timer);
+  tipState.timer = 0;
   if (tipState.box && !tipState.box.hidden) tipState.box.hidden = true;
   tipState.anchor = null;
 }
@@ -361,9 +370,13 @@ function tipRawAnchor(node) {
 function tipAnchorOf(node) {
   const t = tipRawAnchor(node);
   if (!t) return null;
-  /* 打开状态的按钮（菜单已经弹出来、面板已经开着）不提示：这一下点的是"打开"，
-     指针还停在同一颗按钮上，再飘一句说明是噪音 */
-  if (t.classList.contains('on') || t.getAttribute('aria-expanded') === 'true') return null;
+  /* 打开状态的东西不提示：菜单弹出来了、面板开着了，指针还停在同一颗按钮上，
+     再飘一句说明是噪音。
+     判据只认两样——.on（按钮亮着），以及"真的会弹出东西"的展开态（带 aria-haspopup）。
+     折叠按钮（收起文件信息、收起图例）长期是 aria-expanded="true"，它不弹任何浮层，
+     拿 expanded 一概滤掉，这几颗就永远没有提示了——这正是"最小化按钮没气泡"的根子 */
+  if (t.classList.contains('on')) return null;
+  if (t.getAttribute('aria-expanded') === 'true' && t.hasAttribute('aria-haspopup')) return null;
   return t;
 }
 
@@ -374,12 +387,16 @@ function tipInBubble(node) {
 document.addEventListener('pointermove', (e) => {
   tipPointer = { x: e.clientX, y: e.clientY };
   if (e.buttons || tipPressed) { hideTipBox(); return; }   // 拖动中
-  if (tipInBubble(e.target)) return;                       // 移到气泡上：留着，里面的字要能选
+  if (tipInBubble(e.target)) { clearTimeout(tipState.timer); tipState.timer = 0; return; }   // 移到气泡上：留着，里面的字要能选
   const t = tipAnchorOf(e.target);
   if (t) {
     if (t !== tipState.anchor) showTipBox(t, t.getAttribute('data-tip'));
-  } else if (tipState.anchor) {
-    hideTipBox();
+  } else if (tipState.anchor && !tipState.timer) {
+    /* 离开锚点不立刻收：锚点与气泡之间隔着 8px 的箭头缝，
+       这一小段路上指针谁都不在，立刻收就永远走不进气泡。
+       留 200ms，进到气泡里 mouseenter 会把定时器撤掉。
+       加 !tipState.timer：指针在外头继续移动时不要一遍遍把定时器推后，否则永远收不掉 */
+    scheduleHideTip();
   }
 }, true);
 
@@ -1190,7 +1207,6 @@ function paintChipTitle() {
     : '这份文件只有一个可以画到地图上的图层';
   btn.setAttribute('data-tip', layerTip);
   btn.setAttribute('aria-label', layerTip);
-  btn.setAttribute('data-tip-dir', 'up');   // 信息窗标题栏贴近底部，气泡向上展开不盖正文
 }
 
 function showLayerPop() {
@@ -2454,6 +2470,7 @@ function closeLayer() {
   closeAttr();
   attrShown = null;
   watchStale('');   // 文件关了就不必再盯着它的改动
+  syncCheckInput('');   // 体检输入框里那份已经不存在了，跟着清掉
   if (window.GisMap) GisMap.clear();
   $('rail').textContent = '';
   $('panels').hidden = true;
@@ -2687,10 +2704,10 @@ async function inspectPath(path) {
         data = full;
       }
       await renderResult(data, path);   // 带着范围正式渲染（右栏重画 + 画地图）
-      if (data.ok) { rememberLast(path, data); watchStale(path, data); }
+      if (data.ok) noteOpened(path, data);
       return;
     }
-    if (data.ok) { rememberLast(path, data); watchStale(path, data); }
+    if (data.ok) noteOpened(path, data);
   } catch (err) {
     releaseVeil();
     renderError('界面渲染出错', (err && err.message) || String(err));
@@ -2765,6 +2782,14 @@ function watchStale(path, data) {
   if (!stalePath) return;
   if (!staleTimer) staleTimer = setInterval(checkStale, 10000);
   checkStale();   // 立刻取一次基准，省得"刚打开就被改"这一段落在空档里
+}
+
+/* 打开一份数据之后要一起做的三件事：记进最近打开、盯住外部改动、
+   把体检输入框换到这一份（用户自己敲过别的路径时不换，见 syncCheckInput） */
+function noteOpened(path, data) {
+  rememberLast(path, data);
+  watchStale(path, data);
+  syncCheckInput(path);
 }
 
 /* 记住这次打开的是哪个文件：一条给"启动时恢复上次的文件"，
@@ -3438,6 +3463,24 @@ function markBtn(id, on) {
   if (b) b.classList.toggle('on', !!on);
 }
 
+/* 体检输入框跟着当前文件走：换了图层/换了文件，框里就该是这一份。
+   只在用户没动过它的时候跟着换——空着，或者还是上次自动填的那个路径；
+   自己敲过别的路径说明是有意要查别处，不能替他改掉 */
+let checkPrefill = '';
+
+function samePath(a, b) {
+  return tidyPath(a).replace(/\\+$/, '').toLowerCase() === tidyPath(b).replace(/\\+$/, '').toLowerCase();
+}
+
+function syncCheckInput(path) {
+  const input = $('checkPath');
+  if (!input) return;
+  const typed = input.value.trim();
+  if (typed && typed !== checkPrefill) return;
+  input.value = String(path || '');
+  checkPrefill = input.value;
+}
+
 /* 体检浮层：顶栏那颗按钮点开。输入和结果在同一块里——
    结果直接长在输入框下面，换个文件接着查时不用先关一个窗口再开一个 */
 function showCheckPop() {
@@ -3451,13 +3494,21 @@ function showCheckPop() {
   markBtn('checkBtn', true);
   const input = $('checkPath');
   if (input) input.focus();
-  /* 关掉即清空，所以每次打开都得重新查一遍才有东西看。输入框空着就查当前打开的那份：
-     "留空就查当前打开的"这句话，配上没有体检按钮的情况，只有自动跑才成立。
-     输入框里还留着上次的路径就只给一句"回车重查"，不替用户决定要不要再扫一遍大目录 */
-  if (input && !input.value.trim() && current && current.path) {
-    input.value = current.path;
+  /* 关掉即清空，所以每次打开都得重新查一遍才有东西看。
+     框里是当前这一份（空着，或者刚才自动填的、或者手敲的同一个路径）就直接查；
+     手敲的是别处，就只给一句"回车重查"，不替用户决定要不要再扫一遍大目录 */
+  const cur = (current && current.path) || '';
+  const typed = input ? input.value.trim() : '';
+  if (!typed) {
+    if (cur) {
+      input.value = cur;
+      checkPrefill = cur;
+      runCheck();
+    }
+  } else if (cur && samePath(typed, cur)) {
+    checkPrefill = cur;
     runCheck();
-  } else if (input && input.value.trim()) {
+  } else {
     setHint('按回车键重新体检');
   }
 }

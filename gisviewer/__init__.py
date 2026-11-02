@@ -5,7 +5,7 @@ import time as _time
 # 引擎的计时起点；GISVIEWER_TIMING=1 时各阶段按这个报耗时
 T_START = _time.perf_counter()
 
-__version__ = "0.12"
+__version__ = "0.13"
 
 # GDAL 一家的导入是启动耗时的大头，谁真正要用数据接口了再导
 _HEAVY = {"configure", "inspect_file", "safe_inspect", "InspectError"}

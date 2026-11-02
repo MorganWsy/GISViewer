@@ -118,6 +118,8 @@ if ((Want 'shell') -and (-not $SkipShell)) {
         (Join-Path $root 'lib\Microsoft.Web.WebView2.Core.dll'),
         (Join-Path $root 'lib\Microsoft.Web.WebView2.WinForms.dll'),
         'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
+        # win.json 走 JavaScriptSerializer 解析（ReadWinRect），要这个程序集
+        'System.Web.Extensions.dll',
         'Microsoft.CSharp.dll',
         (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationClient.dll'),
         (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationTypes.dll'),

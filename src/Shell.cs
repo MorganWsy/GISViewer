@@ -9,6 +9,7 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using System.Windows.Automation;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -1978,19 +1979,42 @@ namespace GISViewer
             return OnScreen(r) ? r : Rectangle.Empty;
         }
 
+        /* win.json 用框架自带的 JavaScriptSerializer 解析（System.Web.Extensions.dll）：
+           字段顺序、多余字段、以后加字段都不用再改这里。早先按出现顺序手抠整数，
+           文件里一旦混进别的数字就会认错位置。 */
         Rectangle RectFromFile(out bool maxed)
         {
             maxed = false;
-            string s = null;
-            try { s = File.ReadAllText(Path.Combine(DataDir, "win.json")); }
-            catch { }
+            string file = Path.Combine(DataDir, "win.json");
+            string s;
+            try { s = File.ReadAllText(file); }
+            catch { return Rectangle.Empty; }
             if (string.IsNullOrEmpty(s)) return Rectangle.Empty;
-            int[] n = Ints(s);
-            if (n == null || n.Length < 4) return Rectangle.Empty;
-            Rectangle r = new Rectangle(n[0], n[1], n[2], n[3]);
-            if (r.Width < 400 || r.Height < 300) return Rectangle.Empty;
-            if (s.Contains("\"maxed\":true")) maxed = true;
+            int left, top, w, h;
+            try
+            {
+                var d = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(s);
+                if (d == null) return Rectangle.Empty;
+                left = JsonInt(d, "left");
+                top = JsonInt(d, "top");
+                w = JsonInt(d, "width");
+                h = JsonInt(d, "height");
+                object flag;
+                if (d.TryGetValue("maxed", out flag)) maxed = flag is bool && (bool)flag;
+            }
+            catch { return Rectangle.Empty; }
+            if (w < 400 || h < 300) return Rectangle.Empty;
+            Rectangle r = new Rectangle(left, top, w, h);
             return OnScreen(r) ? r : Rectangle.Empty;
+        }
+
+        /* JSON 里的数字取成 int：JavaScriptSerializer 给的是 Int32，别的实现可能给 long 或 double */
+        static int JsonInt(Dictionary<string, object> d, string key)
+        {
+            object v;
+            if (!d.TryGetValue(key, out v) || v == null) return 0;
+            try { return Convert.ToInt32(v); }
+            catch { return 0; }
         }
 
         /* 矩形至少要有 200x200 落在现有屏幕上才认：换机器、拔显示器之后，
@@ -2032,9 +2056,14 @@ namespace GISViewer
                 bool maxed = WindowState == FormWindowState.Maximized;
                 Rectangle r = maxed ? RestoreBounds : Bounds;
                 if (r.Width < 400 || r.Height < 300) return;
+                var payload = new Dictionary<string, object>
+                {
+                    { "left", r.X }, { "top", r.Y },
+                    { "width", r.Width }, { "height", r.Height },
+                    { "maxed", maxed },
+                };
                 File.WriteAllText(Path.Combine(DataDir, "win.json"),
-                    "{\"left\":" + r.X + ",\"top\":" + r.Y + ",\"width\":" + r.Width
-                    + ",\"height\":" + r.Height + ",\"maxed\":" + (maxed ? "true" : "false") + "}");
+                    new JavaScriptSerializer().Serialize(payload));
             }
             catch { /* 记不住位置不拦主流程 */ }
         }

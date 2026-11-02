@@ -139,15 +139,15 @@
           <div class="chip-head">
             <!-- 标题两张脸：大字是正在看的图层名（单文件时是文件名），
                  小字补出处（文件 · 第几层）——只有多图层文件才亮出第二行 -->
-            <button id="chipLayerBtn" class="chip-layer" type="button">
+            <button id="chipLayerBtn" class="chip-layer" type="button" aria-haspopup="listbox" aria-expanded="false">
               <span class="cl-col">
                 <span id="chipName"></span>
                 <span id="chipSub" hidden></span>
               </span>
               <svg class="chip-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
             </button>
-            <button id="chipFold" class="fold-btn" data-tip="收起文件信息" data-tip-dir="up" aria-label="收起文件信息"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
-            <button id="chipClose" class="fold-btn close" data-tip="关闭图层，回到初始界面" data-tip-dir="up" aria-label="关闭图层，回到初始界面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+            <button id="chipFold" class="fold-btn" data-tip="收起文件信息" aria-label="收起文件信息"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+            <button id="chipClose" class="fold-btn close" data-tip="关闭图层，回到初始界面" aria-label="关闭图层，回到初始界面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
           </div>
           <div id="chipBody"></div>
         </div></div>

@@ -35,6 +35,8 @@ $refs = @(
   (Join-Path $root 'lib\Microsoft.Web.WebView2.Core.dll'),
   (Join-Path $root 'lib\Microsoft.Web.WebView2.WinForms.dll'),
   'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
+  # win.json 用 JavaScriptSerializer 读写（见 Shell.RectFromFile），框架自带这个程序集
+  'System.Web.Extensions.dll',
   # 读资源管理器的选中项走 Shell.Application 后期绑定，dynamic 需要这个程序集
   'Microsoft.CSharp.dll',
   # 标签页/桌面上的选中项 Shell.Application 读不到，改用 UI Automation 直接读窗口。
