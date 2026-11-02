@@ -108,8 +108,16 @@ def describe(source):
     except Exception:
         pass
 
-    proj_match = _PROJ_RE.search(wkt)
-    method_raw = proj_match.group(1) if proj_match else None
+    # 投影方法名先问 OSR：它认得各种写法（WKT1、ESRI 风格、带别名的），比在文本里找关键字稳；
+    # 万一哪天 GDAL 给出的是 WKT2，下面那条正则就抓不到了，留作退路
+    method_raw = None
+    try:
+        method_raw = srs.GetAttrValue("PROJECTION") or None
+    except Exception:
+        method_raw = None
+    if not method_raw:
+        proj_match = _PROJ_RE.search(wkt)
+        method_raw = proj_match.group(1) if proj_match else None
     params = []
     for name, value in _PARAM_RE.findall(wkt):
         key = _key(name)

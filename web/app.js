@@ -43,13 +43,26 @@ let config = {
 const RAIL_MIN = 300;
 const RAIL_MAX = 760;
 
-/* 图标全部走 currentColor，深浅主题下自动跟着文字变色 */
+/* 图标全部走 currentColor，深浅主题下自动跟着文字变色。
+   一套配色一枚图标：新加的三套各用一眼能认出来的形状（纸、墨滴、山），
+   免得六套主题共用一个"调色盘"，点开才知道到哪一套了 */
 const THEME_ICONS = {
   auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.4"/><path d="M12 3.6v16.8"/><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"/></svg>',
   light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>',
   dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.4 8.4 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2z"/></svg>',
+  paper: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.4 3.6h9.4l4 4v12.8H5.4z"/><path d="M14.6 3.6v4.2h4.2"/><path d="M8.6 12.4h7.2M8.6 16h5"/></svg>',
+  ink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3.2c3.4 4.2 5.6 7 5.6 9.8a5.6 5.6 0 1 1-11.2 0c0-2.8 2.2-5.6 5.6-9.8z"/></svg>',
+  slate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.6 19.2l6-9.4 3.6 5.4 2.6-3.8 6.6 7.8z"/><circle cx="16.4" cy="6.6" r="2.2"/></svg>',
 };
-const THEME_LABELS = { auto: '跟随系统', light: '浅色', dark: '深色' };
+const THEME_LABELS = {
+  auto: '跟随系统', light: '浅色', dark: '深色',
+  paper: '暖纸', ink: '墨黑', slate: '青岩',
+};
+/* 每套配色是浅底还是深底：logo 换版、地图控件反色、color-scheme 这几处结构性的差别按它判断，
+   不按具体是哪一套——否则每加一套深色主题都要再改一遍样式表 */
+const THEME_TONE = { light: 'light', dark: 'dark', paper: 'light', ink: 'dark', slate: 'light' };
+/* 顶栏那颗按钮的点击顺序：先跟随系统与两套常用的，再往后是新加的三套 */
+const THEME_ORDER = ['auto', 'light', 'dark', 'paper', 'ink', 'slate'];
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -2689,7 +2702,7 @@ async function inspectPath(path) {
 /* ---------- 外部改动监测 ---------- */
 
 /* 数据打开后可能被别的软件改、被同步盘替换、被删掉，而画面停在打开那一刻。
-   这里每 4 秒问一句服务端"这个文件还是不是原样"，变了就出一条横幅给一键重读。
+   这里每 10 秒问一句服务端"这个文件还是不是原样"，变了就出一条横幅给一键重读。
    只在页面可见时问：切到后台就停，回来补一次。临时副本不盯（它本来就在我们自己手里）。 */
 let stalePath = '';
 let staleSize = null;
@@ -2750,7 +2763,7 @@ function watchStale(path, data) {
   staleIgnored = '';
   hideStale();
   if (!stalePath) return;
-  if (!staleTimer) staleTimer = setInterval(checkStale, 4000);
+  if (!staleTimer) staleTimer = setInterval(checkStale, 10000);
   checkStale();   // 立刻取一次基准，省得"刚打开就被改"这一段落在空档里
 }
 
@@ -3145,14 +3158,27 @@ async function uploadFiles(files) {
 
 /* ---------- 主题与设置 ---------- */
 
+/* 配置里存的是"跟随系统"还是某一套配色；跟随系统时按系统偏好落到 light / dark */
+function themeName(mode) {
+  const m = THEME_LABELS[mode] ? mode : 'auto';
+  if (m !== 'auto') return m;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 function applyTheme(mode) {
-  const dark = mode === 'dark' ||
-    (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const name = themeName(mode);
+  const root = document.documentElement;
+  root.dataset.theme = name;
+  root.dataset.tone = THEME_TONE[name] || 'light';
   if (window.GisMap) GisMap.themeChanged();
-  // 原生壳要跟页面同一个底色，否则首帧是白的；浏览器里没有这个通道
+  /* 原生壳要跟页面同一个底色，否则首帧和拖动缩放时会闪过一条别的颜色。
+     几套主题各有各的底，所以发的是算出来的真实背景色，壳那边按十六进制认；
+     万一取不到就退回明暗两个字，老壳也认 */
   if (window.chrome && window.chrome.webview) {
-    window.chrome.webview.postMessage('theme:' + (dark ? 'dark' : 'light'));
+    const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+    window.chrome.webview.postMessage('theme:' + (/^#[0-9a-fA-F]{6}$/.test(bg)
+      ? bg
+      : (THEME_TONE[name] === 'dark' ? '#12151a' : '#f6f7f9')));
   }
 }
 
@@ -3183,9 +3209,10 @@ function paintThemeBtn() {
   const btn = $('themeBtn');
   const mode = THEME_LABELS[config.theme] ? config.theme : 'auto';
   btn.dataset.mode = mode;
-  btn.innerHTML = '<span class="btn-ico">' + THEME_ICONS[mode] + '</span>';
-  btn.setAttribute('data-tip', '当前主题：' + THEME_LABELS[mode] + '，点击切换');
-  btn.setAttribute('aria-label', '当前主题：' + THEME_LABELS[mode] + '，点击切换');
+  btn.innerHTML = '<span class="btn-ico">' + (THEME_ICONS[mode] || THEME_ICONS.auto) + '</span>';
+  const tip = '当前主题：' + THEME_LABELS[mode] + '，点击切换';
+  btn.setAttribute('data-tip', tip);
+  btn.setAttribute('aria-label', tip);
 }
 
 /* 色带下拉：整张清单由引擎给（20 条，含连续与分类），界面不维护第二份。
@@ -3327,7 +3354,7 @@ function fillSettings() {
   $('cfgAlpha').value = String(config.panel_alpha || 93);
   $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
   paintRange($('cfgAlpha'));
-  $('cfgTheme').value = ['auto', 'light', 'dark'].indexOf(config.theme) >= 0 ? config.theme : 'auto';
+  $('cfgTheme').value = THEME_LABELS[config.theme] ? config.theme : 'auto';
   $('aboutVer').textContent = 'v' + ((document.title || '图览').replace('图览', '').trim() || '0.1');
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
@@ -3499,17 +3526,21 @@ function hideCheckPop() {
 }
 
 /* 浮层标题行左侧那句提示：导出完成、体检失败都走这里。
-   单行显示，超长省略，完整内容进 title，鼠标停一下能看全 */
+   单行显示，超长省略；只有真被省略号截掉了才挂气泡——"按回车键重新体检"这类短句
+   本来就看得全，再悬停出来一遍只是重复。 */
 function setHint(text) {
   const hint = $('checkHint');
   if (!hint) return;
   hint.textContent = text || '';
-  if (text) {
+  hint.removeAttribute('data-tip');
+  if (text) hint.setAttribute('aria-label', text);
+  else hint.removeAttribute('aria-label');
+  if (!text) return;
+  /* 量一下有没有被省略号截掉：读 scrollWidth 会强制排版，当场就能判断，不必等下一帧
+     （窗口最小化时 requestAnimationFrame 会被挂起，等帧那一套在这里靠不住）。
+     浮层关着时宽度是 0，这时也不挂——看不见也就悬停不到 */
+  if (hint.clientWidth > 0 && hint.scrollWidth > hint.clientWidth + 1) {
     hint.setAttribute('data-tip', text);
-    hint.setAttribute('aria-label', text);
-  } else {
-    hint.removeAttribute('data-tip');
-    hint.removeAttribute('aria-label');
   }
 }
 
@@ -3547,7 +3578,6 @@ function renderGroups(files, host) {
     hd.className = 'chk-grp-hd';
     hd.setAttribute('role', 'button');
     hd.tabIndex = 0;
-    hd.setAttribute('data-tip', '收起或展开这一组');
     hd.setAttribute('aria-label', '收起或展开这一组');
     const ico = document.createElement('i');
     // 档位色由 lv- 前缀决定（红 / 橙 / 绿）。早先只写 chk-ico，图标只好继承标题的
@@ -4424,8 +4454,8 @@ function init() {
   });
 
   $('themeBtn').addEventListener('click', () => {
-    const order = ['auto', 'light', 'dark'];
-    const next = order[(order.indexOf(config.theme) + 1) % order.length];
+    const at = THEME_ORDER.indexOf(config.theme);
+    const next = THEME_ORDER[(at + 1) % THEME_ORDER.length];
     config.theme = next;
     applyTheme(next);
     paintThemeBtn();
@@ -4529,9 +4559,11 @@ function init() {
   $('cfgVectorColor').addEventListener('change', () => {
     $('cfgColorSwatch').style.background = $('cfgVectorColor').value;
   });
-  // 主题直接切，不用关掉设置页再看效果
+  // 主题直接切，不用关掉设置页再看效果；顶栏那颗按钮的图标与说明当场跟着换
   $('cfgTheme').addEventListener('change', () => {
-    applyTheme($('cfgTheme').value);
+    config.theme = $('cfgTheme').value;
+    applyTheme(config.theme);
+    paintThemeBtn();
   });
   /* 不透明度拖动时实时预览，松手（change）才落盘——每次 input 都 POST 配置太浪费 */
   $('cfgAlpha').addEventListener('input', () => {
@@ -4757,7 +4789,7 @@ function init() {
     maybeCheckUpdate();
     const params = new URLSearchParams(location.search);
     const forced = params.get('theme');
-    if (forced === 'light' || forced === 'dark') {
+    if (forced && THEME_LABELS[forced]) {
       config.theme = forced;
       applyTheme(forced);
       paintThemeBtn();

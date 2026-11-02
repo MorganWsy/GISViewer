@@ -32,6 +32,12 @@
   --ctl-h: 30px;
 }
 
+/* ---------- 配色 ----------
+   两个属性分工，别混着用：
+   data-theme = 具体哪一套配色（light / dark / paper / ink / slate），只决定颜色变量；
+   data-tone  = 这套配色是浅底还是深底，决定结构性那几处（logo 换版、地图控件反色、color-scheme）。
+   加一套新主题：在下面补一段 :root[data-theme="xxx"] 覆盖这些变量，再到 app.js 的
+   THEME_LABELS / THEME_TONE 里各登记一行，别处不用动。 */
 :root[data-theme="dark"] {
   --bg: #1b1e23;
   --panel: #23272e;
@@ -55,6 +61,78 @@
   --overlay-rgb: 30, 34, 40;
 }
 
+/* 暖纸：米黄底，长时间读元数据不刺眼。强调色取赭石，压得住满屏的暖灰 */
+:root[data-theme="paper"] {
+  --bg: #f3ede2;
+  --panel: #fffaf1;
+  --panel-alt: #efe7d9;
+  --line: #dbcfba;
+  --line-soft: #e8dfcf;
+  --text: #2f2a22;
+  --text-dim: #6d6252;
+  --accent: #96581c;
+  --accent-soft: #f4e5cf;
+  --warn-bg: #fbeed2;
+  --warn-line: #dcc08a;
+  --warn-ico: #a97c22;
+  --err-bg: #f7e2dd;
+  --err-line: #d9a79d;
+  --bar: #b07a3a;
+  --map-bg: #e9e2d4;
+  --map-data: #b45f16;
+  --map-fill: rgba(180, 95, 22, 0.18);
+  --map-extent: #96581c;
+  --overlay-rgb: 255, 250, 241;
+}
+
+/* 墨黑：比"深色"更沉，接近纯黑的底配青色强调，夜里看不发灰 */
+:root[data-theme="ink"] {
+  --bg: #0f1114;
+  --panel: #15181d;
+  --panel-alt: #1b1f25;
+  --line: #2a2f37;
+  --line-soft: #21252c;
+  --text: #e9ecf1;
+  --text-dim: #8b95a2;
+  --accent: #5ec8e6;
+  --accent-soft: #16323c;
+  --warn-bg: #2f2a1c;
+  --warn-line: #574a2c;
+  --warn-ico: #d8ad5a;
+  --err-bg: #33211f;
+  --err-line: #5d3a36;
+  --bar: #3f9fc4;
+  --map-bg: #0b0d10;
+  --map-data: #ffa94d;
+  --map-fill: rgba(255, 169, 77, 0.2);
+  --map-extent: #5ec8e6;
+  --overlay-rgb: 21, 24, 29;
+}
+
+/* 青岩：冷灰绿底，强调色松绿。比默认浅色压低一档亮度，白天看屏幕不扎眼 */
+:root[data-theme="slate"] {
+  --bg: #dde5e0;
+  --panel: #f3f7f4;
+  --panel-alt: #e3eae6;
+  --line: #c6d2cb;
+  --line-soft: #d6e0da;
+  --text: #1b2420;
+  --text-dim: #55655c;
+  --accent: #1d6f52;
+  --accent-soft: #d8ebe2;
+  --warn-bg: #f9f0de;
+  --warn-line: #dcc195;
+  --warn-ico: #a3782a;
+  --err-bg: #f6e7e4;
+  --err-line: #d7aba5;
+  --bar: #35866a;
+  --map-bg: #dee5e0;
+  --map-data: #b8621a;
+  --map-fill: rgba(184, 98, 26, 0.18);
+  --map-extent: #1d6f52;
+  --overlay-rgb: 249, 251, 250;
+}
+
 * { box-sizing: border-box; }
 
 /* hidden 属性必须能盖住带 display 的类规则，否则设置弹窗关不上 */
@@ -70,7 +148,7 @@
 }
 
 :root { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-tone="dark"] { color-scheme: dark; }
 
 /* 标题"图览"专用字体：马善政毛笔楷书（Ma Shan Zheng，OFL 开源可商用）。
    打包时只取了这两个字的子集（约 1.5 KB），不依赖机器上装没装这个字体 */
@@ -108,8 +186,8 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 
 .brand-logo { flex: none; width: 28px; height: 28px; border-radius: 7px; }
 .logo-dark { display: none; }
-:root[data-theme="dark"] .logo-light { display: none; }
-:root[data-theme="dark"] .logo-dark { display: block; }
+:root[data-tone="dark"] .logo-light { display: none; }
+:root[data-tone="dark"] .logo-dark { display: block; }
 
 .brand {
   display: flex;
@@ -1580,9 +1658,9 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
 
 
-:root[data-theme="dark"] .maplibregl-ctrl-group { background: var(--panel); }
-:root[data-theme="dark"] .maplibregl-ctrl-group button + button { border-top: 1px solid var(--line); }
-:root[data-theme="dark"] .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
+:root[data-tone="dark"] .maplibregl-ctrl-group { background: var(--panel); }
+:root[data-tone="dark"] .maplibregl-ctrl-group button + button { border-top: 1px solid var(--line); }
+:root[data-tone="dark"] .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
 
 /* 控件组的圆角要裁住按钮自己的悬停底色：组本身没有溢出裁剪，
    最下面（复位）那个按钮悬停时，方角会从组的圆角里冒出来 */
@@ -1883,7 +1961,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 #settings .bm-hint:empty { display: none; }
 
 .hint.bad { color: #c0392b; }
-:root[data-theme="dark"] .hint.bad { color: #ef8a80; }
+:root[data-tone="dark"] .hint.bad { color: #ef8a80; }
 
 .color-row { display: flex; align-items: center; gap: 8px; }
 .color-row .combo { flex: 1; }
@@ -2815,8 +2893,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-ico.lv-bad { color: #cf3b30; }
 .chk-ico.lv-warn { color: var(--warn-ico); }
 .chk-ico.lv-ok { color: #2f9e58; }
-:root[data-theme="dark"] .chk-ico.lv-bad { color: #ef7f74; }
-:root[data-theme="dark"] .chk-ico.lv-ok { color: #63c78c; }
+:root[data-tone="dark"] .chk-ico.lv-bad { color: #ef7f74; }
+:root[data-tone="dark"] .chk-ico.lv-ok { color: #63c78c; }
 /* 条目：短标签固定一列，结论跟在后面。标签一列对齐，扫起来不用来回找 */
 .chk-items { display: flex; flex-direction: column; gap: 2px; }
 .chk-item {

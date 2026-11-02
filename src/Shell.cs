@@ -483,11 +483,24 @@ namespace GISViewer
             core.Navigate("http://127.0.0.1:" + _port + "/");
         }
 
+        /* 页面报来的底色：#rrggbb 直接用；只有 "dark" / "light" 两个字时退回内置的两个默认值 */
+        static Color ThemeBack(string v)
+        {
+            if (v != null && v.Length == 7 && v[0] == '#')
+            {
+                try { return ColorTranslator.FromHtml(v); }
+                catch { /* 写坏了就当没给，走下面的回落 */ }
+            }
+            return v == "dark" ? DarkBack : LightBack;
+        }
+
         void ApplyMessage(string msg)
         {
-            if (msg == "theme:dark" || msg == "theme:light")
+            /* 页面把算出来的真实底色发过来：几套配色各有各的底，只报"深/浅"两边对不上。
+               取不到颜色就按明暗两个字退回默认值，老页面也认 */
+            if (msg.StartsWith("theme:"))
             {
-                Color back = msg.EndsWith("dark") ? DarkBack : LightBack;
+                Color back = ThemeBack(msg.Substring(6));
                 BackColor = back;
                 _web.DefaultBackgroundColor = back;
                 return;
