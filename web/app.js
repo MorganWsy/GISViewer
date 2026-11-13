@@ -295,16 +295,18 @@ function showTipBox(anchor, text) {
   const r = anchor.getBoundingClientRect();
   const br = box.getBoundingClientRect();
   /* 方向策略：顶栏（#bar）里的控件横着排一排，气泡摆左右会盖住旁边的按钮，
-     所以顶栏一律上下展示；标了 data-tip-dir="up" 的锚点（信息窗标题栏、
-     属性表表头这类贴近底部的浮层件）同样走上下、且优先向上；
+     所以顶栏一律上下展示；文件卡、图例、图层下拉这类窄卡里的控件同样横向排布，
+     左右展开会压住邻座那颗按钮，也走上下。标了 data-tip-dir="up" 的锚点
+     （信息窗标题栏、属性表表头这类贴近底部的浮层件）同样走上下、且优先向上；
      其余区域默认摆右侧，右边放不下翻左边，两边都放不下才退回上下方。
      箭头跟着方向换边，始终指向锚点。 */
   const GAP = 8, EDGE = 8;
   const inBar = !!(anchor.closest && anchor.closest('#bar'));
+  const inCard = !!(anchor.closest && anchor.closest('#fileChip, #legend, .layer-pop'));
   const dirUp = anchor.getAttribute && anchor.getAttribute('data-tip-dir') === 'up';
   const spaceRight = window.innerWidth - r.right - GAP - EDGE;
   const spaceLeft = r.left - GAP - EDGE;
-  let side = (inBar || dirUp) ? 'v' : 'right';
+  let side = (inBar || inCard || dirUp) ? 'v' : 'right';
   let x;
   if (side !== 'v' && br.width <= spaceRight) {
     x = r.right + GAP;
@@ -330,7 +332,7 @@ function showTipBox(anchor, text) {
        标题栏上，既难看又挡住拖动区，那种情况直接改走下方 */
     const barEl = document.getElementById('bar');
     const topSafe = Math.max(EDGE, (barEl ? barEl.getBoundingClientRect().bottom : 0) + 4);
-    if (dirUp && r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
+    if ((dirUp || inCard) && r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
     else if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
     else if (r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
     y = Math.max(topSafe, Math.min(window.innerHeight - br.height - EDGE, y));
@@ -1096,7 +1098,7 @@ function railVector(rail, d) {
     (primary.quick ? '统计中…' : null));
   rail.row('Z 值坐标', primary.has_z ? '有' : '无');
   rail.row('M 值坐标', primary.has_m ? '有' : '无');
-  if (primary.attr_encoding) rail.row('属性表编码', primary.attr_encoding);
+  if (primary.attr_encoding && primary.field_count) rail.row('属性表编码', primary.attr_encoding);
   rail.many(extentRows(primary.extent, primary.extent_wgs84,
     (primary.crs || {}).unit_label, !primary.extent_wgs84 && !!primary.extent));
   if (primary.quick && !primary.extent) rail.row('范围', '统计中…');
@@ -3989,9 +3991,15 @@ let convFormats = null;   // [{key,label,note}]，问一次引擎就缓存
 let convDryTimer = 0;
 let convBusy = false;
 
+function convDefaultTarget() {
+  const d = current && current.data;
+  // 压缩包里的图层是 /vsizip/... 那种成员路径：转换要针对成员，不能拿包本身去转
+  return (d && geomTypesTarget(d)) || (current && current.path) || '';
+}
+
 function convTargetPath() {
   const input = $('convPath');
-  return (input && input.value.trim()) || (current && current.path) || '';
+  return (input && input.value.trim()) || convDefaultTarget();
 }
 
 function convLayerIndex() {
@@ -4034,7 +4042,7 @@ function showConvPop() {
   markBtn('convBtn', true);
   loadConvFormats();
   const input = $('convPath');
-  const cur = (current && current.path) || '';
+  const cur = convDefaultTarget();
   if (input && !input.value.trim() && cur) input.value = cur;
   convLoadLayers();
 }
@@ -4061,7 +4069,7 @@ function loadConvFormats() {
     convFormats = (d && d.ok && d.formats) || [];
     paintConvFmt();
     convScheduleDry();
-  }).catch(() => { setConvHint('格式清单没能取到，请稍后重试'); });
+  }).catch(() => { setConvHint('无法读取格式清单，请重试。'); });
 }
 
 function paintConvFmt() {
@@ -4126,6 +4134,14 @@ function convScheduleDry() {
   convDryTimer = setTimeout(runConvDry, 250);
 }
 
+/* 换了源文件、图层、格式或输出目录，上一次的结果就不再对应当前设置，先收起来 */
+function clearConvResult() {
+  const wrap = $('convResult');
+  const res = $('convRes');
+  if (wrap) wrap.hidden = true;
+  if (res) res.textContent = '';
+}
+
 /* 预检：不写任何文件，把该格式的代价、这份数据的警告、转换前概况摆在按钮上面 */
 function runConvDry() {
   const note = $('convNote');
@@ -4152,19 +4168,20 @@ function runConvDry() {
     if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
     if (!d || !d.ok) {
       const err = (d && d.error) || {};
-      box.appendChild(el('div', 'cv-err', (err.title || '预检未通过') + (err.hint ? '：' + err.hint : '')));
+      box.appendChild(el('div', 'cv-err', err.title || '预检未通过。'));
+      if (err.hint) box.appendChild(el('div', 'cv-line', err.hint));
       return;
     }
     (d.warnings || []).forEach((w) => box.appendChild(el('div', 'cv-warn', w)));
     const b = d.before || {};
-    box.appendChild(el('div', null, '转换前：' + b.feature_count + ' 个要素 · ' +
+    box.appendChild(el('div', null, '源数据：' + b.feature_count + ' 个要素 · ' +
       b.field_count + ' 个字段 · ' + (b.geometry || '几何未知') + ' · ' + (b.crs || '坐标系未记录')));
   }).catch(() => {
     const box = $('convNote');
     box.hidden = false;
     box.textContent = '';
     if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
-    box.appendChild(el('div', 'cv-err', '预检没能完成，请稍后重试'));
+    box.appendChild(el('div', 'cv-err', '预检未完成，请重试。'));
   });
 }
 
@@ -4178,7 +4195,7 @@ function setConvBusy(on) {
 
 function runConv() {
   const path = convTargetPath();
-  if (!path) { setConvHint('请先填写要转换的文件'); return; }
+  if (!path) { setConvHint('请先填写源文件。'); return; }
   setConvHint('');
   const out = $('convOut');
   setConvBusy(true);
@@ -4196,15 +4213,13 @@ function runConv() {
     if ($('convPop') && $('convPop').hidden) return;
     if (!d || !d.ok) {
       renderConvError(d && d.error);
-      setConvHint((d && d.error && d.error.title) || '转换未完成');
       return;
     }
     renderConvResult(d);
-    setConvHint('转换完成');
     convScheduleDry();   // 同名文件的预检状态跟着变，收一下
   }).catch(() => {
     setConvBusy(false);
-    setConvHint('转换未完成，请稍后重试');
+    setConvHint('转换未完成，请重试。');
   });
 }
 
@@ -4214,7 +4229,7 @@ function renderConvError(err) {
   if (!wrap || !res) return;
   res.textContent = '';
   wrap.hidden = false;
-  res.appendChild(el('div', 'cv-err', (err && err.title) || '转换失败'));
+  res.appendChild(el('div', 'cv-err', (err && err.title) || '转换未完成。'));
   if (err && err.hint) res.appendChild(el('div', 'cv-line', err.hint));
 }
 
@@ -4758,8 +4773,7 @@ function paintUpdPop() {
   state.classList.add('up-state-mark');
   pop.appendChild(state);
 
-  /* 按钮排在最右：「稍后」在左、「立即更新」在右（主按钮贴右边），
-     「完整说明」推到最左，与这一对分开 */
+  /* 三颗按钮统一靠右：「完整说明」在最左，「稍后」「立即更新」依次向右 */
   const foot = el('div', 'up-foot');
   const now = el('button', 'btn up-now', '');
   now.type = 'button';
@@ -5261,28 +5275,30 @@ function init() {
   $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
   $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; toShell('pickdir'); });
   $('convPath').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); convLoadLayers(); }
+    if (e.key === 'Enter') { e.preventDefault(); clearConvResult(); convLoadLayers(); }
   });
-  $('convPath').addEventListener('change', convLoadLayers);
+  $('convPath').addEventListener('change', () => { clearConvResult(); convLoadLayers(); });
   $('convLayer').addEventListener('change', () => {
     if (window.syncSelect) window.syncSelect($('convLayer'));
+    clearConvResult();
     convScheduleDry();
   });
   $('convFmt').addEventListener('change', () => {
     if (window.syncSelect) window.syncSelect($('convFmt'));
     try { localStorage.setItem('gisviewer.conv_fmt', convFmtKey()); } catch (e) { /* 存不了就本次生效 */ }
+    clearConvResult();
     convScheduleDry();
   });
-  $('convOut').addEventListener('change', convScheduleDry);
+  $('convOut').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convRun').addEventListener('click', runConv);
   /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */
   const cvTip = $('cvTip');
   if (cvTip) {
     cvTip.setAttribute('data-tip', [
-      '格式互转只把同一份数据换成另一种文件格式存放：',
-      '· 坐标系、几何、属性一律照搬，不做重投影、裁剪、合并、简化；',
-      '· 输出写到新目录（默认在源文件旁建「文件名_转出」），已有同名文件不覆盖；',
-      '· 转换前给出该格式的已知代价，转换后把要素数、字段、几何、坐标系与源数据逐项对比。',
+      '格式互转把同一份数据换成另一种文件格式存放：',
+      '· 坐标系、几何与属性按原样保留，不做重投影、裁剪、合并或简化；',
+      '· 输出写入新目录（默认为源文件旁的「文件名_转出」），存在同名文件时不覆盖；',
+      '· 转换前给出该格式的已知代价，转换后逐项对比要素数、字段数、几何与坐标系。',
     ].join('\n'));
     cvTip.innerHTML = HINT_ICO;
   }

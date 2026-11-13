@@ -768,8 +768,10 @@ table.grid.layer-table td { overflow-wrap: anywhere; }
 .layer-pop button.on .lp-check { visibility: visible; }
 
 table.chip-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-/* 窄窗口里文件卡要给图例让位：内容超出时在卡里滚动，不往外顶（高度由 app.js 写上限） */
-#chipBody { overflow-y: auto; }
+/* 窄窗口里文件卡要给图例让位：内容超出时在卡里滚动，不往外顶（高度由 app.js 写上限）。
+   卡片外框有 9px 内边距，滚动条会浮在内容边缘、离边框还差这 9px；
+   用等量负外边距把滚动容器拉到边框上，再补回同宽内边距，内容位置不动，滚动条贴边 */
+#chipBody { overflow-y: auto; margin-right: -9px; padding-right: 9px; }
 
 table.chip-table th {
   width: 84px;
@@ -897,7 +899,14 @@ table.chip-table td {
 /* 图例高度按"文件卡压到哪儿"封顶：竖排的小窗口里地图只有两百来像素，
    图例按 34vh（整窗高度的三成半）长上去就会盖住左上角的文件卡。
    --legend-max 由 app.js 用两者的实际位置算出来写进根节点 */
-.legend-body { margin-top: 6px; max-height: min(34vh, var(--legend-max, 320px)); overflow-y: auto; }
+/* 图例同样把滚动条贴到卡片边框上（外框内边距 8px，负外边距补回来） */
+.legend-body {
+  margin-top: 6px;
+  margin-right: -8px;
+  padding-right: 8px;
+  max-height: min(34vh, var(--legend-max, 320px));
+  overflow-y: auto;
+}
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
 .legend-val { font-size: 13px; font-family: var(--font-num); white-space: nowrap; }
@@ -2861,6 +2870,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cp-busy-text { font-size: 13px; line-height: 16px; color: var(--text-dim); }
 
 .cp-result { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
+/* display:flex 会盖掉 hidden 的默认样式：没结果时这里不能留一条空线与一段空白 */
+.cp-result[hidden] { display: none; }
 .chk-list {
   min-height: 0;
   overflow: auto;
@@ -3009,10 +3020,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-row.lv-ok .chk-row-t { color: var(--text-dim); }
 
 /* ---------- 更新提示 ----------
-   顶栏那颗按钮只在真有新版本时出现，紧挨标题右侧。它就是一颗下载图标：
-   不套按钮底色、不套外框、不挂圆点——顶栏别处都是这个规矩，一颗图标说清楚就行。
-   动效放在箭头那一组上：往下走 3 像素、淡下去，再回到原位，2.4 秒一轮。
-   底下那条横线不动，整颗一起晃会像图标没摆正。系统设了"减少动态效果"就停。 */
+   顶栏那颗按钮只在真有新版本时出现，紧挨标题右侧。下载箭头外面套一圈细环：
+   顶栏别处都是纯图标，这里多一圈才显得"有件事等着处理"，又不至于像颗彩色按钮。
+   动效放在箭头那一组上：往下走 3 像素、淡下去，再回到原位，1.2 秒一轮。
+   底下那条横线与圆环不动，整颗一起晃会像图标没摆正。系统设了"减少动态效果"就停。 */
 .upd-btn {
   position: relative;
   flex: none;
@@ -3106,8 +3117,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   gap: 8px;
   margin-top: 10px;
 }
-/* 「完整说明」贴最左，「稍后」「立即更新」一对排在最右 */
-.upd-pop .up-foot .up-page { margin-right: auto; }
+/* 三颗按钮统一靠右排：「完整说明」在最左，「稍后」「立即更新」依次向右 */
 .upd-pop .up-foot .btn {
   padding: 5px 13px;
   font-size: 13px;
@@ -3115,8 +3125,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .upd-pop .up-foot .btn[hidden] { display: none; }
 
-/* ---- 格式互转浮层：与体检浮层同一套骨架（.cp-head/.cp-row/.cp-field 复用），
-   只补自己那几块：两行下拉、预检说明、前后对比表 ---- */
+/* ---- 格式互转浮层：与体检浮层同一套骨架（.cp-head/.cp-field 复用），
+   四项设置按四列网格对齐，下面是预检、结果与主按钮 ---- */
 .conv-pop {
   position: fixed;
   z-index: 55;
@@ -3126,7 +3136,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 6px 0 6px 9px;
+  padding: 7px 0 7px 9px;
+  overflow: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3136,11 +3147,23 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 #convFilePick, #convDirPick { right: 3px; }
 /* 与体检浮层的文件夹图标同款：1251×1024 视图框按宽度给尺寸 */
 #convFilePick svg, #convDirPick svg { width: 17px; height: auto; }
-/* 图层与目标格式一行摆两个下拉，标签贴左 */
-.cv-row { display: flex; align-items: center; gap: 6px; padding-right: 9px; }
-.cv-lab { flex: none; font-size: 12px; line-height: 16px; color: var(--text-dim); }
+/* 标签 | 控件 | 标签 | 控件。源文件与输出目录跨后三列，长路径占满一行 */
+.cv-form {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px 8px;
+  padding: 1px 9px 0 1px;
+}
+.cv-lab {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.cv-span { grid-column: 2 / -1; }
 .cv-sel {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   height: var(--ctl-h);
   padding: 0 6px;
@@ -3156,8 +3179,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
-.cv-fmt { flex: 1.5; }
-/* 预检：格式的已知代价、这份数据的警告、转换前概况，各占一行小字 */
+/* 预检：格式的已知代价、这份数据的警告、源数据概况，各占一行小字 */
 .cv-note {
   display: flex;
   flex-direction: column;

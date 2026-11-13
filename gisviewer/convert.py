@@ -15,35 +15,37 @@ import os
 from . import bootstrap
 from . import encoding as dbfenc
 from . import labels
+from . import topojson
 from . import vector
 
 ogr = bootstrap.ogr
 gdal = bootstrap.gdal
 
-# 目标格式。ext 是输出文件的后缀，driver 是 OGR 驱动名。
+# 目标格式。ext 是输出文件的后缀，driver 是 OGR 驱动名（TopoJSON 自己写，不用驱动）。
 FORMATS = [
     {"key": "shp", "label": "ESRI Shapefile", "ext": ".shp", "driver": "ESRI Shapefile",
-     "note": "字段名最长 10 个字符，超出会被截断；编码写成 UTF-8 并附 .cpg"},
+     "note": "字段名最长 10 个字符，超出部分会被截断；属性编码写为 UTF-8，并附带 .cpg 文件。"},
     {"key": "geojson", "label": "GeoJSON", "ext": ".geojson", "driver": "GeoJSON",
-     "note": "文本格式，坐标精度按 GeoJSON 默认保留"},
+     "note": "文本格式，字段名不限长，坐标为原始数值。"},
     {"key": "gpkg", "label": "GeoPackage", "ext": ".gpkg", "driver": "GPKG",
-     "note": "单文件容纳多图层，字段名不限长"},
+     "note": "单文件可容纳多个图层，字段名不限长。"},
     {"key": "kml", "label": "KML", "ext": ".kml", "driver": "KML",
-     "note": "谷歌地球通用；按规范只存 WGS 84 经纬度，投影坐标写不了（本功能不做重投影）"},
+     "note": "Google Earth 通用格式；按规范仅支持 WGS 84 经纬度，投影坐标无法写入（本功能不做重投影）。"},
     {"key": "gml", "label": "GML", "ext": ".gml", "driver": "GML",
-     "note": "OGC 通用交换格式，同目录另存 .xsd"},
-    {"key": "csv", "label": "CSV（几何写成 WKT 列）", "ext": ".csv", "driver": "CSV",
-     "note": "表格软件可直接打开；几何是一列 WKT 文本，坐标系另存同名 .prj"},
+     "note": "OGC 通用交换格式，同目录另存 .xsd 结构文件。"},
+    {"key": "csv", "label": "CSV", "ext": ".csv", "driver": "CSV", "note": ""},
     {"key": "fgb", "label": "FlatGeobuf", "ext": ".fgb", "driver": "FlatGeobuf",
-     "note": "单文件二进制，适合大数据量分发"},
+     "note": "单文件二进制格式，适合大数据量分发。"},
     {"key": "tab", "label": "MapInfo TAB", "ext": ".tab", "driver": "MapInfo File",
-     "note": "MapInfo 旧格式，同目录有 dat/id/map 三个配套文件"},
+     "note": "MapInfo 旧版格式，同目录包含 tab、dat、id、map 四个文件。"},
     {"key": "sqlite", "label": "SQLite", "ext": ".sqlite", "driver": "SQLite",
-     "note": "通用数据库容器，字段名不限长"},
+     "note": "通用数据库容器，字段名不限长。"},
     {"key": "gpx", "label": "GPX", "ext": ".gpx", "driver": "GPX",
-     "note": "轨迹格式：点、线、多线各存各的图层，按规范只存 WGS 84 经纬度；面与无几何要素存不了；自定义字段写进扩展节点"},
+     "note": "轨迹格式：点、线、多线分别存为独立图层，按规范仅支持 WGS 84 经纬度；面与无几何要素无法保存；自定义字段写入扩展节点。"},
+    {"key": "topojson", "label": "TopoJSON", "ext": ".topojson", "driver": "TopoJSON",
+     "note": "文本格式，相邻要素的公共边界合并为同一条弧，文件比 GeoJSON 小；按规范仅支持 WGS 84 经纬度。"},
     {"key": "dxf", "label": "DXF", "ext": ".dxf", "driver": "DXF",
-     "note": "CAD 交换格式，只写几何；属性表字段保存不了"},
+     "note": "CAD 交换格式，仅保存几何，属性字段无法保留。"},
 ]
 
 _FMT = {f["key"]: f for f in FORMATS}
@@ -53,7 +55,7 @@ _SKIP_GEOM = ("gpx",)
 # 字段名被硬性截断的目标
 _NAME_LIMIT = {"shp": 10}
 # 按规范只认 WGS 84 经纬度、坐标数值不做转换的目标
-_WGS84_ONLY = ("kml", "gpx")
+_WGS84_ONLY = ("kml", "gpx", "topojson")
 
 # GPX 按几何类型分图层：点→waypoints，线→routes，多线→tracks
 _GPX_LAYERS = (
@@ -155,6 +157,9 @@ def _after_summary(path, encoding_label, fmt_key=""):
                 # GML 读回来自带 gml_id，是格式给要素挂的编号，不是源数据的属性
                 if fmt_key == "gml" and name == "gml_id":
                     continue
+                # TopoJSON 读回时按要素补一个 id 字段，同样不是源数据的属性
+                if fmt_key == "topojson" and name == "id":
+                    continue
                 if name not in fields:
                     fields.append(name)
             total += int(lyr.GetFeatureCount())
@@ -169,6 +174,13 @@ def _after_summary(path, encoding_label, fmt_key=""):
         ds = None
     if crs is None:
         crs = _crs_from_prj(path)
+    if crs is None and fmt_key == "topojson":
+        # TopoJSON 文件里不记坐标系，按规范就是 WGS 84；写在这里是为了对比表能判"同一套"
+        srs = bootstrap.osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        srs.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+        crs = "WGS 84（格式规范）"
+        crs_wkt = srs.ExportToWkt()
     return {
         "feature_count": total,
         "field_count": len(fields),
@@ -214,6 +226,18 @@ def _total_size(path):
     return total or (os.path.getsize(p) if os.path.isfile(p) else 0)
 
 
+def _source_base(src):
+    """源文件所在目录与文件名主干。
+
+    压缩包里的数据是 /vsizip/包.zip/成员.shp 这种虚拟路径，目录并不存在，
+    默认输出要落回包旁边，不能顺着虚拟路径去建。"""
+    zipped = dbfenc._zip_parts(src)
+    real = zipped[0] if zipped else src
+    name = zipped[1] if zipped else src
+    folder = os.path.dirname(real) or "."
+    return folder, os.path.splitext(os.path.basename(name))[0]
+
+
 def _precheck(src_lyr, fmt):
     """转换前把这一版会付的代价说清楚，都是能提前算出来的。"""
     out = []
@@ -222,21 +246,21 @@ def _precheck(src_lyr, fmt):
     if fmt["key"] in ("shp", "tab"):
         non_ascii = [n for n in fields if not n.isascii()]
         if non_ascii:
-            out.append("字段名不是 ASCII 字符，转换为 %s 时会被改写：%s"
+            out.append("字段名含非 ASCII 字符，转换成 %s 时会被改写：%s。"
                        % (fmt["label"], "、".join(non_ascii[:6])))
     limit = _NAME_LIMIT.get(fmt["key"])
     if limit:
         over = [n for n in fields if len(n) > limit]
         if over:
-            out.append("字段名超过 %d 个字符，转换后会被截断：%s" % (limit, "、".join(over[:6])))
+            out.append("字段名超过 %d 个字符，转换后会被截断：%s。"
+                       % (limit, "、".join(over[:6])))
     if fmt["key"] in _SKIP_GEOM:
-        out.append("GPX 放不下面与无几何要素，这些会被跳过")
+        out.append("GPX 不支持面与无几何要素，这些要素将被跳过。")
     if fmt["key"] == "dxf" and fields:
-        out.append("DXF 只写几何，%d 个属性字段保存不了" % len(fields))
-    if fmt["key"] == "csv":
-        out.append("几何写成 WKT 文本列，坐标系另存为同名 .prj")
+        out.append("DXF 仅保存几何，%d 个属性字段无法保留。" % len(fields))
     if fmt["key"] in _WGS84_ONLY and not _srs_is_wgs84(src_lyr.GetSpatialRef()):
-        out.append("该格式按规范只认 WGS 84 经纬度，坐标数值不做转换，位置会偏移")
+        out.append("该格式按规范仅支持 WGS 84 经纬度；本功能不做重投影，"
+                   "坐标数值将原样写入，位置会发生偏移。")
     return out
 
 
@@ -264,138 +288,162 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
     任何一步失败都不留半成品：写过的输出文件就地删掉。"""
     fmt = _FMT.get(str(fmt_key or "").strip())
     if not fmt:
-        return {"ok": False, "error": {"title": "不认识的目标格式", "hint": "从列表里选一个格式。"}}
+        return {"ok": False, "error": {"title": "目标格式无法识别",
+                                       "hint": "请从列表中选择一种格式。"}}
     src = str(src or "").strip()
     if not src:
-        return {"ok": False, "error": {"title": "未指定源文件"}}
+        return {"ok": False, "error": {"title": "未填写源文件",
+                                       "hint": "请先选择要转换的文件。"}}
 
     with vector._READ_LOCK:
         ds = vector._open_vector(src)
         if ds is None:
-            return {"ok": False, "error": {"title": "这份数据读不出矢量图层",
-                                           "hint": "格式互转只接受矢量数据（shp、geojson、gpkg 这类）。"}}
+            return {"ok": False, "error": {"title": "无法读取矢量图层",
+                                           "hint": "格式互转仅支持矢量数据，例如 Shapefile、GeoJSON、GeoPackage。"}}
         try:
             total = ds.GetLayerCount()
             if layer_index < 0 or layer_index >= total:
-                return {"ok": False, "error": {"title": "图层序号超出范围"}}
+                return {"ok": False, "error": {"title": "图层序号超出范围",
+                                               "hint": "请重新选择图层。"}}
             src_lyr = ds.GetLayerByIndex(layer_index)
             src_defn = src_lyr.GetLayerDefn()
             warnings = _precheck(src_lyr, fmt)
 
-            stem = os.path.splitext(os.path.basename(src))[0]
-            out_dir = str(out_dir or "").strip() or os.path.join(os.path.dirname(src) or ".", stem + "_转出")
+            folder, stem = _source_base(src)
+            out_dir = str(out_dir or "").strip() or os.path.join(folder, stem + "_转出")
             out_path = os.path.join(out_dir, stem + fmt["ext"])
             if os.path.exists(out_path):
                 return {"ok": False, "error": {
-                    "title": "输出位置已有同名文件",
-                    "hint": "换一个输出目录，或先把 %s 移走。" % os.path.basename(out_path)}}
+                    "title": "输出位置已存在同名文件",
+                    "hint": "请更换输出目录，或先移动 %s。" % os.path.basename(out_path)}}
 
             before = _layer_summary(src_lyr, src, dbfenc.detect(src))
-            # 坐标越界这件事预检就要说清：KML/GPX 按规范只存经纬度，转换时也是同一道拦
+            # 坐标越界这件事预检就要说清：这类格式按规范只存经纬度，转换时也是同一道拦
             if fmt["key"] in _WGS84_ONLY and _extent_out_of_lonlat(src_lyr):
                 return {"ok": False, "error": {
-                    "title": "%s 放不下这份数据的坐标" % fmt["label"],
-                    "hint": "该格式按规范只存 WGS 84 经纬度（-180~180 / -90~90），"
-                            "这份数据的坐标数值超出范围（像投影坐标）。本功能不做重投影，"
-                            "请先在专业软件里把数据重投影到 WGS 84 再转。"}}
+                    "title": "%s 无法存放这份数据的坐标" % fmt["label"],
+                    "hint": "该格式按规范仅支持 WGS 84 经纬度（-180~180 / -90~90），"
+                            "当前坐标数值超出此范围，可能为投影坐标。本功能不做重投影，"
+                            "请先在其他软件中重投影到 WGS 84。"}}
             if dry:
                 return {"ok": True, "warnings": warnings, "before": before,
                         "format_note": fmt["note"], "dry": True}
             os.makedirs(out_dir, exist_ok=True)
 
-            driver = ogr.GetDriverByName(fmt["driver"])
-            if driver is None:
-                return {"ok": False, "error": {"title": "本机 GDAL 没有 %s 驱动" % fmt["label"]}}
-            gdal.SetConfigOption("SHAPE_ENCODING", None)   # 写出一律走 UTF-8，别受上次读取影响
-            layer_opts = []
-            if fmt["key"] == "shp":
-                layer_opts.append("ENCODING=UTF-8")
-            if fmt["key"] == "csv":
-                layer_opts.append("GEOMETRY=AS_WKT")
-            if fmt["key"] == "tab":
-                bounds = _extent_option(src_lyr)
-                if bounds:
-                    layer_opts.append(bounds)   # MapInfo 默认 (-1000,-1000)-(1000,1000)，米制坐标会被写坏
-            ds_opts = ["GPX_USE_EXTENSIONS=YES"] if fmt["key"] == "gpx" else None
-
-            attempt = 0
-            while True:
-                attempt += 1
+            if fmt["key"] == "topojson":
+                # GDAL 的 TopoJSON 驱动只读，这一份自己写（见 topojson 模块）
+                gdal.SetConfigOption("SHAPE_ENCODING", None)
                 out_lyr = None
                 gpx_lyrs = {}
+                out_ds = None
                 written = skipped = no_geom = dropped_fields = 0
                 try:
-                    out_ds = (driver.CreateDataSource(out_path, options=ds_opts) if ds_opts
-                              else driver.CreateDataSource(out_path))
-                    if out_ds is None:
-                        raise RuntimeError("创建输出文件失败")
-                    if fmt["key"] == "gpx":
-                        written, skipped, no_geom, dropped_fields = _write_gpx(
-                            out_ds, src_lyr, src_defn, gpx_lyrs)
-                        if not written:
-                            raise RuntimeError("GPX 放不下面与无几何要素，没有可写的要素")
-                    else:
-                        kw = {}
-                        if layer_opts:
-                            kw["options"] = layer_opts
-                        out_lyr = out_ds.CreateLayer(
-                            os.path.splitext(os.path.basename(out_path))[0],
-                            srs=src_lyr.GetSpatialRef(), geom_type=src_lyr.GetGeomType(), **kw)
-                        if out_lyr is None:
-                            raise RuntimeError("驱动没有建出图层")
-                        kept, dropped_fields = _copy_fields(src_defn, out_lyr, fmt)
-                        out_defn = out_lyr.GetLayerDefn()
-                        src_lyr.ResetReading()
-                        while True:
-                            feat = src_lyr.GetNextFeature()
-                            if feat is None:
-                                break
-                            if fmt["key"] == "dxf" and feat.GetGeometryRef() is None:
-                                no_geom += 1   # DXF 必须有几何才写得出实体
-                                continue
-                            out_feat = ogr.Feature(out_defn)
-                            _copy_feature(feat, out_feat, kept)
-                            out_lyr.CreateFeature(out_feat)
-                            written += 1
-                        out_lyr.SyncToDisk()
-                    out_ds.FlushCache()
-                    break
+                    written, skipped, dropped_fields = topojson.write(
+                        src_lyr, out_path, src_lyr.GetName() or stem)
                 except Exception as exc:
-                    # 先撒手图层再关数据源，否则 Windows 上文件还占着，半成品删不掉
-                    out_lyr = None
-                    gpx_lyrs.clear()
-                    out_ds = None
                     _cleanup(out_path)
-                    msg = labels.friendly_error(exc)[:200]
-                    if (fmt["key"] == "fgb" and attempt == 1
-                            and "spatial index" in str(exc).lower()):
-                        # FlatGeobuf 带空间索引时容不下无几何要素；放弃索引把要素全留下
-                        layer_opts.append("SPATIAL_INDEX=NO")
-                        warnings.append("数据里有无几何要素，FlatGeobuf 不建空间索引以保留这些要素")
-                        continue
-                    if "GPX 放不下" in str(exc):
-                        return {"ok": False, "error": {"title": "GPX 放不下面与无几何要素",
-                                                       "hint": "这份数据没有点线要素可写，请换 GeoPackage 等格式。"}}
-                    return {"ok": False, "error": {"title": "转换过程中出错", "hint": msg}}
+                    return {"ok": False, "error": {
+                        "title": "转换未完成",
+                        "hint": labels.friendly_error(exc)[:200]}}
+            else:
+                driver = ogr.GetDriverByName(fmt["driver"])
+                if driver is None:
+                    return {"ok": False, "error": {"title": "本机 GDAL 没有 %s 驱动" % fmt["label"]}}
+                gdal.SetConfigOption("SHAPE_ENCODING", None)   # 写出一律走 UTF-8，别受上次读取影响
+                layer_opts = []
+                if fmt["key"] == "shp":
+                    layer_opts.append("ENCODING=UTF-8")
+                if fmt["key"] == "csv":
+                    layer_opts.append("GEOMETRY=AS_WKT")
+                if fmt["key"] == "tab":
+                    bounds = _extent_option(src_lyr)
+                    if bounds:
+                        layer_opts.append(bounds)   # MapInfo 默认 (-1000,-1000)-(1000,1000)，米制坐标会被写坏
+                ds_opts = ["GPX_USE_EXTENSIONS=YES"] if fmt["key"] == "gpx" else None
+
+                attempt = 0
+                while True:
+                    attempt += 1
+                    out_lyr = None
+                    gpx_lyrs = {}
+                    written = skipped = no_geom = dropped_fields = 0
+                    try:
+                        out_ds = (driver.CreateDataSource(out_path, options=ds_opts) if ds_opts
+                                  else driver.CreateDataSource(out_path))
+                        if out_ds is None:
+                            raise RuntimeError("创建输出文件失败")
+                        if fmt["key"] == "gpx":
+                            written, skipped, no_geom, dropped_fields = _write_gpx(
+                                out_ds, src_lyr, src_defn, gpx_lyrs)
+                            if not written:
+                                raise RuntimeError("GPX 放不下面与无几何要素，没有可写的要素")
+                        else:
+                            kw = {}
+                            if layer_opts:
+                                kw["options"] = layer_opts
+                            out_lyr = out_ds.CreateLayer(
+                                os.path.splitext(os.path.basename(out_path))[0],
+                                srs=src_lyr.GetSpatialRef(), geom_type=src_lyr.GetGeomType(), **kw)
+                            if out_lyr is None:
+                                raise RuntimeError("驱动没有建出图层")
+                            kept, dropped_fields = _copy_fields(src_defn, out_lyr, fmt)
+                            out_defn = out_lyr.GetLayerDefn()
+                            src_lyr.ResetReading()
+                            while True:
+                                feat = src_lyr.GetNextFeature()
+                                if feat is None:
+                                    break
+                                if fmt["key"] == "dxf" and feat.GetGeometryRef() is None:
+                                    no_geom += 1   # DXF 必须有几何才写得出实体
+                                    continue
+                                out_feat = ogr.Feature(out_defn)
+                                _copy_feature(feat, out_feat, kept)
+                                out_lyr.CreateFeature(out_feat)
+                                written += 1
+                            out_lyr.SyncToDisk()
+                        out_ds.FlushCache()
+                        break
+                    except Exception as exc:
+                        # 先撒手图层再关数据源，否则 Windows 上文件还占着，半成品删不掉
+                        out_lyr = None
+                        gpx_lyrs.clear()
+                        out_ds = None
+                        _cleanup(out_path)
+                        msg = labels.friendly_error(exc)[:200]
+                        if (fmt["key"] == "fgb" and attempt == 1
+                                and "spatial index" in str(exc).lower()):
+                            # FlatGeobuf 带空间索引时容不下无几何要素；放弃索引把要素全留下
+                            layer_opts.append("SPATIAL_INDEX=NO")
+                            warnings.append("数据中包含无几何要素，FlatGeobuf 已关闭空间索引以保留这些要素。")
+                            continue
+                        if "GPX 放不下" in str(exc):
+                            return {"ok": False, "error": {
+                                "title": "没有可写入 GPX 的要素",
+                                "hint": "GPX 仅支持点与线，这份数据没有可用的点线要素，请改选 GeoPackage 等格式。"}}
+                        return {"ok": False, "error": {"title": "转换未完成", "hint": msg}}
+
             out_lyr = None
             gpx_lyrs.clear()
             out_ds = None
 
             if skipped:
-                warnings.append("跳过了 %d 个面状要素（GPX 只放得下点与线）" % skipped)
+                if fmt["key"] == "topojson":
+                    warnings.append("已跳过 %d 个无几何要素（TopoJSON 要求要素带几何）。" % skipped)
+                else:
+                    warnings.append("已跳过 %d 个面状要素（GPX 仅支持点与线）。" % skipped)
             if no_geom:
-                warnings.append("跳过了 %d 个没有几何的要素（%s 必须有几何）" % (no_geom, fmt["label"]))
+                warnings.append("已跳过 %d 个无几何要素（%s 要求要素带几何）。" % (no_geom, fmt["label"]))
             if dropped_fields:
-                warnings.append("%d 个属性字段保存不了（%s 不支持）" % (dropped_fields, fmt["label"]))
+                warnings.append("%d 个属性字段无法保存（%s 不支持）。" % (dropped_fields, fmt["label"]))
             if fmt["key"] == "csv":
                 _write_prj(out_path, src_lyr.GetSpatialRef())
 
             enc = dbfenc.detect(out_path) if fmt["key"] == "shp" else (
-                "UTF-8" if fmt["key"] in ("geojson", "gpkg", "gml", "kml", "fgb", "gpx") else None)
+                "UTF-8" if fmt["key"] in ("geojson", "gpkg", "gml", "kml", "fgb", "gpx", "topojson") else None)
             after = _after_summary(out_path, enc, fmt["key"])
             if after is None:
-                return {"ok": False, "error": {"title": "输出文件写完后读不回来",
-                                               "hint": "请检查输出目录是否可写。"}}
+                return {"ok": False, "error": {"title": "输出文件读取失败",
+                                               "hint": "请检查输出目录是否可写、文件是否被其他程序占用。"}}
             compare = [
                 {"name": "要素数", "before": before["feature_count"], "after": after["feature_count"],
                  "same": before["feature_count"] == after["feature_count"]},

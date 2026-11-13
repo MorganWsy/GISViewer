@@ -297,10 +297,12 @@ def main(argv=None):
         status, data, _ = cli.get("/api/convert_formats")
         need(status == 200 and data.get("ok"), "200/ok 不对")
         fmts = data.get("formats") or []
-        need(len(fmts) >= 10, "目标格式太少：%s" % len(fmts))
+        need(len(fmts) >= 11, "目标格式太少：%s" % len(fmts))
         keys = {f.get("key") for f in fmts}
-        need({"shp", "geojson", "gpkg"} <= keys, "常用格式不齐：%s" % sorted(keys))
-        need(all(f.get("note") for f in fmts), "有格式没写代价说明")
+        need({"shp", "geojson", "gpkg", "topojson"} <= keys, "常用格式不齐：%s" % sorted(keys))
+        # 说明是给用户看的代价提示；CSV 已按要求去掉那段说明，其余都得有
+        need(all(f.get("note") for f in fmts if f.get("key") != "csv"), "有格式没写代价说明")
+        need(not next(f for f in fmts if f.get("key") == "csv").get("note"), "CSV 说明应当为空")
 
     @check("convert 预检不落文件、转换有前后对比")
     def _(cli):
@@ -321,6 +323,29 @@ def main(argv=None):
         status, data, _ = cli.post("/api/convert", body)
         need(status == 200 and not data.get("ok"), "同名文件被覆盖了")
         need("同名" in (data.get("error") or {}).get("title", ""), "没说清是同名冲突：%s" % data.get("error"))
+
+    @check("convert 支持 TopoJSON 输出")
+    def _(cli):
+        src = Path(tmp, "topo-src.geojson")
+        src.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"name": "甲"},
+             "geometry": {"type": "Polygon", "coordinates": [
+                 [[116.0, 39.0], [116.1, 39.0], [116.1, 39.1], [116.0, 39.1], [116.0, 39.0]]]}},
+            {"type": "Feature", "properties": {"name": "乙"},
+             "geometry": {"type": "Point", "coordinates": [116.05, 39.05]}},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        out = Path(tmp, "topo-out")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(src), "layer": 0, "fmt": "topojson", "out_dir": str(out)})
+        need(status == 200 and data.get("ok"), "TopoJSON 转换失败：%s" % data.get("error"))
+        cmp = {r["name"]: r for r in data.get("compare") or []}
+        need(cmp["要素数"]["same"], "要素数没对上：%s" % cmp["要素数"])
+        need(cmp["字段数"]["same"], "字段数没对上：%s" % cmp["字段数"])
+        need(cmp["坐标系"]["same"], "坐标系没对上：%s" % cmp["坐标系"])
+        out_path = Path(data.get("out_path") or "")
+        need(out_path.is_file(), "TopoJSON 文件没写出来")
+        doc = json.loads(out_path.read_text(encoding="utf-8"))
+        need(doc.get("type") == "Topology" and doc.get("arcs"), "不是 TopoJSON 结构")
 
     try:
         wait_ready(base)

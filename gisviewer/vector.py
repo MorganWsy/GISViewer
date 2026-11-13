@@ -478,8 +478,12 @@ def inspect(target, quick=False):
     driver = _driver_name(ds)
     # 表格驱动补出的几何与 GeoJSON 同权：没写坐标系就按规范默认 WGS 84
     fallback = 4326 if driver in _TABLE_WGS84_DRIVERS else None
-    # 属性表编码只对"字节自己定编码"的格式有意义，认出来给信息栏显示
-    attr_encoding = dbfenc.detect(target) if driver in dbfenc.SHOW_FOR_DRIVERS else None
+    # 属性表编码：shp/csv 靠字节判，其余按格式规范固定（界面只给结果，不露依据）
+    attr_encoding = None
+    if driver in dbfenc.SHOW_FOR_DRIVERS:
+        attr_encoding = dbfenc.detect(target)
+    if not attr_encoding:
+        attr_encoding = dbfenc.fixed_encoding(driver)
     total = ds.GetLayerCount()
     layers = []
     for i in range(min(total, MAX_LAYERS)):

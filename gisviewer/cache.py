@@ -31,6 +31,10 @@ from pathlib import Path
 MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限
 MEM_ITEMS = 48                  # 进程内热点条数（打开过的文件再接再开就是零等待）
 SCAN_FILES = 50000              # 目录指纹最多数这么多文件，超大瓦片目录不细算
+# 载荷结构版本：缓存里存的东西改了形状（信息栏多一行、直方图多一项）就加一。
+# 只靠版本号不够——同一个版本号下 rebuild 过、装了不同构建的副本，
+# 旧结果会带着缺字段的样子被搬出来（实测：加了"属性表编码"，旧缓存里没有这一项）
+SCHEMA = 2
 
 _lock = threading.Lock()
 _mem = OrderedDict()            # (kind, key) -> 值；只放 JSON 结果，PNG 不进内存
@@ -93,7 +97,7 @@ def key(kind, path, extra=""):
     if stamp is None:
         return None
     norm = os.path.normcase(os.path.abspath(str(path)))
-    raw = "|".join([kind, __version__, norm, repr(stamp), str(extra)])
+    raw = "|".join([kind, __version__, str(SCHEMA), norm, repr(stamp), str(extra)])
     return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()
 
 
