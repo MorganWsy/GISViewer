@@ -619,7 +619,9 @@ table.grid.layer-table td { overflow-wrap: anywhere; }
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  /* 地图与底下那行说明之间只留 3 像素：那一行是"这张图现在什么状态"的附注，
+     离得远就像另起一段，眼睛要跳一下才接得上 */
+  gap: 3px;
   min-height: 0;
 }
 
@@ -764,6 +766,8 @@ table.grid.layer-table td { overflow-wrap: anywhere; }
 .layer-pop button.on .lp-check { visibility: visible; }
 
 table.chip-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+/* 窄窗口里文件卡要给图例让位：内容超出时在卡里滚动，不往外顶（高度由 app.js 写上限） */
+#chipBody { overflow-y: auto; }
 
 table.chip-table th {
   width: 84px;
@@ -888,7 +892,10 @@ table.chip-table td {
 .legend-head .combo-list { top: auto; bottom: calc(100% + 4px); padding: 3px; }
 /* 图例那颗下拉是缩小版：按钮紧凑，展开列表的选项边距也跟着收一档 */
 .legend-head .combo-list .combo-opt { padding: 4px 8px; }
-.legend-body { margin-top: 6px; max-height: 34vh; overflow-y: auto; }
+/* 图例高度按"文件卡压到哪儿"封顶：竖排的小窗口里地图只有两百来像素，
+   图例按 34vh（整窗高度的三成半）长上去就会盖住左上角的文件卡。
+   --legend-max 由 app.js 用两者的实际位置算出来写进根节点 */
+.legend-body { margin-top: 6px; max-height: min(34vh, var(--legend-max, 320px)); overflow-y: auto; }
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
 .legend-val { font-size: 13px; font-family: var(--font-num); white-space: nowrap; }
@@ -3000,52 +3007,32 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .chk-row.lv-ok .chk-row-t { color: var(--text-dim); }
 
 /* ---------- 更新提示 ----------
-   顶栏那颗按钮只在真有新版本时出现，紧挨标题右侧。动效分两层：外圈一道缓慢扩散的
-   光环（"这儿有事"），右上角一颗呼吸的圆点（"还没处理"）。一个循环 2.8 秒，
-   不闪、不抖，长时间开着也不碍眼。系统设了"减少动态效果"就只留静态样子。 */
+   顶栏那颗按钮只在真有新版本时出现，紧挨标题右侧。它就是一颗下载图标：
+   不套按钮底色、不套外框、不挂圆点——顶栏别处都是这个规矩，一颗图标说清楚就行。
+   动效放在箭头那一组上：往下走 3 像素、淡下去，再回到原位，2.4 秒一轮。
+   底下那条横线不动，整颗一起晃会像图标没摆正。系统设了"减少动态效果"就停。 */
 .upd-btn {
   position: relative;
   flex: none;
-  /* 比旁边那几颗略大一圈：它是"要处理的事"，不是普通工具按钮；
+  /* 图标比旁边那几颗大一圈：它是"要处理的事"，不是普通工具按钮；
      间距交给顶栏的 gap，别在这里再补 margin */
-  width: 34px;
+  width: 32px;
   height: 32px;
   color: var(--accent);
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  background: none;
+  border-color: transparent;
 }
-.upd-btn:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
-.upd-btn svg { width: 22px; height: 22px; }
-/* 光环走伪元素：位置和按钮完全重合，缩放扩出去也不会把旁边的元素挤动 */
-.upd-btn::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border: 1.5px solid var(--accent);
-  border-radius: 7px;
-  opacity: 0;
-  animation: upd-ring 2.8s ease-out infinite;
-  pointer-events: none;
+.upd-btn:hover { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.upd-btn svg { width: 22px; height: 22px; display: block; }
+.upd-btn .upd-arrow { animation: upd-drop 2.4s cubic-bezier(.35, 0, .25, 1) infinite; }
+@keyframes upd-drop {
+  0%        { transform: translateY(0);   opacity: 1; }
+  18%       { transform: translateY(3px); opacity: .45; }
+  32%       { transform: translateY(3px); opacity: .45; }
+  52%, 100% { transform: translateY(0);   opacity: 1; }
 }
-@keyframes upd-ring {
-  0%   { opacity: .5; transform: scale(.9); }
-  60%  { opacity: 0;  transform: scale(1.14); }
-  100% { opacity: 0;  transform: scale(1.14); }
-}
-/* 圆点只是"有新东西"的静态记号，不再自己呼吸：同一颗按钮上两种节奏各走各的，
-   看久了像卡住。动效只留那一圈光环 */
-.upd-dot {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--map-data);
-}
-/* 系统里开了"减少动态效果"就停掉光环的扩散，只留一圈静态描边 */
 @media (prefers-reduced-motion: reduce) {
-  .upd-btn::before { animation: none; opacity: .28; transform: none; }
+  .upd-btn .upd-arrow { animation: none; }
 }
 
 /* 更新弹层：标题 + 分条说明 + 两颗按钮。宽度按"一行二十来个汉字"定，
@@ -3075,7 +3062,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   color: var(--accent);
   background: var(--accent-soft);
 }
-.upd-pop .up-date { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+/* 日期与版本号同字号：12px 贴着 15px 的版本号显得像脚注，读的人要先眯一下 */
+.upd-pop .up-date { margin-left: auto; font-size: 15px; line-height: 20px; color: var(--text-dim); }
 .upd-pop .up-sub { margin-top: 3px; font-size: 12px; color: var(--text-dim); }
 .upd-pop ul {
   margin: 9px 0 0;

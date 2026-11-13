@@ -15,19 +15,19 @@
     <div class="brand-cn">图览</div>
     <div class="brand-en">TULAN</div>
   </div>
-  <!-- 有新版本才出现：紧挨标题右侧，一眼能看见但不去抢标题的位置。
-       点了弹出更新说明，动画在 style.css 的 .upd-btn 里 -->
+  <!-- 有新版本才出现：紧挨标题右侧，就是一颗下载图标，不套底色也不套外框。
+       箭头自己往下走一趟（动效在 style.css 的 .upd-arrow 里） -->
   <button id="updBadge" class="ibtn upd-btn no-drag" type="button" hidden
           data-tip="有新版本可用：点开看这次改了什么，再决定要不要更新"
           aria-label="有新版本可用：点开看这次改了什么，再决定要不要更新">
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9.1" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".38"/>
-      <path d="M12 6.6v7.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-      <path d="M8.7 10.6L12 13.9l3.3-3.3" fill="none" stroke="currentColor" stroke-width="1.9"
-            stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M7.9 17.2h8.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <g class="upd-arrow" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5.4v8.4"/>
+        <path d="M8.4 10.3 12 13.9l3.6-3.6"/>
+      </g>
+      <path d="M7.6 18.5h8.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
     </svg>
-    <i class="upd-dot" aria-hidden="true"></i>
   </button>
   <div id="updPop" class="upd-pop" hidden></div>
   <!-- 这块空白就是窗口的标题栏：按住拖得动，双击最大化/还原，别放任何控件上去 -->

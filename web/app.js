@@ -149,7 +149,7 @@ const FIELD_TIPS = {
   '地理基准': ['该坐标系采用的大地基准名称与编码，描述椭球与真实地球的贴合关系', '两组数据叠加或换算时基准必须一致，否则要先做基准转换'],
   '单位': '平面坐标与距离使用的单位（米、度等）。读坐标、量算长度面积时都以它为准',
   '说明': '坐标系自带的一段备注文字',
-  '最小/最大值': ['全部有数据的像元里，数值最小和最大各是多少', '统计范围之外的值不参与'],
+  '有效值范围': ['全部有数据的像元里，数值最小和最大各是多少', '被标为无效值的像元不参与统计；按缩放系数换算过的，给的是换算后的真实值'],
   '平均值': '所有有数据像元的算术平均，无效值不计入',
   '中位数': '把有数据的像元从小到大排好，正中间那个值；比平均值更不怕极端值',
   '标准差': '数值偏离平均值的程度，越大说明这张图上的数值分布越散',
@@ -476,8 +476,61 @@ document.addEventListener('mouseout', (e) => {
 window.addEventListener('scroll', hideTipBox, true);
 /* 窗口一缩放，锚点在屏幕上的位置就全变了：开着的浮层（最近打开、打开菜单、
    体检）各自按新锚点重摆一遍，不然留在原地盖住别的东西 */
+/* 窄窗口里左下角的图例与左上角的文件卡共用一条竖带：图例从地图底边往上长，
+   长到文件卡下沿就得停，否则两块半透明面板叠在一起，字摞字。
+   两边各让一半——图例至少留三行，不够就让文件卡自己收短、内容在里面滚动。
+   量的是两者的实际位置，不按固定像素预留；卡片展开收起、换图层都会重算 */
+const LEGEND_MIN = 66;   // 图例至少留三行（每行 22）
+const CHIP_MIN = 72;     // 文件卡至少留标题行加两行
+const LEGEND_GAP = 8;    // 文件卡下沿与图例之间留的空
+
+function syncMapHeight() {
+  const stage = document.querySelector('.map-stage');
+  if (!stage) return;
+  const sr = stage.getBoundingClientRect();
+  if (!sr.height) return;
+  const z = uiZoom() || 1;
+  const legend = $('legend');
+  const body = $('legendBody');
+  const chip = $('fileChip');
+  const chipBody = $('chipBody');
+  /* 图例自己那一圈（标题行、内边距、下边距）先让出来，剩下的才是能给卡片与表体的 */
+  let chrome = 0;
+  let lmargin = 0;
+  if (legend && body && !legend.hidden) {
+    const lr = legend.getBoundingClientRect();
+    chrome = lr.height - body.getBoundingClientRect().height;
+    lmargin = Math.max(0, sr.bottom - lr.bottom);
+  }
+  const base = sr.height - chrome - lmargin;
+  /* 卡片自然高度只能"解开封顶量一次"：封顶值若由封顶后的高度反推，两者会互相追着跑 */
+  let natural = 0;      // 卡片不封顶时压到哪儿
+  let chipTop = 0;
+  let chipChrome = 0;
+  if (chip && chipBody && !chip.hidden) {
+    const prev = chipBody.style.maxHeight;
+    chipBody.style.maxHeight = 'none';
+    const cr = chip.getBoundingClientRect();
+    chipTop = Math.max(0, cr.top - sr.top);
+    natural = chipTop + cr.height + LEGEND_GAP;
+    chipChrome = cr.height - chipBody.getBoundingClientRect().height;
+    chipBody.style.maxHeight = prev;
+  }
+  /* 卡片最高能有多高：给图例留够三行 */
+  const capLimit = base - LEGEND_GAP - chipTop - LEGEND_MIN;
+  const cap = (chip && chipBody && base - natural < LEGEND_MIN)
+    ? Math.max(CHIP_MIN, capLimit) : 0;
+  if (chipBody) {
+    chipBody.style.maxHeight = cap ? Math.max(0, Math.round((cap - chipChrome) / z)) + 'px' : '';
+  }
+  const used = cap ? chipTop + cap + LEGEND_GAP : natural;
+  document.documentElement.style.setProperty(
+    '--legend-max', Math.max(0, Math.round((base - used) / z)) + 'px');
+}
+
 let stackedBefore = stackedStage();
 window.addEventListener('resize', () => {
+  syncMapHeight();
   if (!$('recentPop').hidden) placeRecent();
   if (!$('pickPop').hidden) placePickPop();
   if (!$('checkPop').hidden) placeCheckPop();
@@ -530,7 +583,7 @@ function newRail() {
       items.push({ k: key, v: String(value), tip: tip || null });
       return api;
     },
-    many(pairs) { pairs.forEach((p) => api.row(p[0], p[1])); return api; },
+    many(pairs) { pairs.forEach((p) => api.row(p[0], p[1], p[2])); return api; },
     node(n) { if (n) items.push({ node: n }); return api; },
     loading(key) { items.push({ k: key, busy: true }); return api; },
     render(host) {
@@ -1792,6 +1845,7 @@ function legendBody(open) {
   const body = $('legendBody');
   body.textContent = '';
   $('legend').hidden = !open;
+  syncMapHeight();   // 图例一露头就要重算能长多高：藏着的时候量不到它自己的那一截
   return body;
 }
 
@@ -3964,6 +4018,7 @@ function applyLook() {
   root.setProperty('--ui-zoom', String(uiZoom()));
   root.setProperty('--font-ui', fontFace(config.ui_font, UI_TAIL));
   root.setProperty('--font-num', fontFace(config.num_font, NUM_TAIL));
+  syncMapHeight();   // 界面缩放改了，图例能长多高要按新缩放重算
   paintView();   // 比例尺的条长跟字号有关，改完立刻重画一次
 }
 
@@ -5196,6 +5251,16 @@ function init() {
     /* 地图宽度会被分栏拖动、信息栏收放改掉：提示卡跟着重新居中 */
     const mapEl = $('map');
     if (mapEl && window.ResizeObserver) new ResizeObserver(placeErrToast).observe(mapEl);
+    /* 分栏拖动、信息栏收放、窗口缩放都会改地图高度；文件卡展开收起、换图层都会改它自己的高度。
+       三类都影响图例能长多高，各挂一个观察器管住 */
+    const stageEl = document.querySelector('.map-stage');
+    const chipEl = $('fileChip');
+    syncMapHeight();
+    if (window.ResizeObserver) {
+      const ro = new ResizeObserver(syncMapHeight);
+      if (stageEl) ro.observe(stageEl);
+      if (chipEl) ro.observe(chipEl);
+    }
     toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
     toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
     toShell('ready');
