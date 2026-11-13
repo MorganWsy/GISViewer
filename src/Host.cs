@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -603,6 +604,13 @@ namespace GISViewer
     {
         public const string ManifestBase = "https://wsy-release.oss-cn-hangzhou.aliyuncs.com/tulan";
 
+        /* 清单签名用的公钥（ECDSA P-256）。私钥在 D:\tulan-keys\update-private.txt，
+           由 tools\publish.ps1 拿去签；这里只有公钥，泄了也只能验不能签。
+           指纹（SHA-256 前 8 位）由发布脚本每次打印，升级排查时先对一眼。
+           换密钥等于断掉所有已安装副本的更新通道——别随手重生成。 */
+        const string PubX = "N9DJcBihO/Xrk4o+SCRdeT9p5eo8D8wGNLqfUtyIFbQ=";
+        const string PubY = "oDXjsYdfD8pGbpk+6ebEEctNHW36+nFC9yKcnI+RD84=";
+
         public class Result
         {
             public bool Ok;
@@ -658,6 +666,32 @@ namespace GISViewer
             return ManifestBase;
         }
 
+        /* 验签：签名是对"清单字节的 SHA-256"做的 ECDSA P-256，IEEE P1363 那串 r‖s，64 字节。
+           这里必须自己先算摘要再 VerifyHash——早先图省事把清单原始字节直接当哈希传，
+           CNG 只取前 32 字节参与运算，改清单后半段照样验得过（实测），等于只保护了开头一小段。
+           发布脚本那边是同样的口径：SignHash(SHA256(清单字节))。 */
+        static bool Verify(byte[] man, string sigB64)
+        {
+            try
+            {
+                byte[] sig = Convert.FromBase64String(sigB64.Trim());
+                if (sig.Length != 64) return false;
+                using (ECDsa e = ECDsa.Create())
+                {
+                    ECParameters p = new ECParameters();
+                    p.Curve = ECCurve.NamedCurves.nistP256;
+                    p.Q = new ECPoint { X = Convert.FromBase64String(PubX), Y = Convert.FromBase64String(PubY) };
+                    e.ImportParameters(p);
+                    byte[] digest = SHA256.Create().ComputeHash(man);
+                    return e.VerifyHash(digest, sig);
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         /* 问一次"有没有新版"。清单读不到就返回可读的原因，不抛异常 */
         public static Result Query(string current)
         {
@@ -672,6 +706,24 @@ namespace GISViewer
                 return r;
             }
             string text = Encoding.UTF8.GetString(raw).TrimStart('\uFEFF');
+            /* 验签必须在解析之前：清单里的 pkg / sha256 都是"要执行什么"的指令，
+               只信"这些字节出自私钥持有者"，后面的字段才能当数据用。
+               否则 sha256 与包名写在同一个文件里，改包顺手改校验和就绕过去了 */
+            byte[] sigRaw = Get(Base() + "/latest.json.sig", 9000, 4096, out err);
+            if (sigRaw == null)
+            {
+                /* 走到这里说明清单已经读到了，缺的是签名——发布不完整，不是"还没发过版"。
+                   （清单本身 404 的情况在上一步就返回了。） */
+                r.Ok = false;
+                r.Error = "更新清单缺少签名文件，发布不完整，这次不更新";
+                return r;
+            }
+            if (!Verify(raw, Encoding.ASCII.GetString(sigRaw)))
+            {
+                r.Ok = false;
+                r.Error = "更新清单的签名对不上，这次不更新";
+                return r;
+            }
             Dictionary<string, object> map;
             try
             {
@@ -773,8 +825,13 @@ namespace GISViewer
                 req.Timeout = timeoutMs;
                 req.ReadWriteTimeout = timeoutMs;
                 req.UserAgent = "tulan-updater";
-                // 清单每次都问最新的：中间可能隔着 CDN
+                /* 清单每次都问最新的：中间可能隔着 CDN。
+                   只写请求头不够——HttpWebRequest 自带一层进程内缓存，python http.server
+                   这种只给 Last-Modified 的源会被它按"启发式新鲜度"存住，第二次问还回旧字节
+                   （实测：改了清单再查，签名照样通过）。CachePolicy 才是那层缓存的开关。 */
                 req.Headers["Cache-Control"] = "no-cache";
+                req.CachePolicy = new System.Net.Cache.RequestCachePolicy(
+                    System.Net.Cache.RequestCacheLevel.BypassCache);
                 using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
                 using (Stream st = res.GetResponseStream())
                 using (var ms = new MemoryStream())
@@ -883,6 +940,9 @@ namespace GISViewer
                 req.Timeout = 20000;
                 req.ReadWriteTimeout = 60000;
                 req.UserAgent = "tulan-updater";
+                // 包也绕开缓存：同一版本号重发过一次的情况下，缓存会给出旧包
+                req.CachePolicy = new System.Net.Cache.RequestCachePolicy(
+                    System.Net.Cache.RequestCacheLevel.BypassCache);
                 using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
                 using (Stream st = res.GetResponseStream())
                 using (FileStream fs = new FileStream(to, FileMode.Create, FileAccess.Write))

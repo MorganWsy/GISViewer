@@ -2,6 +2,7 @@
 dist/
 build/
 archive/
+publish/
 
 # 本地样例数据与测试夹具（几百 MB 的二进制，不进仓库）
 samples/
