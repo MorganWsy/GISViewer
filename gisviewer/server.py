@@ -724,6 +724,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._identify(query)
         if route == "/api/geomtypes":
             return self._geomtypes(query)
+        if route == "/api/convert_formats":
+            from . import convert
+            return self._send(200, {"ok": True, "formats": convert.formats()})
         if route == "/api/column":
             return self._column(query)
         if route == "/api/cache":
@@ -757,6 +760,13 @@ class Handler(BaseHTTPRequestHandler):
                                     "cache_dir": str(config_dir() / "cache")})
         if route == "/api/check":
             return self._check(self._json_body())
+        if route == "/api/convert":
+            from . import convert
+            body = self._json_body()
+            return self._send(200, convert.convert(
+                body.get("path"), int(body.get("layer") or 0),
+                str(body.get("fmt") or "geojson"), body.get("out_dir"),
+                dry=bool(body.get("dry"))))
         if route == "/api/diagnose":
             return self._diagnose(self._json_body())
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})

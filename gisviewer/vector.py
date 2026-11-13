@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import bootstrap
 from . import dwg as _dwg
+from . import encoding as dbfenc
 from . import labels
 from . import vindex
 from .errors import InspectError
@@ -195,7 +196,12 @@ def _open_vector(target):
 
     OpenEx 在 gdal 模块上（ogr 没有）。XY 选项只有 CSV 驱动认，别的驱动
     收到会告警"不支持该选项"，所以只对 .csv 传；XLSX 哪条路都拿不到几何，
-    打开后再补一次（见 _xy_upgrade）。"""
+    打开后再补一次（见 _xy_upgrade）。
+
+    shp 在打开前先认一遍 DBF 的编码（见 encoding 模块），认出来的写进
+    SHAPE_ENCODING，GBK 那类老文件的属性表才不致于满屏乱码。"""
+    force = dbfenc.gdal_shape_encoding(target)
+    gdal.SetConfigOption("SHAPE_ENCODING", force)
     options = _XY_OPEN_OPTIONS if str(target).lower().endswith(".csv") else None
     try:
         ds = gdal.OpenEx(target, gdal.OF_VECTOR | gdal.OF_READONLY,
@@ -472,6 +478,8 @@ def inspect(target, quick=False):
     driver = _driver_name(ds)
     # 表格驱动补出的几何与 GeoJSON 同权：没写坐标系就按规范默认 WGS 84
     fallback = 4326 if driver in _TABLE_WGS84_DRIVERS else None
+    # 属性表编码只对"字节自己定编码"的格式有意义，认出来给信息栏显示
+    attr_encoding = dbfenc.detect(target) if driver in dbfenc.SHOW_FOR_DRIVERS else None
     total = ds.GetLayerCount()
     layers = []
     for i in range(min(total, MAX_LAYERS)):
@@ -479,7 +487,10 @@ def inspect(target, quick=False):
         if lyr is None:
             continue
         try:
-            layers.append(_layer_info(lyr, i, fallback, quick=quick))
+            item = _layer_info(lyr, i, fallback, quick=quick)
+            if attr_encoding:
+                item["attr_encoding"] = attr_encoding
+            layers.append(item)
         except Exception as exc:
             layers.append({"index": i, "name": lyr.GetName(),
                            "error": labels.friendly_error(exc)[:200]})

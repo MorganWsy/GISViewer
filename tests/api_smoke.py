@@ -96,7 +96,8 @@ def main(argv=None):
     tif = SAMPLES / "pre_2000_01.tif"
     geojson = SAMPLES / "wuningGEP.json"
     gpkg = FIXTURES / "two_layer.gpkg"
-    for path in (tif, geojson, gpkg):
+    china = FIXTURES / "china_small.geojson"
+    for path in (tif, geojson, gpkg, china):
         if not path.exists():
             print("缺文件：%s（样例见 TULAN_DATA，固件见 tests\\make_fixtures.py）" % path, file=sys.stderr)
             return 2
@@ -290,6 +291,36 @@ def main(argv=None):
         shared = book.read("xl/sharedStrings.xml").decode("utf-8")
         need("检查项目" in shared, "明细表没有表头文字")
         need("可读性" in shared, "明细表没有检查项目")
+
+    @check("convert_formats 列出互转目标")
+    def _(cli):
+        status, data, _ = cli.get("/api/convert_formats")
+        need(status == 200 and data.get("ok"), "200/ok 不对")
+        fmts = data.get("formats") or []
+        need(len(fmts) >= 10, "目标格式太少：%s" % len(fmts))
+        keys = {f.get("key") for f in fmts}
+        need({"shp", "geojson", "gpkg"} <= keys, "常用格式不齐：%s" % sorted(keys))
+        need(all(f.get("note") for f in fmts), "有格式没写代价说明")
+
+    @check("convert 预检不落文件、转换有前后对比")
+    def _(cli):
+        out = Path(tmp, "conv-out")
+        body = {"path": str(china), "layer": 0, "fmt": "geojson",
+                "out_dir": str(out), "dry": True}
+        status, data, _ = cli.post("/api/convert", body)
+        need(status == 200 and data.get("ok"), "预检失败：%s" % data.get("error"))
+        need(not out.exists(), "预检不该建输出目录")
+        need(data.get("before", {}).get("feature_count") == 35, "转换前要素数不对")
+        body["dry"] = False
+        status, data, _ = cli.post("/api/convert", body)
+        need(status == 200 and data.get("ok"), "转换失败：%s" % data.get("error"))
+        cmp = {r["name"]: r for r in data.get("compare") or []}
+        need(cmp.get("要素数", {}).get("same") is True, "要素数没对上：%s" % cmp.get("要素数"))
+        need(Path(data.get("out_path") or "").is_file(), "输出文件没写出来")
+        # 同名不覆盖：再转一次必须明确拒绝
+        status, data, _ = cli.post("/api/convert", body)
+        need(status == 200 and not data.get("ok"), "同名文件被覆盖了")
+        need("同名" in (data.get("error") or {}).get("title", ""), "没说清是同名冲突：%s" % data.get("error"))
 
     try:
         wait_ready(base)

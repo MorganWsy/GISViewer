@@ -181,6 +181,7 @@ const FIELD_TIPS = {
   'M 值坐标': '坐标里带不带测量值（M）',
   '图层': '文件里的一个图层',
   '字段数': '这个图层有多少个属性字段',
+  '属性表编码': ['属性表里文字的编码', '用代码读取同一份数据时按这个编码解码，例如 Python 里 open(..., encoding="gbk")、GDAL 里设 SHAPE_ENCODING'],
   '字段': '属性字段的名字',
   '单张要素数': '单张瓦片里最多装了多少个要素',
   '组织方式': '瓦片按什么结构组织存放',
@@ -534,6 +535,7 @@ window.addEventListener('resize', () => {
   if (!$('recentPop').hidden) placeRecent();
   if (!$('pickPop').hidden) placePickPop();
   if (!$('checkPop').hidden) placeCheckPop();
+  if (!$('convPop').hidden) placeConvPop();
   if (!$('updPop').hidden) placeUpdPop();
   /* 从宽屏切到竖排（地图在上、信息栏在下）时把属性表收起来。竖排的地图只剩两百来像素高，
      那张 260 高的表会把地图连同上面的按钮一起盖住；只在这一下收，之后用户自己点开的不干预 */
@@ -1094,6 +1096,7 @@ function railVector(rail, d) {
     (primary.quick ? '统计中…' : null));
   rail.row('Z 值坐标', primary.has_z ? '有' : '无');
   rail.row('M 值坐标', primary.has_m ? '有' : '无');
+  if (primary.attr_encoding) rail.row('属性表编码', primary.attr_encoding);
   rail.many(extentRows(primary.extent, primary.extent_wgs84,
     (primary.crs || {}).unit_label, !primary.extent_wgs84 && !!primary.extent));
   if (primary.quick && !primary.extent) rail.row('范围', '统计中…');
@@ -2334,6 +2337,7 @@ function wireQuickKeys() {
       if (!$('recentPop').hidden) { hideRecent(); return; }
       if (!$('pickPop').hidden) { hidePickPop(); return; }
       if (!$('checkPop').hidden) { hideCheckPop(); return; }
+      if (!$('convPop').hidden) { hideConvPop(); return; }
       if (!$('layerPop').hidden) { hideLayerPop(); return; }
       if (!$('settings').hidden) { $('cfgClose').click(); return; }
       if (!$('errToast').hidden) { hideErrToast(); return; }
@@ -2660,7 +2664,7 @@ function wireChrome() {
     if (e.button !== 0) return;
     /* 最近打开和"打开"菜单都挂在顶栏里：点它们时不能去拖窗口，
        否则这一下被系统拖动循环接走，列表项的 click 永远回不来（点不开就是这个原因） */
-    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop, #checkPop')) return;
+    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop, #checkPop, #convPop')) return;
     /* 顶栏空白处一按下，窗口就交给系统拖动循环了，这一下之后的 click 再也回不到页面，
        所以浮窗只能在这里主动收掉，不能等外面的 document click */
     hideRecent();
@@ -3636,6 +3640,7 @@ let cacheDirShown = '';
 /* 壳的选目录框只有一个回传口（GisHost('dir')），谁点的就填回谁的框。
    点"选择…"之前先记下目标，收到回传时按这个分发 */
 let dirPickTarget = '';
+let filePickTarget = '';   // 壳的选文件框回传填给谁：'conv' 或默认给体检
 
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
@@ -3699,8 +3704,10 @@ function showCheckPop() {
   const pop = $('checkPop');
   const btn = $('checkBtn');
   if (!pop || !btn) return;
+  if (convBusy) return;   // 互转跑着不让换台，两块浮层叠着点不准
   hideRecent();
   hidePickPop();
+  hideConvPop();
   placeCheckPop();
   pop.hidden = false;
   markBtn('checkBtn', true);
@@ -3973,6 +3980,272 @@ function runDiagnose() {
   }).catch(() => setHint('诊断包未能生成，请稍后重试'));
 }
 
+/* ---------- 格式互转浮层 ----------
+   源文件、图层、目标格式、输出目录四件事都在一块浮层里。
+   转换前先跑一遍预检（dry）：给格式的已知代价、这份数据的警告、转换前概况；
+   转换后给出要素数、字段数、几何、坐标系的前后对比。 */
+
+let convFormats = null;   // [{key,label,note}]，问一次引擎就缓存
+let convDryTimer = 0;
+let convBusy = false;
+
+function convTargetPath() {
+  const input = $('convPath');
+  return (input && input.value.trim()) || (current && current.path) || '';
+}
+
+function convLayerIndex() {
+  const sel = $('convLayer');
+  const v = sel && sel.value ? parseInt(sel.value, 10) : 0;
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function convFmtKey() {
+  const sel = $('convFmt');
+  return (sel && sel.value) || 'geojson';
+}
+
+function setConvHint(text) {
+  const hint = $('convHint');
+  if (hint) hint.textContent = text || '';
+}
+
+/* 与体检浮层同一套定位：贴着"格式互转"按钮下方，左右夹回窗口内 */
+function placeConvPop() {
+  const pop = $('convPop');
+  const btn = $('convBtn');
+  if (!pop || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth || 520;
+  pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
+}
+
+function showConvPop() {
+  const pop = $('convPop');
+  const btn = $('convBtn');
+  if (!pop || !btn) return;
+  if (checkBusy) return;   // 体检跑着不让换台
+  hideRecent();
+  hidePickPop();
+  hideCheckPop();
+  placeConvPop();
+  pop.hidden = false;
+  markBtn('convBtn', true);
+  loadConvFormats();
+  const input = $('convPath');
+  const cur = (current && current.path) || '';
+  if (input && !input.value.trim() && cur) input.value = cur;
+  convLoadLayers();
+}
+
+function hideConvPop() {
+  if (convBusy) return;
+  const pop = $('convPop');
+  if (pop) pop.hidden = true;
+  markBtn('convBtn', false);
+  setConvHint('');
+}
+
+function toggleConvPop() {
+  const pop = $('convPop');
+  if (pop && !pop.hidden) hideConvPop();
+  else showConvPop();
+}
+
+function loadConvFormats() {
+  const sel = $('convFmt');
+  if (!sel) return;
+  if (convFormats) { paintConvFmt(); return; }
+  fetch('/api/convert_formats').then((r) => r.json()).then((d) => {
+    convFormats = (d && d.ok && d.formats) || [];
+    paintConvFmt();
+    convScheduleDry();
+  }).catch(() => { setConvHint('格式清单没能取到，请稍后重试'); });
+}
+
+function paintConvFmt() {
+  const sel = $('convFmt');
+  sel.textContent = '';
+  let last = '';
+  try { last = localStorage.getItem('gisviewer.conv_fmt') || ''; } catch (e) { /* 存不了就用默认 */ }
+  (convFormats || []).forEach((f) => {
+    const o = el('option', null, f.label);
+    o.value = f.key;
+    sel.appendChild(o);
+  });
+  if (last && (convFormats || []).some((f) => f.key === last)) sel.value = last;
+  // 下拉的可见部分是 combo 按钮，换完 options 得让它把标签重画一遍
+  if (window.syncSelect) window.syncSelect(sel);
+}
+
+/* 图层清单：源就是当前打开的这份就直接用内存里的；换了个路径再问引擎 */
+function convLoadLayers() {
+  const sel = $('convLayer');
+  if (!sel) return;
+  const path = convTargetPath();
+  const cur = current || {};
+  const layers = cur.data && cur.data.ok ? (cur.data.layers || []) : [];
+  if (cur.path && samePath(path, cur.path) && layers.length) {
+    fillConvLayers(layers.map((l, i) => ({ index: i, name: l.name || ('图层 ' + (i + 1)) })));
+    return;
+  }
+  if (!path) { fillConvLayers([]); return; }
+  fetch('/api/path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, fast: true }),
+  }).then((r) => r.json()).then((d) => {
+    const list = (d && d.ok && d.layers) || [];
+    fillConvLayers(list.map((l, i) => ({ index: i, name: l.name || ('图层 ' + (i + 1)) })));
+  }).catch(() => fillConvLayers([]));
+}
+
+function fillConvLayers(items) {
+  const sel = $('convLayer');
+  if (!sel) return;
+  sel.textContent = '';
+  const list = items || [];
+  if (!list.length) {
+    const o = el('option', null, '默认图层');
+    o.value = '0';
+    sel.appendChild(o);
+  } else {
+    list.forEach((l) => {
+      const o = el('option', null, l.name);
+      o.value = String(l.index);
+      sel.appendChild(o);
+    });
+  }
+  if (window.syncSelect) window.syncSelect(sel);
+  convScheduleDry();
+}
+
+function convScheduleDry() {
+  clearTimeout(convDryTimer);
+  convDryTimer = setTimeout(runConvDry, 250);
+}
+
+/* 预检：不写任何文件，把该格式的代价、这份数据的警告、转换前概况摆在按钮上面 */
+function runConvDry() {
+  const note = $('convNote');
+  if (!note) return;
+  const path = convTargetPath();
+  const fmtKey = convFmtKey();
+  const fmt = (convFormats || []).find((f) => f.key === fmtKey);
+  note.hidden = false;
+  note.textContent = '';
+  if (fmt && fmt.note) note.appendChild(el('div', null, fmt.note));
+  if (!path) {
+    note.appendChild(el('div', 'cv-err', '请先填写要转换的文件'));
+    return;
+  }
+  fetch('/api/convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, layer: convLayerIndex(), fmt: fmtKey, dry: true }),
+  }).then((r) => r.json()).then((d) => {
+    if ($('convPop') && $('convPop').hidden) return;
+    const box = $('convNote');
+    box.hidden = false;
+    box.textContent = '';
+    if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
+    if (!d || !d.ok) {
+      const err = (d && d.error) || {};
+      box.appendChild(el('div', 'cv-err', (err.title || '预检未通过') + (err.hint ? '：' + err.hint : '')));
+      return;
+    }
+    (d.warnings || []).forEach((w) => box.appendChild(el('div', 'cv-warn', w)));
+    const b = d.before || {};
+    box.appendChild(el('div', null, '转换前：' + b.feature_count + ' 个要素 · ' +
+      b.field_count + ' 个字段 · ' + (b.geometry || '几何未知') + ' · ' + (b.crs || '坐标系未记录')));
+  }).catch(() => {
+    const box = $('convNote');
+    box.hidden = false;
+    box.textContent = '';
+    if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
+    box.appendChild(el('div', 'cv-err', '预检没能完成，请稍后重试'));
+  });
+}
+
+function setConvBusy(on) {
+  convBusy = !!on;
+  const mask = $('convBusy');
+  if (mask) mask.hidden = !on;
+  const btn = $('convRun');
+  if (btn) btn.disabled = !!on;
+}
+
+function runConv() {
+  const path = convTargetPath();
+  if (!path) { setConvHint('请先填写要转换的文件'); return; }
+  setConvHint('');
+  const out = $('convOut');
+  setConvBusy(true);
+  fetch('/api/convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path,
+      layer: convLayerIndex(),
+      fmt: convFmtKey(),
+      out_dir: (out && out.value.trim()) || null,
+    }),
+  }).then((r) => r.json()).then((d) => {
+    setConvBusy(false);
+    if ($('convPop') && $('convPop').hidden) return;
+    if (!d || !d.ok) {
+      renderConvError(d && d.error);
+      setConvHint((d && d.error && d.error.title) || '转换未完成');
+      return;
+    }
+    renderConvResult(d);
+    setConvHint('转换完成');
+    convScheduleDry();   // 同名文件的预检状态跟着变，收一下
+  }).catch(() => {
+    setConvBusy(false);
+    setConvHint('转换未完成，请稍后重试');
+  });
+}
+
+function renderConvError(err) {
+  const wrap = $('convResult');
+  const res = $('convRes');
+  if (!wrap || !res) return;
+  res.textContent = '';
+  wrap.hidden = false;
+  res.appendChild(el('div', 'cv-err', (err && err.title) || '转换失败'));
+  if (err && err.hint) res.appendChild(el('div', 'cv-line', err.hint));
+}
+
+function renderConvResult(d) {
+  const wrap = $('convResult');
+  const res = $('convRes');
+  if (!wrap || !res) return;
+  res.textContent = '';
+  wrap.hidden = false;
+  const table = el('table', 'cv-cmp');
+  const head = el('tr');
+  ['项目', '转换前', '转换后'].forEach((t) => head.appendChild(el('th', null, t)));
+  table.appendChild(head);
+  (d.compare || []).forEach((row) => {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, row.name));
+    const a = el('td', typeof row.before === 'number' ? 'num' : null, row.before);
+    const cls = row.same ? 'cv-same' : 'cv-diff';
+    const b = el('td', (typeof row.after === 'number' ? 'num ' : '') + cls, row.after);
+    tr.appendChild(a);
+    tr.appendChild(b);
+    table.appendChild(tr);
+  });
+  res.appendChild(table);
+  const out = el('div', 'cv-line');
+  out.appendChild(el('b', null, '输出文件：'));
+  out.appendChild(document.createTextNode(d.out_path || ''));
+  res.appendChild(out);
+  (d.warnings || []).forEach((w) => res.appendChild(el('div', 'cv-warn', w)));
+}
+
 function refreshCacheSize() {
   const hint = $('cacheSizeHint');
   if (hint) hint.textContent = '正在统计…';
@@ -4041,19 +4314,24 @@ window.GisHost = function (name, value) {
   }
   if (name === 'dir') {
     // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
-    const where = dirPickTarget === 'check' ? $('checkPath') : $('cfgOpenDir');
+    const where = dirPickTarget === 'check' ? $('checkPath')
+      : dirPickTarget === 'conv' ? $('convOut') : $('cfgOpenDir');
     const fromCheck = dirPickTarget === 'check';
     dirPickTarget = '';
     if (where) { where.value = String(value || ''); if (where.id === 'cfgOpenDir') applySettings(); }
     if (fromCheck && where && where.value.trim()) runCheck();
     return;
   }
-  // 体检里"选择文件"回传：填进路径框，接着就查
+  // 体检里"选择文件"回传：填进路径框，接着就查。互转的选文件共用这一条回传，
+  // 按谁发起的分路（pickcheck 只是"挑一个数据文件"，跟用途无关）
   if (name === 'checkpath') {
-    const where = $('checkPath');
+    const toConv = filePickTarget === 'conv';
+    filePickTarget = '';
+    const where = toConv ? $('convPath') : $('checkPath');
     if (where) {
       where.value = String(value || '');
-      if (where.value.trim()) runCheck();
+      if (toConv) { convLoadLayers(); }
+      else if (where.value.trim()) runCheck();
     }
     return;
   }
@@ -4375,7 +4653,7 @@ function onCheckMessage(v) {
   if (!v.ok || v.error) {
     paintUpdBadge(false);
     paintUpdOpen(false);
-    paintUpdateHint(v.error || '检查不到更新');
+    paintUpdateHint(v.error || '未能完成更新检查');
     return;
   }
   /* 问到了就记一笔"这次检查的时间"，不管有没有新版：设置里的"每 3 天/每周/每月"
@@ -4385,7 +4663,7 @@ function onCheckMessage(v) {
     updInfo = null;
     paintUpdBadge(false);
     paintUpdOpen(false);
-    paintUpdateHint(v.current ? ('当前 v' + v.current + ' 已经是最新。') : '当前已经是最新版本。');
+    paintUpdateHint(v.current ? ('当前 v' + v.current + ' 已是最新版本。') : '当前已是最新版本。');
     closeUpdPop();
     return;
   }
@@ -4403,10 +4681,10 @@ function onCheckMessage(v) {
 function onFetchMessage(v) {
   if (v.state === 'progress') {
     updStage = { state: 'progress', percent: v.percent || 0 };
-    paintUpdateHint('正在下载 v' + (updInfo ? updInfo.latest : '') + '：' + (v.percent || 0) + '%');
+    paintUpdateHint('正在下载 v' + (updInfo ? updInfo.latest : '') + ' 更新包：' + (v.percent || 0) + '%');
   } else if (v.ok) {
     updStage = { state: 'done' };
-    paintUpdateHint('v' + (updInfo ? updInfo.latest : '') + ' 已下载好，等重启完成替换。');
+    paintUpdateHint('v' + (updInfo ? updInfo.latest : '') + ' 更新包已下载完成，重新打开软件后完成替换。');
   } else {
     updStage = { state: 'error', error: v.error || '下载失败' };
     paintUpdateHint(v.error || '下载失败');
@@ -4417,13 +4695,13 @@ function onFetchMessage(v) {
 function onApplyMessage(v) {
   if (v.ok) {
     if (!$('updPop').hidden) {
-      setUpdState('正在关闭软件并完成替换，稍等它自己重新打开…');
+      setUpdState('正在关闭软件并替换文件，完成后将自动重新打开…');
       const now = $('updPop').querySelector('.up-now');
       if (now) now.disabled = true;
     }
     return;
   }
-  updStage = { state: 'error', error: v.error || '更新组件没起来' };
+  updStage = { state: 'error', error: v.error || '更新组件未能启动' };
   if (!$('updPop').hidden) paintUpdPop();
 }
 
@@ -4463,23 +4741,25 @@ function paintUpdPop() {
 
   const list = el('ul');
   (updInfo.notes || []).forEach((line) => list.appendChild(el('li', null, line)));
-  if (!list.childElementCount) list.appendChild(el('li', null, '这一版没有写更新说明。'));
+  if (!list.childElementCount) list.appendChild(el('li', null, '本版本未提供更新说明。'));
   pop.appendChild(list);
 
   const state = el('div', 'up-state');
   if (!updStage) {
-    state.textContent = '下载后会自动替换，软件会重新打开。';
+    state.textContent = '下载完成后将自动替换程序文件，随后软件重新打开。';
   } else if (updStage.state === 'progress') {
-    state.textContent = '正在下载：' + updStage.percent + '%';
+    state.textContent = '正在下载更新包：' + updStage.percent + '%';
   } else if (updStage.state === 'done') {
-    state.textContent = '已经下载好，重启一下就换成新版。';
+    state.textContent = '更新包已下载完成，重新打开软件后即生效。';
   } else {
     state.className = 'up-state warn';
-    state.textContent = updStage.error || '更新没做成，稍后再试。';
+    state.textContent = updStage.error || '更新未完成，请稍后重试。';
   }
   state.classList.add('up-state-mark');
   pop.appendChild(state);
 
+  /* 按钮排在最右：「稍后」在左、「立即更新」在右（主按钮贴右边），
+     「完整说明」推到最左，与这一对分开 */
   const foot = el('div', 'up-foot');
   const now = el('button', 'btn up-now', '');
   now.type = 'button';
@@ -4501,7 +4781,6 @@ function paintUpdPop() {
     now.textContent = '重试';
     now.onclick = () => { updStage = null; paintUpdPop(); toShell('upd:get'); };
   }
-  foot.appendChild(now);
 
   if (updInfo.page) {
     const page = el('button', 'btn ghost up-page', '完整说明');
@@ -4520,6 +4799,7 @@ function paintUpdPop() {
     paintUpdBadge(false);
   };
   foot.appendChild(later);
+  foot.appendChild(now);
 
   pop.appendChild(foot);
 }
@@ -4935,6 +5215,7 @@ function init() {
     /* 弹窗一开，顶栏那两块浮层就收掉：否则两个按钮同时亮着，
        而且浮层压不到弹窗上面，看起来像没关干净 */
     hideCheckPop();
+    hideConvPop();
     hidePickPop();
     fillSettings();
     $('settings').hidden = false;
@@ -4975,6 +5256,36 @@ function init() {
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
+  // 格式互转：顶栏那颗按钮开浮层，四个输入加预检、转换都在这一块里
+  $('convBtn').addEventListener('click', toggleConvPop);
+  $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
+  $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; toShell('pickdir'); });
+  $('convPath').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); convLoadLayers(); }
+  });
+  $('convPath').addEventListener('change', convLoadLayers);
+  $('convLayer').addEventListener('change', () => {
+    if (window.syncSelect) window.syncSelect($('convLayer'));
+    convScheduleDry();
+  });
+  $('convFmt').addEventListener('change', () => {
+    if (window.syncSelect) window.syncSelect($('convFmt'));
+    try { localStorage.setItem('gisviewer.conv_fmt', convFmtKey()); } catch (e) { /* 存不了就本次生效 */ }
+    convScheduleDry();
+  });
+  $('convOut').addEventListener('change', convScheduleDry);
+  $('convRun').addEventListener('click', runConv);
+  /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */
+  const cvTip = $('cvTip');
+  if (cvTip) {
+    cvTip.setAttribute('data-tip', [
+      '格式互转只把同一份数据换成另一种文件格式存放：',
+      '· 坐标系、几何、属性一律照搬，不做重投影、裁剪、合并、简化；',
+      '· 输出写到新目录（默认在源文件旁建「文件名_转出」），已有同名文件不覆盖；',
+      '· 转换前给出该格式的已知代价，转换后把要素数、字段、几何、坐标系与源数据逐项对比。',
+    ].join('\n'));
+    cvTip.innerHTML = HINT_ICO;
+  }
   /* 标题旁那颗说明：分点讲清体检查了什么、结论怎么分档。
      以"· "开头的行画圆点，其余行整段排——首句和末句是说明，中间三条才是清单 */
   const cpTip = $('cpTip');
@@ -5058,7 +5369,7 @@ function init() {
     toShell('desklnk:' + (e.target.checked ? 'on' : 'off'));
   });
   $('updBtn').addEventListener('click', () => {
-    $('updHint').textContent = '正在问发布页…';
+    $('updHint').textContent = '正在检查更新…';
     $('updOpen').hidden = true;
     toShell('upd:check');
   });
@@ -5141,6 +5452,14 @@ function init() {
     const onBtn = e.target && e.target.closest ? e.target.closest('#checkBtn') : null;
     if (pop.contains(e.target) || onBtn) return;
     hideCheckPop();
+  });
+  // 互转浮层同理
+  document.addEventListener('click', (e) => {
+    const pop = $('convPop');
+    if (!pop || pop.hidden) return;
+    const onBtn = e.target && e.target.closest ? e.target.closest('#convBtn') : null;
+    if (pop.contains(e.target) || onBtn) return;
+    hideConvPop();
   });
   let findTimer = 0;
   $('attrFind').addEventListener('input', () => {

@@ -18,8 +18,8 @@
   <!-- 有新版本才出现：紧挨标题右侧，就是一颗下载图标，不套底色也不套外框。
        箭头自己往下走一趟（动效在 style.css 的 .upd-arrow 里） -->
   <button id="updBadge" class="ibtn upd-btn no-drag" type="button" hidden
-          data-tip="有新版本可用：点开看这次改了什么，再决定要不要更新"
-          aria-label="有新版本可用：点开看这次改了什么，再决定要不要更新">
+          data-tip="有新版本可用：查看本次更新内容"
+          aria-label="有新版本可用：查看本次更新内容">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <g class="upd-arrow" fill="none" stroke="currentColor" stroke-width="1.9"
          stroke-linecap="round" stroke-linejoin="round">
@@ -79,6 +79,49 @@
       <span class="cp-busy-text">正在体检…</span>
     </div>
   </div>
+  <!-- 格式互转：源文件、图层、目标格式、输出目录四件事都在这块浮层里。
+       转换前先给代价与概况（预检），转完给出前后对比 -->
+  <div id="convPop" class="conv-pop" hidden>
+    <div class="cp-head">
+      <span class="cp-title">格式互转</span>
+      <i class="tip-ico" id="cvTip"></i>
+      <span class="cp-hint" id="convHint"></span>
+    </div>
+    <div class="cp-row">
+      <div class="cp-field">
+        <input id="convPath" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-path" placeholder="要转换的矢量文件，留空就用当前打开的">
+        <button id="convFilePick" class="cp-in" type="button" data-tip="选择文件" aria-label="选择文件">
+          <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="cv-row">
+      <label class="cv-lab" for="convLayer">图层</label>
+      <select id="convLayer" class="cv-sel" aria-label="要转换的图层"></select>
+      <label class="cv-lab" for="convFmt">转为</label>
+      <select id="convFmt" class="cv-sel cv-fmt" aria-label="目标格式"></select>
+    </div>
+    <div class="cp-row">
+      <div class="cp-field">
+        <input id="convOut" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-out" placeholder="输出目录（留空则在源文件旁建「文件名_转出」）">
+        <button id="convDirPick" class="cp-in" type="button" data-tip="选择输出目录" aria-label="选择输出目录">
+          <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- 预检：格式的已知代价 + 这份数据实测出来的警告 + 转换前概况 -->
+    <div class="cv-note" id="convNote" hidden></div>
+    <div class="cv-foot">
+      <button id="convRun" class="cv-run" type="button">开始转换</button>
+    </div>
+    <div class="cp-result" id="convResult" hidden>
+      <div class="cv-res" id="convRes"></div>
+    </div>
+    <div class="cp-busy" id="convBusy" hidden>
+      <span class="cp-spin"></span>
+      <span class="cp-busy-text">正在转换…</span>
+    </div>
+  </div>
   <div class="tools no-drag">
     <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
     <button id="filePickBtn" class="ibtn" type="button" data-tip="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件" aria-label="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
@@ -90,6 +133,13 @@
       <svg viewBox="0 0 1024 1024" aria-hidden="true">
         <path fill="currentColor" fill-rule="evenodd" d="M820.148148 288.009481a75.851852 75.851852 0 0 1 75.851852 75.851852v392.286815a75.851852 75.851852 0 0 1-75.851852 75.851852h-616.296296a75.851852 75.851852 0 0 1-75.851852-75.851852V363.84237a75.851852 75.851852 0 0 1 75.851852-75.851851h616.296296zM512 399.985778c-17.673481 0-32.009481 14.317037-32.009481 31.990518v96.009482H384c-16.744296 0-30.473481 12.856889-31.876741 29.240889l-0.113778 2.749629c0 17.673481 14.317037 32.009481 31.990519 32.009482h95.990519v95.990518c0 16.744296 12.875852 30.492444 29.240888 31.895704l2.768593 0.113778c17.673481 0 32.009481-14.336 32.009481-32.009482l-0.018962-96.009481h96.009481c16.744296 0 30.473481-12.837926 31.876741-29.221926l0.113778-2.768593c0-17.673481-14.317037-31.990519-31.990519-31.990518h-96.009481V431.976296c0-16.744296-12.856889-30.473481-29.221926-31.87674z"/>
         <path fill="currentColor" opacity=".45" d="M363.861333 192h296.296297a75.851852 75.851852 0 0 1 75.851851 75.851852v20.157629H287.971556v-20.157629a75.851852 75.851852 0 0 1 75.851851-75.851852z"/>
+      </svg>
+    </button>
+    <!-- 格式互转：矢量数据换一种文件格式存，几何属性照搬、不覆盖原件 -->
+    <button id="convBtn" class="ibtn" type="button" data-tip="格式互转：矢量数据换成另一种文件格式，坐标、几何、属性照搬，输出到新目录" aria-label="格式互转：矢量数据换成另一种文件格式，坐标、几何、属性照搬，输出到新目录">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 8.2h13"/><path d="M13.6 4.8 17 8.2l-3.4 3.4"/>
+        <path d="M20 15.8H7"/><path d="M10.4 12.4 7 15.8l3.4 3.4"/>
       </svg>
     </button>
     <button id="themeBtn" class="ibtn" type="button"></button>
@@ -552,7 +602,7 @@
       <section class="set-pane" data-sec="about" hidden>
       <div class="field inline">
         <label>版本</label>
-        <span class="ver-num" id="aboutVer">v0.14</span>
+        <span class="ver-num" id="aboutVer">v0.15</span>
       </div>
       <div class="field inline">
         <label>项目仓库</label>
