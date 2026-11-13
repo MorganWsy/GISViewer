@@ -12,6 +12,13 @@
 # 用法（-Notes 多条必须走 -Command；pwsh -File 传 'a','b' 会被并成一条带逗号的字符串）：
 #   pwsh -NoProfile -Command "& 'D:\GISViewer\tools\publish.ps1' -Ver 0.14 -Notes '第一条','第二条'"
 #
+# -Notes 只写用户能感知的变化：新增了什么、哪里不再出错、哪个说法改了。
+# 样式微调、内部重构、日志与注释的改动一律不进摘要——弹层里三五条看得完，
+# 混进鸡毛蒜皮之后，真正要人注意的那条就被淹了。
+#
+# 更新包不含 runtime（381 MB，不随版本变），所以只够给已经装过的机器换文件。
+# 首次安装要的是完整包：加 -Full 另存一份 tulan-v<版本>.zip。分发时两个都要。
+#
 # 关键约束：清单里的 ver 必须与 dist\gisviewer\__init__.py 里的 __version__ 一字不差。
 # 客户端拿引擎报的版本号跟清单比，两边对不上就永远判成"有新版"或永远不提示。
 param(
@@ -127,3 +134,11 @@ if ($privPubX -ne $pubX) { throw "私钥与 Host.cs 里的公钥不是一对（$
 '  latest.json'
 '  latest.json.sig'
 '  → https://wsy-release.oss-cn-hangzhou.aliyuncs.com/tulan/'
+if (-not $Full) {
+  $fullZip = Join-Path $out "tulan-v$Ver.zip"
+  if (-not (Test-Path $fullZip)) {
+    ''
+    '提示：这次只出了更新包，没有完整包。首次安装的机器要的是 tulan-v' + $Ver + '.zip（含 runtime），'
+    '      加 -Full 重跑一次即可（约三分钟，381 MB）。更新包不能当完整包分发。'
+  }
+}

@@ -158,14 +158,13 @@ const FIELD_TIPS = {
   '有效像元占比': '有数据的像元占像元总数的比例，用来看这张图缺测多少',
   '统计来源': '这些统计数字是文件里自带的，还是软件现场算出来的',
   '名称': '波段自带的名字或描述',
-  '数据类型': '数值的存储种类：栅格看每个像元存成什么类型，矢量看数据集本身是什么类型',
+  '数据类型': '存储类型指每个像元值在文件里的编码方式，它决定能表示的数值范围与每个像元占用的字节数',
   '色表': '文件内置的颜色对照表有多少项，分类图常带这一项',
   'NoData': '用来表示"这里没有数据"的那个特殊数值',
   '数值单位': ['文件给这个波段的数值写的物理单位，如 cm3/cm3、m、K', '有单位就能把数值和实际事物对上：0.27 说的是体积含水量，不是随便一个数'],
   '缩放系数': ['文件里存的是整数，真实值要靠它换算：真实值 = 原始值 × 缩放系数 + 偏移', '上面的统计值已经按它换算过；缩放系数为 1 说明文件直接存的就是真实值'],
   '数值偏移': '在缩放之后再加的固定量，与缩放系数一起构成"原始值 → 真实值"的换算关系；没有这一项时偏移为 0',
   '原始值范围': '文件里原样存着的数值范围，没做换算；别的软件显示的通常就是这一份',
-  '无坐标原因': ['文件里缺了哪些东西，才导致它放不到地图上', '有坐标变量却没被当作坐标轴，是科学数据文件常见的情形：数值能看，位置得另外配'],
   '压缩算法': '像元数据在文件里的压缩方式，决定体积与读取速度',
   '未压缩大小': '不压缩时这些数据要占多少空间',
   '压缩比': '压缩前后大小的比值，越大说明省得越多',
@@ -196,8 +195,43 @@ const FIELD_TIPS = {
   '读取情况': '解析过程中遇到的问题',
 };
 
-const tipState = { box: null, anchor: null, timer: 0 };
+/* 存储类型对照表：界面只写 GDAL 的类型名（Int16、Float32 这些），气泡里再给出
+   代码里实际要写的那两个标识符。用户拿 Python 读同一份数据时按这个写，
+   不必再回头查文档。四元组＝GDAL 枚举 / NumPy 类型 / 位数 / 取值范围 */
+const DTYPE_CODES = {
+  Byte: ['GDT_Byte', 'uint8', 8, '0 ~ 255'],
+  UInt8: ['GDT_Byte', 'uint8', 8, '0 ~ 255'],
+  Int8: ['GDT_Int8', 'int8', 8, '-128 ~ 127'],
+  UInt16: ['GDT_UInt16', 'uint16', 16, '0 ~ 65535'],
+  Int16: ['GDT_Int16', 'int16', 16, '-32768 ~ 32767'],
+  UInt32: ['GDT_UInt32', 'uint32', 32, '0 ~ 4294967295'],
+  Int32: ['GDT_Int32', 'int32', 32, '-2147483648 ~ 2147483647'],
+  Int64: ['GDT_Int64', 'int64', 64, '约 ±9.2e18'],
+  UInt64: ['GDT_UInt64', 'uint64', 64, '0 ~ 1.8e19'],
+  Float32: ['GDT_Float32', 'float32', 32, '约 ±3.4e38，7 位有效数字'],
+  Float64: ['GDT_Float64', 'float64', 64, '约 ±1.8e308，15 位有效数字'],
+  CInt16: ['GDT_CInt16', 'complex64', 32, '实部与虚部各一个 Int16'],
+  CInt32: ['GDT_CInt32', 'complex128', 64, '实部与虚部各一个 Int32'],
+  CFloat32: ['GDT_CFloat32', 'complex64', 64, '实部与虚部各一个 Float32'],
+  CFloat64: ['GDT_CFloat64', 'complex128', 128, '实部与虚部各一个 Float64'],
+};
 
+/* 存储类型的气泡：类型名对得上就给代码标识符，对不上就只说事实，不硬猜 */
+function dtypeTip(name, multi) {
+  const c = DTYPE_CODES[name];
+  const lines = [];
+  if (c) {
+    lines.push('存储类型为 ' + name + '，对应 GDAL 的 ' + c[0] + '、NumPy 的 ' + c[1] +
+      '，每个像元占 ' + (c[2] / 8) + ' 字节，可表示 ' + c[3] + '。');
+  } else {
+    lines.push('存储类型为 ' + (name || '未知') + '。');
+  }
+  if (multi && multi.length) lines.push('这份数据各波段类型不一致：' + multi.join('、') + '。');
+  lines.push('用代码读取时按此类型解码即可，例如 gdal.Open(路径).GetRasterBand(1).ReadAsArray()。');
+  return lines;
+}
+
+const tipState = { box: null, anchor: null, timer: 0 };
 function tipBubble() {
   if (!tipState.box) {
     tipState.box = el('div', 'tip-bubble');
@@ -456,9 +490,11 @@ window.addEventListener('resize', () => {
 });
 
 /* 提示只挂在 i 图标上：别的页面hover到图标才出气泡（属性表表头例外，
-   那里的 data-tip 直接挂在 th 上，整格都能触发）。箭头对准图标中心 */
-function hintIcon(label) {
-  const tip = FIELD_TIPS[label];
+   那里的 data-tip 直接挂在 th 上，整格都能触发）。箭头对准图标中心。
+   第三个参数给"按这一份数据现写"的提示：同一个字段名在不同文件里值不一样，
+   静态文案说不清时（比如存储类型、换算系数的属性名）由调用处传进来 */
+function hintIcon(label, custom) {
+  const tip = custom || FIELD_TIPS[label];
   if (!tip) return null;
   const i = el('i', 'tip-ico');
   // 数组文案＝分点说明：换行连接后交给 showTipBox 拆行画圆点
@@ -489,9 +525,9 @@ function newRail() {
       if (!last || last.sec !== name) items.push({ sec: name });
       return api;
     },
-    row(key, value) {
+    row(key, value, tip) {
       if (value === null || value === undefined || value === '') return api;
-      items.push({ k: key, v: String(value) });
+      items.push({ k: key, v: String(value), tip: tip || null });
       return api;
     },
     many(pairs) { pairs.forEach((p) => api.row(p[0], p[1])); return api; },
@@ -534,7 +570,7 @@ function newRail() {
           const tr = el('tr');
           const th = el('th');
           th.appendChild(el('span', 'rail-k', it.k));
-          const ico = hintIcon(it.k);
+          const ico = hintIcon(it.k, it.tip);
           if (ico) th.appendChild(ico);
           tr.appendChild(th);
           if (it.busy) {
@@ -915,9 +951,9 @@ function railRaster(rail, d) {
     space.push(['左上角坐标', lines.join('\n')]);
   }
   if (d.no_georeference) {
-    /* "无地理坐标"四个字太笼统，看不出到底缺哪一样；原因由引擎按文件实况列出 */
+    /* 缺哪一样只说在地图区底栏那一句里：信息栏再列一遍，同一件事要在两个地方读，
+       而且底下那段话比"无坐标原因"四个字更说得清 */
     space.push(['范围', '无地理坐标']);
-    if (d.no_georef_reason) space.push(['无坐标原因', d.no_georef_reason]);
   }
 
   rail.sec('空间');
@@ -941,21 +977,32 @@ function railRaster(rail, d) {
 
   rail.sec('波段');
   rail.row('名称', (d.bands || []).map((b) => b.description).filter(Boolean).slice(0, 8).join('、'));
-  // 类型和位深是一回事的两半，合成一行：32 位 Float
-  rail.row('数据类型', (band.bits ? band.bits + ' 位 ' : '') + d.type_label
-    + ((d.data_types || []).length > 1 ? '（多类型）' : ''));
+  /* 类型名用 GDAL 的叫法（Int16、Float32）。前面再挂"16 位"是同一件事说两遍，
+     两个写法并排反而让人怀疑自己看错；位数、取值范围与代码里的写法都放进气泡 */
+  const multiTypes = (d.data_types || []).length > 1 ? d.data_types : null;
+  rail.row('数据类型', d.type_label + (multiTypes ? '（多类型）' : ''),
+    dtypeTip(d.type_label, multiTypes));
   /* 单位与换算系数是文件自己写的，原样给出：缩放系数乘上偏移就是物理值，
-     上面"统计"那一段已经按它换算了 */
-  rail.row('数值单位', phys.unit);
+     上面"统计"那一段已经按它换算了。来自文件属性时，气泡里写出属性名，
+     用户拿 Python 读同一份数据时按这个名字取 */
+  rail.row('数值单位', phys.unit, band.unit_key
+    ? ['单位取自文件属性 ' + band.unit_key + '。', '用代码读同一个属性就能拿到同样的单位。']
+    : null);
   if (phys.rawScale !== null && Number.isFinite(phys.rawScale)) {
-    rail.row('缩放系数', '× ' + num(phys.rawScale, 10));
+    rail.row('缩放系数', '× ' + num(phys.rawScale, 10), band.scale_key
+      ? ['换算关系为 真实值 = 原始值 × 缩放系数 + 偏移，系数取自文件属性 ' + band.scale_key + '。']
+      : null);
   }
   if (phys.rawOffset !== null && Number.isFinite(phys.rawOffset)) {
-    rail.row('数值偏移', '+ ' + num(phys.rawOffset, 10));
+    rail.row('数值偏移', '+ ' + num(phys.rawOffset, 10), band.offset_key
+      ? ['偏移取自文件属性 ' + band.offset_key + '，换算时加在缩放之后。']
+      : null);
   }
   const palette = band.palette_count || d.palette_count || 0;
   rail.row('色表', palette ? palette + ' 项' : '无');
-  rail.row('NoData', nodataText(band) || '未设置');
+  rail.row('NoData', nodataText(band) || '未设置', band.nodata_key
+    ? ['无效值标记取自文件属性 ' + band.nodata_key + '。', '读数据时应先按它做掩膜，否则统计会被填充值带偏。']
+    : null);
   if (d.bands && d.bands.length > 1) rail.node(bandTable(d.bands));
 
   rail.sec('存储');
@@ -4276,6 +4323,9 @@ function onCheckMessage(v) {
     paintUpdateHint(v.error || '检查不到更新');
     return;
   }
+  /* 问到了就记一笔"这次检查的时间"，不管有没有新版：设置里的"每 3 天/每周/每月"
+     要按这个算间隔。早先只在"发现新版"时记，选了三天的其实每次启动都问 */
+  localStorage.setItem('gisviewer.upd_last', String(Date.now()));
   if (!v.found) {
     updInfo = null;
     paintUpdBadge(false);
@@ -4289,7 +4339,6 @@ function onCheckMessage(v) {
     page: v.page, current: v.current,
   };
   updStage = null;
-  localStorage.setItem('gisviewer.upd_last', String(Date.now()));
   paintUpdateHint('有新版本 v' + v.latest + '，当前 v' + v.current + '。');
   paintUpdBadge(updLater !== v.latest);
   paintUpdOpen(true);
@@ -4459,14 +4508,15 @@ function toggleUpdPop() {
   else showUpdPop();
 }
 
-/* 打开后过十几秒再问更新：首屏和引擎正忙，这时候抢网络的检查结果多半也不准 */
+/* 打开后过 15 秒再问更新：首屏和引擎正忙，这时候抢网络的检查结果多半也不准。
+   设置页选的就是这个节奏（"每次打开后 15 秒"），两处必须是同一个数 */
 function maybeCheckUpdate() {
   const freq = config.upd_freq || 'open';
   if (freq === 'off') return;
   const days = { '3d': 3, week: 7, month: 30 }[freq];
   const last = Number(localStorage.getItem('gisviewer.upd_last') || 0);
   if (days && Date.now() - last < days * 86400000) return;
-  setTimeout(() => toShell('upd:check'), 14000);
+  setTimeout(() => toShell('upd:check'), 15000);
 }
 
 /* 设置改一处生效一处，没有"保存"这一步；落盘跟在每次改动后面 */

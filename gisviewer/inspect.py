@@ -530,9 +530,11 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
             payload["sidecars"] = siblings
     elif payload["kind"] == "raster":
         if payload.get("no_georeference"):
-            reason = payload.get("no_georef_reason") or "文件里没有地理坐标信息"
-            payload["warning"] = reason + "；只能看数值与分布，放不到地图上"
-            payload["no_georef_reason"] = reason
+            # 这句话只在地图区底栏出现一次，并且带警告图标：再往 warning 里放一份，
+            # 打开文件时会先弹一个浮层，说的和底栏是同一件事
+            payload["no_georef_reason"] = (payload.get("no_georef_reason")
+                                           or "文件里没有地理坐标信息，因此无法定位到地图上")
+
         if payload.get("multi_variable"):
             payload["hint"] = "这个文件含多个变量，选择一个变量后才能看具体数值范围"
     result.update(payload)

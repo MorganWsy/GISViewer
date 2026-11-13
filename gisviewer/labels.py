@@ -105,7 +105,8 @@ COLOR_INTERP_LABELS = {
     "NULL": "未指定",
 }
 
-# 位深、有无符号这些信息在界面上另有单独一行，这里只给最短的类型名，别把同一件事说两遍
+# 类型名一律用 GDAL 的写法（Byte、Int16、Float32、Float64）：用户拿 Python 读同一份
+# 数据时看到的就是这一套，界面再叫"Float""Double"就得让人在两套词之间来回换
 DATA_TYPE_LABELS = {
     "Byte": "Byte",
     "Int8": "Int8",
@@ -116,8 +117,8 @@ DATA_TYPE_LABELS = {
     "UInt32": "UInt32",
     "Int64": "Int64",
     "UInt64": "UInt64",
-    "Float32": "Float",
-    "Float64": "Double",
+    "Float32": "Float32",
+    "Float64": "Float64",
     "CInt16": "CInt16",
     "CInt32": "CInt32",
     "CFloat32": "CFloat32",

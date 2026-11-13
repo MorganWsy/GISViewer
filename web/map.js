@@ -48,11 +48,39 @@
   }
 
   let lastNote = '';
-  function note(text) {
-    lastNote = text || '';
+  let lastNoteKind = '';
+  /* 底栏说明只有一行位置：普通状态是"读取 N 毫秒 · 第 1 波段 · 分 5 级设色"，
+     警告态则是一句结论加一枚图标，此时不再拼耗时——耗时属于状态读数，
+     和"这份数据放不到地图上"不是一类信息，拼在一起会被误读成同一个意思 */
+  function paintNote() {
     const box = document.getElementById('mapNote');
     if (!box) return;
-    box.textContent = lastNote ? (elapsed ? elapsed + ' · ' + lastNote : lastNote) : '';
+    box.textContent = '';
+    box.classList.toggle('warn', lastNoteKind === 'warn');
+    if (!lastNote) return;
+    if (lastNoteKind === 'warn') {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('class', 'mn-ico');
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('fill-rule', 'evenodd');
+      p.setAttribute('clip-rule', 'evenodd');
+      p.setAttribute('d', 'M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23l-9.2-15.94zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z');
+      svg.appendChild(p);
+      box.appendChild(svg);
+      const span = document.createElement('span');
+      span.textContent = lastNote;
+      box.appendChild(span);
+      return;
+    }
+    box.textContent = elapsed ? elapsed + ' · ' + lastNote : lastNote;
+  }
+
+  function note(text, kind) {
+    lastNote = text || '';
+    lastNoteKind = kind || '';
+    paintNote();
   }
 
   /* 全局提示统一走页面上那套浮层卡片（showErrToast）：位置、样式、停留时间
@@ -65,7 +93,9 @@
 
   function setElapsed(text) {
     elapsed = text || '';
-    note(lastNote);
+    /* 只换耗时前缀，不能走 note()：那个函数会把 lastNoteKind 清成空，
+       警告态就在这一下变成了普通状态（图标没了、耗时也拼回前面去了） */
+    paintNote();
   }
 
   function fail(where, err) {
@@ -472,12 +502,10 @@
     // 栅格能定位就说明坐标是真实的，底图恢复显示
     setBaseHidden(false);
     if (!t.wgs && !t.corners) {
-      /* 标题只说结论，缺哪一样由引擎列出的原因来讲：坐标系、变换、经纬度变量是三件不同的事，
-         笼统写成"没有坐标系"会让人以为补个 EPSG 就能放上地图 */
-      toast('这个栅格没有地理坐标',
-        (t.noGeoReason ? t.noGeoReason + '。' : '') + '只能看数值与分布，放不到地图上。');
-      /* 浮层几秒就收走，脚注留着：地图区空着的时候，总得有个地方说明为什么空 */
-      note('没有地理坐标，放不到地图上 · 右侧信息栏可看数值与分布');
+      /* 结论只留一句，写在地图区底栏：那里不会自己消失，也带得出图标。
+         缺哪一样由引擎按文件实况说（坐标系、像元变换、经纬度变量是三件事）。 */
+      note((t.noGeoReason || '文件里没有地理坐标信息，因此无法定位到地图上') +
+        '，信息栏仍可查看数值与分布。', 'warn');
       emit('gis:drawn', { kind: 'skip' });
       return;
     }

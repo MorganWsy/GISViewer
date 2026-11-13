@@ -257,21 +257,25 @@ def _coord_arrays(target):
 
 
 def _no_georef_reason(info, target):
-    """把"没有地理参照"拆成一句能对症下药的话，而不是笼统地报"没有坐标系"。"""
+    """把"没有地理参照"写成一句完整的话，缺哪样就说哪样。
+
+    这句话会直接印在地图区底栏上，所以按书面语来：逗号断开，不用分号，
+    末尾给出结论。缺的三样（坐标系、像元变换、经纬度变量）分别讲清楚，
+    因为补哪一样完全是三件不同的事。"""
     unknown_crs = (info.get("crs") or {}).get("kind") in (None, "unknown")
     parts = []
     if unknown_crs:
-        parts.append("没有投影/坐标系属性")
-    parts.append("没有像元到坐标的变换（GeoTransform）")
+        parts.append("没有投影与坐标系属性")
+    parts.append("没有像元到坐标的仿射变换（GeoTransform）")
     probe = _coord_arrays(target)
     if probe is not None:
         if probe["coords"]:
-            parts.append("虽然找到坐标变量 " + "、".join(probe["coords"]) + "，但驱动没有把它当作坐标轴")
+            parts.append("虽然存在坐标变量 " + "、".join(probe["coords"]) + "，但驱动没有把它当作坐标轴")
         elif probe["arrays"]:
-            parts.append("组里的一维变量只有 " + "、".join(probe["arrays"][:6]) + "，没有经纬度")
+            parts.append("同组的一维变量只有 " + "、".join(probe["arrays"][:6]) + "，没有经纬度")
         else:
-            parts.append("文件里也没有经纬度变量")
-    return "；".join(parts)
+            parts.append("也没有经纬度变量")
+    return "文件里" + "，".join(parts) + "，因此无法定位到地图上"
 
 
 def inspect(target, real_path=None, file_size=None):
@@ -435,6 +439,12 @@ def inspect(target, real_path=None, file_size=None):
             "scale_from": scale_from,
             "unit_from": unit_from,
             "offset_from": offset_from,
+            # 属性名原样带出去：用户拿 Python 读同一份文件时要按这个名字取，
+            # 界面的气泡里就写它（HDF5 里可能是 _FillValue，netCDF 里可能是 missing_value）
+            "nodata_key": over.get("nodata_key") if nodata_from == "metadata" else None,
+            "scale_key": over.get("scale_key") if scale_from == "metadata" else None,
+            "offset_key": over.get("offset_key") if offset_from == "metadata" else None,
+            "unit_key": over.get("unit_key") if unit_from == "metadata" else None,
             "palette_count": ct.GetCount() if ct else 0,
             "categories": (b.GetCategoryNames() or [])[:8] or None,
             "statistics": _stored_stats(b),

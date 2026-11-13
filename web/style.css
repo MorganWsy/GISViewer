@@ -646,6 +646,11 @@ table.grid.layer-table td { overflow-wrap: anywhere; }
 
 .map-note { flex: none; min-height: 18px; font-size: 12px; color: var(--text-dim); }
 
+/* 警告态：图标与文字同一行。这里按"文字可能折两行"排版——图标要贴第一行中线，
+   用 align-items:center 会摆到整段正中、看着偏下；13px 图标在 18px 行高里补 2.5px */
+.map-note.warn { display: flex; align-items: flex-start; gap: 6px; line-height: 18px; }
+.map-note.warn .mn-ico { flex: none; width: 13px; height: 13px; margin-top: 2.5px; display: block; fill: var(--warn-ico); }
+
 .map-chip {
   position: absolute;
   z-index: 5;
@@ -3027,6 +3032,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   60%  { opacity: 0;  transform: scale(1.14); }
   100% { opacity: 0;  transform: scale(1.14); }
 }
+/* 圆点只是"有新东西"的静态记号，不再自己呼吸：同一颗按钮上两种节奏各走各的，
+   看久了像卡住。动效只留那一圈光环 */
 .upd-dot {
   position: absolute;
   top: 2px;
@@ -3035,16 +3042,10 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   height: 6px;
   border-radius: 50%;
   background: var(--map-data);
-  animation: upd-dot 2.8s ease-in-out infinite;
 }
-@keyframes upd-dot {
-  0%, 100% { opacity: .45; }
-  45% { opacity: 1; }
-}
+/* 系统里开了"减少动态效果"就停掉光环的扩散，只留一圈静态描边 */
 @media (prefers-reduced-motion: reduce) {
-  .upd-btn::before, .upd-dot { animation: none; }
-  .upd-btn::before { opacity: .28; transform: none; }
-  .upd-dot { opacity: 1; }
+  .upd-btn::before { animation: none; opacity: .28; transform: none; }
 }
 
 /* 更新弹层：标题 + 分条说明 + 两颗按钮。宽度按"一行二十来个汉字"定，
