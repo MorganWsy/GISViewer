@@ -63,6 +63,19 @@ def configure():
     if plugins:
         os.environ["GDAL_DRIVER_PATH"] = str(plugins)
 
+    # 别往用户的数据目录里写 .aux.xml：GDAL 一算统计值就会在文件旁边落一份，
+    # 等于改了别人的目录。代理目录让"写"落到我们自己的配置目录里，
+    # 原位置已有的 .aux.xml 仍照常读（有些文件的坐标系只存在那儿）。
+    if not os.environ.get("GDAL_PAM_PROXY_DIR") and not os.environ.get("GDAL_PAM_ENABLED"):
+        base = os.environ.get("GISVIEWER_DATA_DIR") or os.path.join(
+            os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "GISViewer")
+        pam = os.path.join(base, "pam")
+        try:
+            os.makedirs(pam, exist_ok=True)
+            os.environ["GDAL_PAM_PROXY_DIR"] = pam
+        except OSError:
+            os.environ["GDAL_PAM_ENABLED"] = "NO"
+
     os.environ.setdefault("GDAL_NUM_THREADS", "ALL_CPUS")
 
 

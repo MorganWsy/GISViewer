@@ -53,11 +53,29 @@ def _clean_input(raw):
     # /vsi 开头是 GDAL 的虚拟路径，不能按本地文件系统规范化
     if text.startswith("/vsi"):
         return text
+    # HDF5:"x.h5":变量、NETCDF:"y.nc":变量 这类 GDAL 连接串：冒号后面不是盘符，
+    # 一旦按文件系统走 abspath，就会被拼成 工作目录/整串，于是永远"找不到这个文件"
+    if _is_connection(text):
+        return text
     text = os.path.expanduser(os.path.expandvars(text))
     if re.match(r"^/[a-zA-Z]/", text):
         text = text[1].upper() + ":" + text[2:]
     text = os.path.abspath(text)
     return text.replace("\\", "/")
+
+
+CONNECTION_RE = re.compile(r'^[A-Za-z][\w.]*:"')
+
+
+def _is_connection(path):
+    """GDAL 连接串（subdataset）：驱动名 + 引号包住的文件名 + 变量/组路径。"""
+    return bool(CONNECTION_RE.match(str(path)))
+
+
+def _connection_target(path):
+    """连接串里那个真实文件（用来取名字、大小、扩展名）。取不到就返回 None。"""
+    m = re.match(r'^[A-Za-z][\w.]*:"(.*?)"', str(path))
+    return m.group(1) if m else None
 
 
 def _is_archive(path):
@@ -85,6 +103,27 @@ def _file_block(path):
             "size_bytes": size,
             "size_label": labels.human_size(size) if size else None,
             "modified": None,
+        }
+    if _is_connection(path):
+        # 变量这一层没有自己的文件：名字与大小都算到宿主文件头上，
+        # 名字后缀标出是哪一个变量，否则同一个文件里几个变量的标题会一模一样
+        real = _connection_target(path) or ""
+        tail = str(path)[str(path).rfind('"') + 1:].lstrip(":").strip("/")
+        try:
+            st = _stat(real)
+        except OSError:
+            st = None
+        base = os.path.basename(real.rstrip("/\\")) or real
+        size = st.st_size if st is not None else None
+        return {
+            "path": path,
+            "name": base + (" · " + tail.split("/")[-1] if tail else ""),
+            "is_dir": False,
+            "item_count": None,
+            "size_bytes": size,
+            "size_label": labels.human_size(size) if size else None,
+            "modified": (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
+                         if st is not None else None),
         }
     st = _stat(path)
     is_dir = _isdir(path)
@@ -186,6 +225,9 @@ def _brief(info):
         "band_count": info.get("band_count"),
         "type_label": info.get("type_label"),
         "nodata": band.get("nodata"),
+        "scale": band.get("scale"),
+        "offset": band.get("offset"),
+        "unit_type": band.get("unit_type"),
         "statistics": band.get("statistics"),
         "crs_label": (info.get("crs") or {}).get("label"),
         "unit_label": (info.get("crs") or {}).get("unit_label"),
@@ -360,12 +402,19 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
         if not _vsi_exists(path):
             raise InspectError("找不到这个文件", detail=path,
                                hint="压缩包内的写法：/vsizip/盘:/路径/包.zip/里面的文件.shp。")
+    elif _is_connection(path):
+        # 连接串指到变量，文件系统上看不到这一层：交给宿主文件判定，GDAL 打开失败会自己报
+        host = _connection_target(path) or ""
+        if host and not _exists(host):
+            raise InspectError("找不到这个文件", detail=host,
+                               hint="路径里多余的空格和引号要去掉；网络盘上的文件请先复制到本地。")
     elif not _exists(path):
         raise InspectError("找不到这个文件", detail=path,
                            hint="路径里多余的空格和引号要去掉；网络盘上的文件请先复制到本地。")
 
     result = {"ok": True, "file": _file_block(path)}
-    ext = Path(path).suffix.lower()
+    ext = Path(_connection_target(path) or path).suffix.lower() if _is_connection(path) \
+        else Path(path).suffix.lower()
 
     if _isdir(path):
         if ext == ".gdb":
@@ -465,12 +514,14 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
                 result.update({"kind": "raster", "multi_variable": True, **listed})
                 result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
                 return result
-        with open(path, "rb") as fh:
-            starts_brace = fh.read(1) == b"{"
-        if ext in JSON_EXT or starts_brace:
-            result.update(_json_sniff(path))
-            result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
-            return result
+        # 连接串不是磁盘上的文件，open() 会报 Errno 22；这时也没法按 JSON 猜内容了
+        if not _is_connection(path):
+            with open(path, "rb") as fh:
+                starts_brace = fh.read(1) == b"{"
+            if ext in JSON_EXT or starts_brace:
+                result.update(_json_sniff(path))
+                result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 1)
+                return result
         raise
 
     if payload["kind"] == "vector" and ext == ".shp":
@@ -479,7 +530,9 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
             payload["sidecars"] = siblings
     elif payload["kind"] == "raster":
         if payload.get("no_georeference"):
-            payload["warning"] = "文件里没有地理坐标信息，只能看数值和分布"
+            reason = payload.get("no_georef_reason") or "文件里没有地理坐标信息"
+            payload["warning"] = reason + "；只能看数值与分布，放不到地图上"
+            payload["no_georef_reason"] = reason
         if payload.get("multi_variable"):
             payload["hint"] = "这个文件含多个变量，选择一个变量后才能看具体数值范围"
     result.update(payload)

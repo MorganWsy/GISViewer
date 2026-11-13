@@ -37,6 +37,8 @@ $refs = @(
   'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
   # win.json 用 JavaScriptSerializer 读写（见 Shell.RectFromFile），框架自带这个程序集
   'System.Web.Extensions.dll',
+  # 更新包是 zip，解压用 ZipFile（System.IO.Compression.FileSystem）
+  'System.IO.Compression.dll', 'System.IO.Compression.FileSystem.dll',
   # 读资源管理器的选中项走 Shell.Application 后期绑定，dynamic 需要这个程序集
   'Microsoft.CSharp.dll',
   # 标签页/桌面上的选中项 Shell.Application 读不到，改用 UI Automation 直接读窗口。
@@ -58,6 +60,19 @@ if ($LASTEXITCODE -ne 0) {
   # 编译器的报错不能吞掉：直接打出来，否则只看到一行 "csc failed"
   & $csc @cscArgs 2>&1 | Out-Host
   throw "csc failed ($LASTEXITCODE)"
+}
+
+# 更新组件：主程序换不了自己，替换文件这一步由它在本进程退出后做（见 src\Updater.cs）
+$updArgs = @(
+  '/nologo', '/target:winexe', '/platform:x64', '/optimize+',
+  "/win32manifest:$root\src\app.manifest",
+  "/win32icon:$root\shell\tulan.ico",
+  "/out:$dist\TulanUpdater.exe"
+) + $refs + @("$root\src\Updater.cs")
+& $csc @updArgs
+if ($LASTEXITCODE -ne 0) {
+  & $csc @updArgs 2>&1 | Out-Host
+  throw "csc failed (TulanUpdater, $LASTEXITCODE)"
 }
 
 foreach ($dll in Get-ChildItem (Join-Path $root 'lib\*.dll')) {

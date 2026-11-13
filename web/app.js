@@ -161,6 +161,11 @@ const FIELD_TIPS = {
   '数据类型': '数值的存储种类：栅格看每个像元存成什么类型，矢量看数据集本身是什么类型',
   '色表': '文件内置的颜色对照表有多少项，分类图常带这一项',
   'NoData': '用来表示"这里没有数据"的那个特殊数值',
+  '数值单位': ['文件给这个波段的数值写的物理单位，如 cm3/cm3、m、K', '有单位就能把数值和实际事物对上：0.27 说的是体积含水量，不是随便一个数'],
+  '缩放系数': ['文件里存的是整数，真实值要靠它换算：真实值 = 原始值 × 缩放系数 + 偏移', '上面的统计值已经按它换算过；缩放系数为 1 说明文件直接存的就是真实值'],
+  '数值偏移': '在缩放之后再加的固定量，与缩放系数一起构成"原始值 → 真实值"的换算关系；没有这一项时偏移为 0',
+  '原始值范围': '文件里原样存着的数值范围，没做换算；别的软件显示的通常就是这一份',
+  '无坐标原因': ['文件里缺了哪些东西，才导致它放不到地图上', '有坐标变量却没被当作坐标轴，是科学数据文件常见的情形：数值能看，位置得另外配'],
   '压缩算法': '像元数据在文件里的压缩方式，决定体积与读取速度',
   '未压缩大小': '不压缩时这些数据要占多少空间',
   '压缩比': '压缩前后大小的比值，越大说明省得越多',
@@ -442,6 +447,7 @@ window.addEventListener('resize', () => {
   if (!$('recentPop').hidden) placeRecent();
   if (!$('pickPop').hidden) placePickPop();
   if (!$('checkPop').hidden) placeCheckPop();
+  if (!$('updPop').hidden) placeUpdPop();
   /* 从宽屏切到竖排（地图在上、信息栏在下）时把属性表收起来。竖排的地图只剩两百来像素高，
      那张 260 高的表会把地图连同上面的按钮一起盖住；只在这一下收，之后用户自己点开的不干预 */
   const nowStacked = stackedStage();
@@ -717,17 +723,70 @@ function extentRows(extent, wgs, unitLabel, local) {
   return [['范围', lines.join('\n') + (local ? '\n（本地坐标，非经纬度）' : '')]];
 }
 
-function statRows(st) {
+/* 波段的物理量换算。源数据常把真实值压成整数另存一份缩放系数与偏移
+   （土壤湿度那种 ×0.001 + 0），不换算的话看到的 270 其实是 0.27。
+   scale 未填按 1、offset 未填按 0，两者都是缺省值时 phys.on 为假，一律照原样显示 */
+function bandPhys(band) {
+  const b = band || {};
+  const rawScale = b.scale === null || b.scale === undefined ? null : Number(b.scale);
+  const rawOffset = b.offset === null || b.offset === undefined ? null : Number(b.offset);
+  const scale = Number.isFinite(rawScale) ? rawScale : 1;
+  const offset = Number.isFinite(rawOffset) ? rawOffset : 0;
+  return {
+    on: scale !== 1 || offset !== 0,
+    scale: scale,
+    offset: offset,
+    unit: b.unit_type || '',
+    rawScale: rawScale,
+    rawOffset: rawOffset,
+  };
+}
+
+/* 换算后该留几位小数：整数源数据乘上 0.001，相邻整数之间就差 0.001，
+   所以要留到千分位才分得开，再多给一位为止；系数更小就按数量级往下加。
+   不带换算的照原来的四位 */
+function physDigits(phys) {
+  if (!phys || !phys.on) return 4;
+  const tiny = Math.abs(phys.scale) > 0 && Math.abs(phys.scale) < 1
+    ? Math.ceil(-Math.log(Math.abs(phys.scale)) / Math.LN10) + 1 : 4;
+  return Math.max(4, Math.min(9, tiny));
+}
+
+function physVal(phys, v) {
+  if (v === null || v === undefined || v === '') return v;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  if (!phys || !phys.on) return n;
+  return n * phys.scale + phys.offset;
+}
+
+function physText(phys, v, digits) {
+  const got = physVal(phys, v);
+  if (got === null || got === undefined || got === '') return null;
+  return num(got, digits === undefined ? physDigits(phys) : digits);
+}
+
+/* 数值后面缀上单位：没有单位就只给数，不留一个空格 */
+function withUnit(text, unit) {
+  if (!text) return text;
+  return unit ? text + ' ' + unit : text;
+}
+
+function statRows(st, phys) {
   if (!st) return [];
+  const digits = physDigits(phys);
   const rows = [];
   if (st.minimum !== null && st.minimum !== undefined) {
     // 这组值只统计有效像元（跳过 NoData），"最小/最大值"容易让人以为全图都算了
-    rows.push(['有效值范围', num(st.minimum, 4) + ' ~ ' + num(st.maximum, 4)]);
+    rows.push(['有效值范围', withUnit(physText(phys, st.minimum, digits) + ' ~ ' +
+      physText(phys, st.maximum, digits), phys && phys.unit)]);
   }
-  rows.push(['平均值', num(st.mean, 4)]);
+  rows.push(['平均值', physText(phys, st.mean, digits)]);
   // 中位数、不同取值、NoData 像元这几项要等值分布算出来才补得上
-  if (st.median !== null && st.median !== undefined) rows.push(['中位数', num(st.median, 4)]);
-  rows.push(['标准差', num(st.stddev, 4)]);
+  if (st.median !== null && st.median !== undefined) {
+    rows.push(['中位数', physText(phys, st.median, digits)]);
+  }
+  rows.push(['标准差', physText(phys, st.stddev, digits)]);
   if (st.unique_count !== null && st.unique_count !== undefined) {
     rows.push(['不同取值', count(st.unique_count) + ' 种']);
   }
@@ -737,6 +796,12 @@ function statRows(st) {
   rows.push(['有效像元占比', (st.valid_percent === null || st.valid_percent === undefined)
     ? null : num(st.valid_percent, 2) + '%']);
   rows.push(['统计来源', st.source_label]);
+  /* 换算过的统计另起一行给出原始数：别的软件多半显示文件里那一份，
+     对不上数的时候要有个地方能核对 */
+  if (phys && phys.on && st.minimum !== null && st.minimum !== undefined) {
+    rows.push(['原始值范围', num(st.minimum, 4) + ' ~ ' + num(st.maximum, 4) +
+      '（未换算）']);
+  }
   return rows;
 }
 
@@ -798,9 +863,14 @@ function variableTable(d) {
     (d.variables || []).map((v) => {
       const s = v.summary || {};
       const st = s.statistics || {};
+      /* 每个变量各自带单位与缩放系数：单位缀在类型后面，数字按它换算，
+         与单波段那一节同一套口径 */
+      const phys = bandPhys(s);
+      const dg = physDigits(phys);
       return [v.label, [s.height ? '行 ' + num(s.height) + ' · 列 ' + num(s.width) : '—', 'num'],
-        s.type_label || '—', [num(st.minimum, 4), 'num'], [num(st.maximum, 4), 'num'],
-        [num(st.mean, 4), 'num']];
+        (s.type_label || '—') + (phys.unit ? ' · ' + phys.unit : ''),
+        physText(phys, st.minimum, dg),
+        physText(phys, st.maximum, dg), physText(phys, st.mean, dg)];
     }));
 }
 
@@ -815,6 +885,7 @@ function tileLayerTable(layers) {
 function railRaster(rail, d) {
   const crs = d.crs || {};
   const band = (d.bands || [])[0] || {};
+  const phys = bandPhys(band);
 
   if (d.multi_variable) {
     rail.sec('变量');
@@ -843,7 +914,11 @@ function railRaster(rail, d) {
         : ['西 ' + num(d.origin[0]), '北 ' + num(d.origin[1])];
     space.push(['左上角坐标', lines.join('\n')]);
   }
-  if (d.no_georeference) space.push(['范围', '无地理坐标']);
+  if (d.no_georeference) {
+    /* "无地理坐标"四个字太笼统，看不出到底缺哪一样；原因由引擎按文件实况列出 */
+    space.push(['范围', '无地理坐标']);
+    if (d.no_georef_reason) space.push(['无坐标原因', d.no_georef_reason]);
+  }
 
   rail.sec('空间');
   rail.many([
@@ -858,7 +933,7 @@ function railRaster(rail, d) {
 
   /* 统计是整层的数，波段是它的细分：先看数再看逐波段的属性 */
   rail.sec('统计');
-  if (band.statistics) rail.many(statRows(band.statistics));
+  if (band.statistics) rail.many(statRows(band.statistics, phys));
   else rail.loading('统计值');
   if (band.statistics_mismatch) {
     showErrToast('统计值与实测分布不一致', band.statistics_mismatch);
@@ -869,6 +944,15 @@ function railRaster(rail, d) {
   // 类型和位深是一回事的两半，合成一行：32 位 Float
   rail.row('数据类型', (band.bits ? band.bits + ' 位 ' : '') + d.type_label
     + ((d.data_types || []).length > 1 ? '（多类型）' : ''));
+  /* 单位与换算系数是文件自己写的，原样给出：缩放系数乘上偏移就是物理值，
+     上面"统计"那一段已经按它换算了 */
+  rail.row('数值单位', phys.unit);
+  if (phys.rawScale !== null && Number.isFinite(phys.rawScale)) {
+    rail.row('缩放系数', '× ' + num(phys.rawScale, 10));
+  }
+  if (phys.rawOffset !== null && Number.isFinite(phys.rawOffset)) {
+    rail.row('数值偏移', '+ ' + num(phys.rawOffset, 10));
+  }
   const palette = band.palette_count || d.palette_count || 0;
   rail.row('色表', palette ? palette + ' 项' : '无');
   rail.row('NoData', nodataText(band) || '未设置');
@@ -1509,9 +1593,22 @@ function fillHistogram(res) {
     return;
   }
   const hist = res.histogram || {};
+  const phys = physOfBand(res.band);
   $('histBody').textContent = '';
-  $('histBody').appendChild(drawHistogram(hist));
-  $('histNote').textContent = hist.source_label + ' · ' + hist.bins + ' 个分箱';
+  $('histBody').appendChild(drawHistogram(hist, phys));
+  $('histNote').textContent = hist.source_label + ' · ' + hist.bins + ' 个分箱' +
+    (phys && phys.unit ? ' · 单位 ' + phys.unit : '');
+}
+
+/* 当前文件里某个波段的换算关系（缩放/偏移/单位）。波段对不上时退回第一个：
+   三波段合成这类情况也给个能用的，不至于整段读数为空 */
+function physOfBand(index) {
+  const d = current && current.data;
+  if (!d || d.kind !== 'raster') return null;
+  const bands = d.bands || [];
+  if (!bands.length) return null;
+  const hit = bands.find((b) => b.index === index);
+  return bandPhys(hit || (raster ? bands.find((b) => b.index === raster.band) : bands[0]));
 }
 
 /* 线性刻度：0 到峰值四等分，档距取整到 1/2/5×10^n。
@@ -1543,7 +1640,7 @@ function destroyHistChart() {
   if (histChart) { histChart.destroy(); histChart = null; }
 }
 
-function drawHistogram(hist) {
+function drawHistogram(hist, phys) {
   const wrap = el('div', 'hist-canvas');
   const counts = (hist && hist.counts) || [];
   if (!counts.length) return wrap;
@@ -1555,8 +1652,12 @@ function drawHistogram(hist) {
   const shown = (v) => String(Math.round(v * 10) / 10);
   const lo = Number(hist.min);
   const step = Number(hist.bin_width) || 0;
-  const xd = step >= 1 ? 0 : 3;
-  const labels = counts.map((c, i) => num(lo + i * step, xd));
+  /* 横轴刻度跟着信息栏那份换算走：一边显示 0.001~0.598、一边显示 1~598 会让人以为看了两份数据 */
+  const on = !!(phys && phys.on);
+  const pd = physDigits(phys);
+  const at = (v) => (on ? physVal(phys, v) : v);
+  const xd = on ? pd : (step >= 1 ? 0 : 3);
+  const labels = counts.map((c, i) => num(at(lo + i * step), xd));
   const rs = getComputedStyle(document.documentElement);
   const bar = (rs.getPropertyValue('--bar') || '').trim() || '#4b8ec4';
   const dim = (rs.getPropertyValue('--text-dim') || '').trim() || '#777';
@@ -1627,7 +1728,8 @@ function drawHistogram(hist) {
             title: (items) => {
               const i = items[0].dataIndex;
               const a = lo + i * step;
-              return num(a, 4) + ' ~ ' + num(a + step, 4);
+              const d = on ? pd : 4;
+              return num(at(a), d) + ' ~ ' + num(at(a + step), d);
             },
             label: (ctx) => count(counts[ctx.dataIndex]) + ' 像元',
           },
@@ -1672,12 +1774,17 @@ function renderLegend(res) {
     legendBlank('三波段合成没有分级图例，切到单个波段可看');
     return;
   }
+  // 分级界值跟着信息栏换算，与直方图横轴同一套数
+  const phys = physOfBand(res.band);
+  const digits = physDigits(phys);
+  const at = (v) => physVal(phys, v);
   if (res.discrete) {
     const table = res.discrete;
     const body = legendBody(true);
     (table.colors || []).forEach((color, i) => {
       const v = table.edges[i] === undefined ? i : table.edges[i];
-      body.appendChild(legendRow(color, String(Math.round(v))));
+      body.appendChild(legendRow(color, phys && phys.on
+        ? num(at(v), digits) : String(Math.round(v))));
     });
     return;
   }
@@ -1687,7 +1794,8 @@ function renderLegend(res) {
     return;
   }
   const body = legendBody(true);
-  items.forEach((c) => body.appendChild(legendRow(c.color, num(c.lo, 2) + ' ~ ' + num(c.hi, 2))));
+  items.forEach((c) => body.appendChild(legendRow(c.color,
+    num(at(c.lo), digits) + ' ~ ' + num(at(c.hi), digits))));
 }
 
 function hideLegend() {
@@ -2121,6 +2229,7 @@ function wireQuickKeys() {
     const combo = comboOf(e);
     if (combo && combo === keyOf('key_close')) {
       if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
+      if (!$('updPop').hidden) { closeUpdPop(); return; }
       if (!$('recentPop').hidden) { hideRecent(); return; }
       if (!$('pickPop').hidden) { hidePickPop(); return; }
       if (!$('checkPop').hidden) { hideCheckPop(); return; }
@@ -3889,7 +3998,7 @@ window.GisHost = function (name, value) {
       (String(value).slice(6) || '系统不让写这个位置') : '');
     return;
   }
-  if (name === 'update') { paintUpdate(value); return; }
+  if (name === 'update') { onUpdateMessage(value); return; }
   if (name === 'notice') { showErrToast((value && value.title) || '提示', (value && value.detail) || ''); return; }
   if (name === 'askClose') { showCloseAsk(); return; }
   if (name === 'drag') { showDropVeil(value === 'true'); return; }
@@ -4146,26 +4255,208 @@ function sysNote(text) {
   if (hint) hint.textContent = text;
 }
 
-function paintUpdate(r) {
-  const hint = $('updHint');
-  const open = $('updOpen');
-  if (!r) return;
-  if (r.error) {
-    hint.textContent = r.error;
-    if (open) open.hidden = true;
+/* ---------- 更新：顶栏那颗按钮 + 弹层 + 设置页那一行 ----------
+   壳里读发布清单，把"有没有新版、改了什么"整体发过来；下载与替换也由壳做
+   （页面在 WebView 里，碰不到 exe 和 dll）。这里只管显示与三个动作。 */
+let updInfo = null;      // 清单里最新一版：{latest, date, notes, size, page, current}
+let updStage = null;     // 下载阶段：{state:'progress'|'done'|'error', percent, error}
+let updLater = '';       // 点过"稍后"的版本号：本次运行不再弹，但设置页里仍能看到
+
+function onUpdateMessage(v) {
+  if (!v || typeof v !== 'object') return;
+  if (v.kind === 'fetch') { onFetchMessage(v); return; }
+  if (v.kind === 'apply') { onApplyMessage(v); return; }
+  onCheckMessage(v);
+}
+
+function onCheckMessage(v) {
+  if (!v.ok || v.error) {
+    paintUpdBadge(false);
+    paintUpdOpen(false);
+    paintUpdateHint(v.error || '检查不到更新');
     return;
   }
+  if (!v.found) {
+    updInfo = null;
+    paintUpdBadge(false);
+    paintUpdOpen(false);
+    paintUpdateHint(v.current ? ('当前 v' + v.current + ' 已经是最新。') : '当前已经是最新版本。');
+    closeUpdPop();
+    return;
+  }
+  updInfo = {
+    latest: v.latest, date: v.date, notes: v.notes || [], size: v.size,
+    page: v.page, current: v.current,
+  };
+  updStage = null;
   localStorage.setItem('gisviewer.upd_last', String(Date.now()));
-  if (r.found) {
-    hint.textContent = r.latest ? ('有新版本 v' + r.latest + '，当前 v' + r.current + '。') : '有新版本发布。';
-    if (open) {
-      open.hidden = false;
-      open.onclick = () => { window.open(r.url || 'https://github.com/MorganWsy/GISViewer/releases'); };
+  paintUpdateHint('有新版本 v' + v.latest + '，当前 v' + v.current + '。');
+  paintUpdBadge(updLater !== v.latest);
+  paintUpdOpen(true);
+  if (!$('updPop').hidden) paintUpdPop();
+}
+
+function onFetchMessage(v) {
+  if (v.state === 'progress') {
+    updStage = { state: 'progress', percent: v.percent || 0 };
+    paintUpdateHint('正在下载 v' + (updInfo ? updInfo.latest : '') + '：' + (v.percent || 0) + '%');
+  } else if (v.ok) {
+    updStage = { state: 'done' };
+    paintUpdateHint('v' + (updInfo ? updInfo.latest : '') + ' 已下载好，等重启完成替换。');
+  } else {
+    updStage = { state: 'error', error: v.error || '下载失败' };
+    paintUpdateHint(v.error || '下载失败');
+  }
+  if (!$('updPop').hidden) paintUpdPop();
+}
+
+function onApplyMessage(v) {
+  if (v.ok) {
+    if (!$('updPop').hidden) {
+      setUpdState('正在关闭软件并完成替换，稍等它自己重新打开…');
+      const now = $('updPop').querySelector('.up-now');
+      if (now) now.disabled = true;
     }
     return;
   }
-  hint.textContent = r.current ? ('当前 v' + r.current + ' 已经是最新。') : '当前已经是最新版本。';
-  if (open) open.hidden = true;
+  updStage = { state: 'error', error: v.error || '更新组件没起来' };
+  if (!$('updPop').hidden) paintUpdPop();
+}
+
+/* 设置页"更新"那一行：一处状态两种读法，别让两处说法打架 */
+function paintUpdateHint(text) {
+  const hint = $('updHint');
+  if (hint) hint.textContent = text;
+}
+
+/* 有新版时设置页里给一颗"查看更新"：腿短的人习惯从设置里找，别只留顶栏那一处 */
+function paintUpdOpen(on) {
+  const open = $('updOpen');
+  if (open) open.hidden = !on;
+}
+
+function paintUpdBadge(on) {
+  const btn = $('updBadge');
+  if (btn) btn.hidden = !on;
+}
+
+/* 弹层内容每次重画：状态就那几种（可下载 / 下载中 / 已下载 / 出错），
+   与其逐处改文字，不如整块换掉，省得旧按钮留着还能点 */
+function paintUpdPop() {
+  const pop = $('updPop');
+  if (!pop || !updInfo) return;
+  pop.textContent = '';
+
+  const head = el('div', 'up-head');
+  head.appendChild(el('span', 'up-ver', 'v' + updInfo.latest));
+  head.appendChild(el('span', 'up-tag', '新版本'));
+  if (updInfo.date) head.appendChild(el('span', 'up-date', updInfo.date));
+  pop.appendChild(head);
+
+  const sub = el('div', 'up-sub', '当前 v' + updInfo.current +
+    (updInfo.size ? ' · 更新包 ' + bytes(updInfo.size) : ''));
+  pop.appendChild(sub);
+
+  const list = el('ul');
+  (updInfo.notes || []).forEach((line) => list.appendChild(el('li', null, line)));
+  if (!list.childElementCount) list.appendChild(el('li', null, '这一版没有写更新说明。'));
+  pop.appendChild(list);
+
+  const state = el('div', 'up-state');
+  if (!updStage) {
+    state.textContent = '下载后会自动替换，软件会重新打开。';
+  } else if (updStage.state === 'progress') {
+    state.textContent = '正在下载：' + updStage.percent + '%';
+  } else if (updStage.state === 'done') {
+    state.textContent = '已经下载好，重启一下就换成新版。';
+  } else {
+    state.className = 'up-state warn';
+    state.textContent = updStage.error || '更新没做成，稍后再试。';
+  }
+  state.classList.add('up-state-mark');
+  pop.appendChild(state);
+
+  const foot = el('div', 'up-foot');
+  const now = el('button', 'btn up-now', '');
+  now.type = 'button';
+  if (!updStage) {
+    now.textContent = '立即更新';
+    now.onclick = () => {
+      now.disabled = true;
+      now.textContent = '正在准备…';
+      setUpdState('正在下载更新包…');
+      toShell('upd:get');
+    };
+  } else if (updStage.state === 'progress') {
+    now.textContent = '下载中 ' + updStage.percent + '%';
+    now.disabled = true;
+  } else if (updStage.state === 'done') {
+    now.textContent = '重启并完成更新';
+    now.onclick = () => { now.disabled = true; now.textContent = '正在重启…'; toShell('upd:apply'); };
+  } else {
+    now.textContent = '重试';
+    now.onclick = () => { updStage = null; paintUpdPop(); toShell('upd:get'); };
+  }
+  foot.appendChild(now);
+
+  if (updInfo.page) {
+    const page = el('button', 'btn ghost up-page', '完整说明');
+    page.type = 'button';
+    // 说明页在浏览器里打开：软件里没有第二个页面可跳
+    page.onclick = () => { window.open(updInfo.page); };
+    foot.appendChild(page);
+  }
+
+  const later = el('button', 'btn ghost up-later', '稍后');
+  later.type = 'button';
+  later.onclick = () => {
+    updLater = updInfo ? updInfo.latest : '';
+    try { sessionStorage.setItem('gisviewer.upd_later', updLater); } catch (e) { /* 存不下就只在本次生效 */ }
+    closeUpdPop();
+    paintUpdBadge(false);
+  };
+  foot.appendChild(later);
+
+  pop.appendChild(foot);
+}
+
+function setUpdState(text) {
+  const box = $('updPop') && $('updPop').querySelector('.up-state');
+  if (box) { box.className = 'up-state'; box.textContent = text; }
+}
+
+function placeUpdPop() {
+  const pop = $('updPop');
+  const btn = $('updBadge');
+  if (!pop || !btn || pop.hidden) return;
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth || 348;
+  // 按钮在标题右边，弹层默认与按钮左缘对齐，靠右越界时往回挪
+  pop.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8))) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
+}
+
+function showUpdPop() {
+  const pop = $('updPop');
+  if (!pop || !updInfo) return;
+  paintUpdPop();
+  pop.hidden = false;
+  placeUpdPop();
+  const btn = $('updBadge');
+  if (btn) btn.classList.add('on');
+}
+
+function closeUpdPop() {
+  const pop = $('updPop');
+  if (pop) pop.hidden = true;
+  const btn = $('updBadge');
+  if (btn) btn.classList.remove('on');
+}
+
+function toggleUpdPop() {
+  const pop = $('updPop');
+  if (pop && !pop.hidden) closeUpdPop();
+  else showUpdPop();
 }
 
 /* 打开后过十几秒再问更新：首屏和引擎正忙，这时候抢网络的检查结果多半也不准 */
@@ -4175,7 +4466,7 @@ function maybeCheckUpdate() {
   const days = { '3d': 3, week: 7, month: 30 }[freq];
   const last = Number(localStorage.getItem('gisviewer.upd_last') || 0);
   if (days && Date.now() - last < days * 86400000) return;
-  setTimeout(() => toShell('upd:'), 14000);
+  setTimeout(() => toShell('upd:check'), 14000);
 }
 
 /* 设置改一处生效一处，没有"保存"这一步；落盘跟在每次改动后面 */
@@ -4515,6 +4806,25 @@ function init() {
     commitConfig();
   });
 
+  $('updOpen').addEventListener('click', () => {
+    if (!updInfo) return;
+    $('cfgClose').click();
+    paintUpdBadge(true);
+    showUpdPop();
+  });
+
+  $('updBadge').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleUpdPop();
+  });
+  /* 点别处就收：它跟"最近打开"一样是临时浮层，不该占着手 */
+  document.addEventListener('pointerdown', (e) => {
+    if ($('updPop').hidden) return;
+    if (e.target.closest && e.target.closest('#updPop, #updBadge')) return;
+    closeUpdPop();
+  });
+  try { updLater = sessionStorage.getItem('gisviewer.upd_later') || ''; } catch (e) { /* 存不了就只在本次生效 */ }
+
   $('settingsBtn').addEventListener('click', () => {
     settleHotkey();
     /* 弹窗一开，顶栏那两块浮层就收掉：否则两个按钮同时亮着，
@@ -4645,7 +4955,7 @@ function init() {
   $('updBtn').addEventListener('click', () => {
     $('updHint').textContent = '正在问发布页…';
     $('updOpen').hidden = true;
-    toShell('upd:');
+    toShell('upd:check');
   });
   $('keyPeek').addEventListener('click', () => {
     const box = $('cfgKey');

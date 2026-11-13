@@ -368,7 +368,8 @@ def band_stats_and_hist(target, info, band_index):
     band = next((b for b in info.get("bands") or [] if b["index"] == band_index), None)
     if not band:
         return {"ok": False, "error": {"title": "没有这个波段"}}
-    hist = raster.band_histogram(target, band_index, info["height"], info["width"], band["type"])
+    hist = raster.band_histogram(target, band_index, info["height"], info["width"], band["type"],
+                                 nodata=band.get("nodata") if band.get("nodata_from") == "metadata" else None)
     if hist is None:
         return {"ok": False, "error": {"title": "值分布计算失败"}}
     out = {"ok": True, "band": band_index, "histogram": hist,

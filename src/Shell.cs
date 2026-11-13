@@ -97,7 +97,6 @@ namespace GISViewer
     public class Shell : Form
     {
         const string Title = "图览";
-        const string Repo = "MorganWsy/GISViewer";
         static readonly Color LightBack = Color.FromArgb(246, 247, 249);
         static readonly Color DarkBack = Color.FromArgb(18, 21, 26);
 
@@ -510,7 +509,13 @@ namespace GISViewer
             if (msg.StartsWith("ver:"))
             {
                 string v = msg.Substring(4);
-                if (v.Length > 0 && v.Length <= 16) Text = Title + " v" + v;
+                if (v.Length > 0 && v.Length <= 16)
+                {
+                    /* 版本号的唯一来源是引擎（gisviewer/__init__.py）；壳自己的程序集没写版本，
+                       拿它去比更新会永远判成"有新版"，所以检查更新也认这一个 */
+                    _ver = v;
+                    Text = Title + " v" + v;
+                }
                 return;
             }
             if (msg.StartsWith("hk:"))
@@ -555,7 +560,10 @@ namespace GISViewer
             }
             if (msg.StartsWith("upd:"))
             {
-                CheckUpdate(msg.Substring(4));
+                string what = msg.Substring(4);
+                if (what == "get") FetchUpdate();
+                else if (what == "apply") ApplyUpdate();
+                else CheckUpdate();
                 return;
             }
             if (msg == "ready")
@@ -1350,29 +1358,90 @@ namespace GISViewer
             catch (Exception ex) { Log("回推界面失败 " + ex.Message); }
         }
 
+        /* 上一次问到的结果：下载与替换都拿它当凭据，不必重新问一遍清单 */
+        UpdateCheck.Result _upd;
+        /* 界面报过来的版本号（引擎里的那份），检查更新时当作"当前版本" */
+        string _ver = "";
+
         /* 检查更新走后台线程：网络慢或者没网都不能把界面冻住 */
-        void CheckUpdate(string token)
+        void CheckUpdate()
         {
-            string current = UpdateCheck.Current();
-            if (string.IsNullOrEmpty(token))
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                /* 仓库是私有的：不带访问码去问 GitHub 只会得到 404。
-                   发布由仓库主人自己做，这里把话说清楚，不当成网络故障 */
-                BeginInvoke((Action)(() => Push("update",
-                    "{error:" + Json("现在检查不到更新：仓库还是私有，或还没有发布版本") +
-                    ",current:" + Json(current) + "}")));
+                UpdateCheck.Result r = UpdateCheck.Query(_ver);
+                _upd = r;
+                var sb = new StringBuilder();
+                sb.Append("{kind:\"check\",ok:").Append(r.Ok ? "true" : "false");
+                sb.Append(",current:").Append(Json(r.Current));
+                if (!r.Ok)
+                {
+                    sb.Append(",error:").Append(Json(r.Error)).Append("}");
+                }
+                else
+                {
+                    sb.Append(",found:").Append(r.Found ? "true" : "false");
+                    sb.Append(",latest:").Append(Json(r.Latest));
+                    sb.Append(",date:").Append(Json(r.Date));
+                    sb.Append(",page:").Append(Json(r.Page));
+                    sb.Append(",size:").Append(r.Size);
+                    sb.Append(",notes:[");
+                    for (int i = 0; i < r.Notes.Count; i++)
+                    {
+                        if (i > 0) sb.Append(',');
+                        sb.Append(Json(r.Notes[i]));
+                    }
+                    sb.Append("]}");
+                }
+                string payload = sb.ToString();
+                Log("检查更新：" + (r.Ok ? (r.Found ? "有新版 v" + r.Latest : "已是最新") : r.Error));
+                BeginInvoke((Action)(() => Push("update", payload)));
+            });
+        }
+
+        /* 下载、校验、解压。进度按百分比回推，界面上的进度条就靠它 */
+        void FetchUpdate()
+        {
+            UpdateCheck.Result r = _upd;
+            if (r == null || !r.Ok || !r.Found)
+            {
+                Push("update", "{kind:\"fetch\",ok:false,error:" + Json("还没有可更新的版本") + "}");
                 return;
             }
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                UpdateCheck.Result r = UpdateCheck.Query(Repo, token);
-                string payload;
-                if (!r.Ok) payload = "{error:" + Json(r.Error) + ",current:" + Json(current) + "}";
-                else payload = "{current:" + Json(current) + ",latest:" + Json(r.Latest) +
-                    ",found:" + (r.Found ? "true" : "false") + ",url:" + Json(r.Url) +
-                    ",notes:" + Json(r.Notes) + "}";
+                string err = UpdateCheck.Fetch(r, delegate(int percent)
+                {
+                    BeginInvoke((Action)(() => Push("update",
+                        "{kind:\"fetch\",state:\"progress\",percent:" + percent + "}")));
+                });
+                if (err != null) Log("更新下载失败 " + err);
+                else Log("更新已下载 v" + r.Latest + "，等重启");
+                string payload = err == null
+                    ? "{kind:\"fetch\",ok:true,latest:" + Json(r.Latest) + "}"
+                    : "{kind:\"fetch\",ok:false,error:" + Json(err) + "}";
                 BeginInvoke((Action)(() => Push("update", payload)));
             });
+        }
+
+        /* 替换由 TulanUpdater.exe 在本进程退出后做：先把它叫起来，再关自己 */
+        void ApplyUpdate()
+        {
+            UpdateCheck.Result r = _upd;
+            if (r == null || !r.Found)
+            {
+                Push("update", "{kind:\"apply\",ok:false,error:" + Json("没有可用的更新") + "}");
+                return;
+            }
+            string err = UpdateCheck.Apply(r);
+            if (err != null)
+            {
+                Log("启动更新组件失败 " + err);
+                Push("update", "{kind:\"apply\",ok:false,error:" + Json(err) + "}");
+                return;
+            }
+            Log("更新组件已启动，本进程退出");
+            Push("update", "{kind:\"apply\",ok:true}");
+            BeginInvoke((Action)(delegate { Close(); }));
         }
 
         static string Json(string s)

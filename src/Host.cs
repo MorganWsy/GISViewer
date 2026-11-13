@@ -594,17 +594,27 @@ namespace GISViewer
         }
     }
 
-    /* 检查更新：只问"有没有新版"，下载和替换交给用户自己点开的页面。
-       私有仓库要带访问令牌，令牌只在这次请求里用，不落盘。 */
+    /* 检查更新：读发布清单（latest.json），有新版本就交给界面提示；用户点了"更新"才下载。
+       清单与安装包放在同一个静态目录（默认阿里云 OSS 的只读桶，与历书同一套思路：
+       静态文件、无鉴权、按 sha256 校验整包）。换发布位置改 ManifestBase，
+       调试试本地目录时用环境变量 TULAN_UPD_BASE 覆盖。
+       下载 → 校验 → 替换 分三步，任何一步失败都留着现有文件不动。 */
     static class UpdateCheck
     {
+        public const string ManifestBase = "https://wsy-release.oss-cn-hangzhou.aliyuncs.com/tulan";
+
         public class Result
         {
             public bool Ok;
             public bool Found;
+            public string Current = "";
             public string Latest = "";
-            public string Notes = "";
-            public string Url = "";
+            public string Date = "";
+            public string Page = "";
+            public string Pkg = "";
+            public long Size;
+            public string Sha256 = "";
+            public List<string> Notes = new List<string>();
             public string Error = "";
         }
 
@@ -641,80 +651,308 @@ namespace GISViewer
             return outv;
         }
 
-        public static Result Query(string repo, string token)
+        static string Base()
+        {
+            string env = Environment.GetEnvironmentVariable("TULAN_UPD_BASE");
+            if (!string.IsNullOrEmpty(env)) return env.TrimEnd('/');
+            return ManifestBase;
+        }
+
+        /* 问一次"有没有新版"。清单读不到就返回可读的原因，不抛异常 */
+        public static Result Query(string current)
         {
             Result r = new Result();
+            r.Current = string.IsNullOrEmpty(current) ? Current() : current;
+            string err;
+            byte[] raw = Get(Base() + "/latest.json", 9000, 256 * 1024, out err);
+            if (raw == null)
+            {
+                r.Ok = false;
+                r.Error = err;
+                return r;
+            }
+            string text = Encoding.UTF8.GetString(raw).TrimStart('\uFEFF');
+            Dictionary<string, object> map;
             try
             {
-                if (string.IsNullOrEmpty(repo)) repo = "MorganWsy/GISViewer";
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(
-                    "https://api.github.com/repos/" + repo.Trim('/') + "/releases/latest");
-                req.Timeout = 9000;
-                req.UserAgent = "gisviewer";
-                req.Accept = "application/vnd.github+json";
-                if (!string.IsNullOrEmpty(token)) req.Headers["Authorization"] = "Bearer " + token.Trim();
+                var ser = new System.Web.Script.Serialization.JavaScriptSerializer();
+                map = ser.Deserialize<Dictionary<string, object>>(text);
+            }
+            catch (Exception)
+            {
+                r.Ok = false;
+                r.Error = "更新清单格式不对，先跳过这次检查";
+                return r;
+            }
+            if (map == null)
+            {
+                r.Ok = false;
+                r.Error = "更新清单是空的";
+                return r;
+            }
+            r.Ok = true;
+            r.Latest = Str(map, "ver");
+            r.Date = Str(map, "date");
+            r.Page = Str(map, "page");
+            r.Pkg = Str(map, "pkg");
+            r.Sha256 = Str(map, "sha256").ToLowerInvariant();
+            r.Size = Num(map, "size");
+            r.Notes = NotesOf(map);
+            if (!IsVer(r.Latest))
+            {
+                r.Ok = false;
+                r.Error = "更新清单里的版本号看不懂";
+                return r;
+            }
+            r.Found = Newer(r.Latest, r.Current);
+            return r;
+        }
+
+        /* notes 可以是数组，也可以是一段用换行分开的文字。两种都收 */
+        static List<string> NotesOf(Dictionary<string, object> map)
+        {
+            var list = new List<string>();
+            object v;
+            if (!map.TryGetValue("notes", out v) || v == null) return list;
+            string one = v as string;
+            if (one != null)
+            {
+                foreach (string line in one.Replace("\r\n", "\n").Split('\n'))
+                {
+                    string s = line.Trim().TrimStart('-', '*', '·').Trim();
+                    if (s.Length > 0) list.Add(s);
+                }
+                return list;
+            }
+            var many = v as System.Collections.IEnumerable;
+            if (many == null) return list;
+            foreach (object o in many)
+            {
+                string s = Convert.ToString(o);
+                if (!string.IsNullOrEmpty(s) && s.Trim().Length > 0) list.Add(s.Trim());
+            }
+            return list;
+        }
+
+        static string Str(Dictionary<string, object> map, string key)
+        {
+            object v;
+            if (!map.TryGetValue(key, out v) || v == null) return "";
+            return Convert.ToString(v).Trim();
+        }
+
+        static long Num(Dictionary<string, object> map, string key)
+        {
+            object v;
+            if (!map.TryGetValue(key, out v) || v == null) return 0;
+            long n;
+            return long.TryParse(Convert.ToString(v).Trim(), out n) ? n : 0;
+        }
+
+        static bool IsVer(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length > 16) return false;
+            string[] p = s.TrimStart('v', 'V').Split('.');
+            if (p.Length < 1 || p.Length > 3) return false;
+            foreach (string part in p)
+            {
+                if (part.Length == 0 || part.Length > 4) return false;
+                foreach (char c in part) if (c < '0' || c > '9') return false;
+            }
+            return true;
+        }
+
+        /* ---------- 取文件：整包读进内存，体积有上限，防止被一个坏地址撑爆 ---------- */
+
+        static byte[] Get(string url, int timeoutMs, int maxBytes, out string err)
+        {
+            err = "";
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.Timeout = timeoutMs;
+                req.ReadWriteTimeout = timeoutMs;
+                req.UserAgent = "tulan-updater";
+                // 清单每次都问最新的：中间可能隔着 CDN
+                req.Headers["Cache-Control"] = "no-cache";
                 using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
                 using (Stream st = res.GetResponseStream())
+                using (var ms = new MemoryStream())
                 {
-                    string body = ReadAll(st);
-                    r.Ok = true;
-                    r.Latest = Field(body, "tag_name");
-                    r.Notes = Field(body, "name");
-                    r.Url = Field(body, "html_url");
-                    r.Found = Newer(r.Latest, Current());
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = st.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        ms.Write(buf, 0, n);
+                        if (ms.Length > maxBytes)
+                        {
+                            err = "更新清单大得离谱，先跳过这次检查";
+                            return null;
+                        }
+                    }
+                    return ms.ToArray();
                 }
             }
             catch (WebException ex)
             {
-                r.Ok = false;
                 HttpWebResponse he = ex.Response as HttpWebResponse;
                 int code = he == null ? 0 : (int)he.StatusCode;
-                if (code == 404) r.Error = "还没有发布过版本";
-                else if (code == 401 || code == 403) r.Error = "这个仓库不是公开的，需要在下面填一个只读的访问令牌";
-                else if (code == 0) r.Error = "连不上，检查网络之后重试";
-                else r.Error = "发布页有点不对劲，稍后再试";
+                // 清单还没发布过：这不是故障，说清楚就行
+                if (code == 404) err = "还没有发布过版本";
+                else if (code == 0) err = "连不上更新服务器，检查网络之后重试";
+                else err = "更新服务器返回 " + code;
+                return null;
             }
             catch (Exception ex)
             {
-                r.Ok = false;
-                r.Error = ex.Message;
+                err = ex.Message;
+                return null;
             }
-            return r;
         }
 
-        static string ReadAll(Stream st)
+        /* ---------- 下载与暂存 ---------- */
+
+        public static string WorkDir()
         {
-            using (var sr = new StreamReader(st, Encoding.UTF8)) return sr.ReadToEnd();
+            string baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(Path.Combine(baseDir, "GISViewer"), "update");
         }
 
-        /* 只为取两三个字符串，不引 JSON 库；GitHub 的字段值里出现引号时会退化成空 */
-        static string Field(string json, string key)
+        public static string StageOf(Result r)
         {
-            string needle = "\"" + key + "\"";
-            int i = json.IndexOf(needle, StringComparison.Ordinal);
-            if (i < 0) return "";
-            i = json.IndexOf(':', i + needle.Length);
-            if (i < 0) return "";
-            i++;
-            while (i < json.Length && (json[i] == ' ' || json[i] == '\t')) i++;
-            if (i >= json.Length) return "";
-            if (json[i] == '"')
+            return Path.Combine(Path.Combine(WorkDir(), "v" + r.Latest), "stage");
+        }
+
+        /* 下载整包、核对大小与 sha256、解压到 stage。返回 null 表示成功，否则是可读的原因 */
+        public static string Fetch(Result r, Action<int> progress)
+        {
+            if (string.IsNullOrEmpty(r.Pkg)) return "更新清单里没写安装包的文件名";
+            string dir = Path.Combine(WorkDir(), "v" + r.Latest);
+            string zip = Path.Combine(dir, "pkg.zip");
+            try
             {
-                int end = i + 1;
-                var sb = new StringBuilder();
-                while (end < json.Length)
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                Directory.CreateDirectory(dir);
+            }
+            catch (Exception ex) { return "建不了暂存目录：" + ex.Message; }
+
+            string url = Base() + "/" + r.Pkg.TrimStart('/');
+            string err = Download(url, zip, r.Size, progress);
+            if (err != null) return err;
+
+            if (r.Sha256.Length == 64)
+            {
+                string got = Sha256File(zip);
+                if (!string.Equals(got, r.Sha256, StringComparison.OrdinalIgnoreCase))
+                    return "下载下来的文件校验不一致，可能没下完整";
+            }
+
+            string stage = StageOf(r);
+            try
+            {
+                if (Directory.Exists(stage)) Directory.Delete(stage, true);
+                Directory.CreateDirectory(stage);
+                System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage);
+            }
+            catch (Exception ex) { return "安装包解不开：" + ex.Message; }
+
+            /* 包里如果套了一层"和包同名"的目录（tulan-v0.14\...），把那一层让出来，
+               否则替换时会多出一层壳。只认这一个判据：按包名对齐，别拿"只有一个目录"
+               当条件——增量包可能整包只有一个 web\，被误拆就会把文件摆到安装目录根上 */
+            string[] dirs = Directory.GetDirectories(stage);
+            string[] files = Directory.GetFiles(stage);
+            string wrap = Path.GetFileNameWithoutExtension(r.Pkg);
+            if (dirs.Length == 1 && files.Length == 0 &&
+                string.Equals(Path.GetFileName(dirs[0]), wrap, StringComparison.OrdinalIgnoreCase))
+            {
+                string inner = dirs[0];
+                foreach (string f in Directory.GetFiles(inner))
+                    File.Move(f, Path.Combine(stage, Path.GetFileName(f)));
+                foreach (string d in Directory.GetDirectories(inner))
+                    Directory.Move(d, Path.Combine(stage, Path.GetFileName(d)));
+                Directory.Delete(inner, true);
+            }
+            return null;
+        }
+
+        static string Download(string url, string to, long expectSize, Action<int> progress)
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.Timeout = 20000;
+                req.ReadWriteTimeout = 60000;
+                req.UserAgent = "tulan-updater";
+                using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
+                using (Stream st = res.GetResponseStream())
+                using (FileStream fs = new FileStream(to, FileMode.Create, FileAccess.Write))
                 {
-                    char c = json[end];
-                    if (c == '\\' && end + 1 < json.Length) { sb.Append(json[end + 1]); end += 2; continue; }
-                    if (c == '"') break;
-                    sb.Append(c);
-                    end++;
+                    long total = res.ContentLength > 0 ? res.ContentLength : expectSize;
+                    byte[] buf = new byte[65536];
+                    long got = 0;
+                    int n, last = -1;
+                    while ((n = st.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        fs.Write(buf, 0, n);
+                        got += n;
+                        if (progress != null && total > 0)
+                        {
+                            int pc = (int)(got * 100 / total);
+                            if (pc != last) { last = pc; progress(pc); }
+                        }
+                    }
+                    if (expectSize > 0 && got != expectSize)
+                        return "下载的大小与清单写的不一致（" + got + " / " + expectSize + " 字节）";
                 }
+                return null;
+            }
+            catch (WebException ex)
+            {
+                HttpWebResponse he = ex.Response as HttpWebResponse;
+                int code = he == null ? 0 : (int)he.StatusCode;
+                return code == 404 ? "安装包还没传上去（404）" : "下载失败：" + ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return "下载失败：" + ex.Message;
+            }
+        }
+
+        static string Sha256File(string path)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (FileStream fs = File.OpenRead(path))
+            {
+                byte[] hash = sha.ComputeHash(fs);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash) sb.Append(b.ToString("x2"));
                 return sb.ToString();
             }
-            int stop = i;
-            while (stop < json.Length && json[stop] != ',' && json[stop] != '}' && json[stop] != '\n') stop++;
-            return json.Substring(i, stop - i).Trim();
+        }
+
+        /* ---------- 替换 ----------
+           本进程还占着 exe 与 dll，自己换不了自己：交给 TulanUpdater.exe，
+           它等本进程退出后把 stage 里的文件盖过去，再启动新版。 */
+        public static string Apply(Result r)
+        {
+            string stage = StageOf(r);
+            if (!Directory.Exists(stage)) return "还没有下载好，先点一次更新";
+            string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
+            string updater = Path.Combine(exeDir, "TulanUpdater.exe");
+            if (!File.Exists(updater)) return "缺少更新组件 TulanUpdater.exe，请重新下载完整包";
+            try
+            {
+                var psi = new ProcessStartInfo(updater);
+                psi.Arguments = Process.GetCurrentProcess().Id + " \"" + stage + "\" \"" + exeDir + "\"";
+                psi.UseShellExecute = false;
+                psi.WorkingDirectory = exeDir;
+                Process.Start(psi);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return "启动更新组件失败：" + ex.Message;
+            }
         }
     }
 

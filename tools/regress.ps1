@@ -120,6 +120,8 @@ if ((Want 'shell') -and (-not $SkipShell)) {
         'System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll',
         # win.json 走 JavaScriptSerializer 解析（ReadWinRect），要这个程序集
         'System.Web.Extensions.dll',
+        # 更新包解压用 ZipFile
+        'System.IO.Compression.dll', 'System.IO.Compression.FileSystem.dll',
         'Microsoft.CSharp.dll',
         (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationClient.dll'),
         (Join-Path (Split-Path $csc -Parent) 'WPF\UIAutomationTypes.dll'),
@@ -134,6 +136,15 @@ if ((Want 'shell') -and (-not $SkipShell)) {
       $out = & $csc @cscArgs 2>&1
       if ($LASTEXITCODE -ne 0) { Write-Host ($out -join "`n") }
       Record 'Shell.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 dist'
+
+      # 更新组件是第二个可执行文件，同样只编译到临时目录
+      $updArgs = @(
+        '/nologo', '/target:winexe', '/platform:x64', '/optimize+',
+        "/out:$tmp\TulanUpdater.exe"
+      ) + $refs + @("$root\src\Updater.cs")
+      $out2 = & $csc @updArgs 2>&1
+      if ($LASTEXITCODE -ne 0) { Write-Host ($out2 -join "`n") }
+      Record 'Updater.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 dist'
     } finally {
       Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }

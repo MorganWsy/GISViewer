@@ -2993,3 +2993,130 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* 通过的那几行压低一格：体检表要能一眼分出"哪几项没过" */
 .chk-row.lv-ok .chk-row-lab { font-weight: 400; color: var(--text-dim); }
 .chk-row.lv-ok .chk-row-t { color: var(--text-dim); }
+
+/* ---------- 更新提示 ----------
+   顶栏那颗按钮只在真有新版本时出现，紧挨标题右侧。动效分两层：外圈一道缓慢扩散的
+   光环（"这儿有事"），右上角一颗呼吸的圆点（"还没处理"）。一个循环 2.8 秒，
+   不闪、不抖，长时间开着也不碍眼。系统设了"减少动态效果"就只留静态样子。 */
+.upd-btn {
+  position: relative;
+  flex: none;
+  /* 比旁边那几颗略大一圈：它是"要处理的事"，不是普通工具按钮；
+     间距交给顶栏的 gap，别在这里再补 margin */
+  width: 34px;
+  height: 32px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.upd-btn:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.upd-btn svg { width: 22px; height: 22px; }
+/* 光环走伪元素：位置和按钮完全重合，缩放扩出去也不会把旁边的元素挤动 */
+.upd-btn::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border: 1.5px solid var(--accent);
+  border-radius: 7px;
+  opacity: 0;
+  animation: upd-ring 2.8s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes upd-ring {
+  0%   { opacity: .5; transform: scale(.9); }
+  60%  { opacity: 0;  transform: scale(1.14); }
+  100% { opacity: 0;  transform: scale(1.14); }
+}
+.upd-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--map-data);
+  animation: upd-dot 2.8s ease-in-out infinite;
+}
+@keyframes upd-dot {
+  0%, 100% { opacity: .45; }
+  45% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .upd-btn::before, .upd-dot { animation: none; }
+  .upd-btn::before { opacity: .28; transform: none; }
+  .upd-dot { opacity: 1; }
+}
+
+/* 更新弹层：标题 + 分条说明 + 两颗按钮。宽度按"一行二十来个汉字"定，
+   再宽读起来要来回扫，再窄一条更新说明就折成三行 */
+.upd-pop {
+  position: fixed;
+  z-index: 56;
+  width: 348px;
+  padding: 11px 12px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .26);
+}
+.upd-pop .up-head { display: flex; align-items: baseline; gap: 8px; }
+.upd-pop .up-ver {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 20px;
+}
+.upd-pop .up-tag {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.upd-pop .up-date { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+.upd-pop .up-sub { margin-top: 3px; font-size: 12px; color: var(--text-dim); }
+.upd-pop ul {
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 232px;
+  overflow: auto;
+}
+.upd-pop li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.upd-pop li + li { margin-top: 5px; }
+.upd-pop li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.upd-pop .up-state {
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-dim);
+}
+.upd-pop .up-state.warn { color: var(--warn-ico); }
+.upd-pop .up-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.upd-pop .up-foot .btn {
+  padding: 5px 13px;
+  font-size: 13px;
+  border-radius: 5px;
+}
+.upd-pop .up-foot .btn[hidden] { display: none; }

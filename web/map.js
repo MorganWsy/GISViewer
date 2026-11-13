@@ -472,7 +472,12 @@
     // 栅格能定位就说明坐标是真实的，底图恢复显示
     setBaseHidden(false);
     if (!t.wgs && !t.corners) {
-      toast('这个栅格没有坐标系', '无法定位到地图上，右侧信息栏仍可查看它的数值与分布。');
+      /* 标题只说结论，缺哪一样由引擎列出的原因来讲：坐标系、变换、经纬度变量是三件不同的事，
+         笼统写成"没有坐标系"会让人以为补个 EPSG 就能放上地图 */
+      toast('这个栅格没有地理坐标',
+        (t.noGeoReason ? t.noGeoReason + '。' : '') + '只能看数值与分布，放不到地图上。');
+      /* 浮层几秒就收走，脚注留着：地图区空着的时候，总得有个地方说明为什么空 */
+      note('没有地理坐标，放不到地图上 · 右侧信息栏可看数值与分布');
       emit('gis:drawn', { kind: 'skip' });
       return;
     }
@@ -586,14 +591,20 @@
     if (t.kind === 'raster') {
       if (t.lazy) {
         fetch('/api/inspect?path=' + enc(t.target)).then((r) => r.json()).then((res) => {
-          if (!res.ok || data !== t) return;
+          if (data !== t) return;
+          /* 读不回来也要把"画完了"说出去：遮罩在等这个信号，不吭声就一直转到 30 秒兜底 */
+          if (!res.ok) { emit('gis:drawn', { kind: 'skip' }); return; }
           t.wgs = res.extent_wgs84;
           t.corners = res.corners_wgs84;
           t.ring = res.extent_ring_wgs84;
           t.band_count = res.band_count;
           t.bands = Math.min(3, res.band_count || 1);
+          t.noGeoReason = res.no_georef_reason;
           drawRaster(t, keepView);
-        }).catch(() => toast('变量信息读取失败', '这个多变量文件的缩略图与范围没能补上。'));
+        }).catch(() => {
+          toast('变量信息读取失败', '这个多变量文件的缩略图与范围没能补上。');
+          emit('gis:drawn', { kind: 'skip' });
+        });
         return;
       }
       drawRaster(t, keepView);
@@ -618,7 +629,7 @@
         edges: s.edges || null, colors: s.colors || null, scheme: s.scheme || null,
         fill: s.fill || 'transparent',
         wgs: d.extent_wgs84, corners: d.corners_wgs84, ring: d.extent_ring_wgs84,
-        warning: d.warning,
+        warning: d.warning, noGeoReason: d.no_georef_reason,
       }];
     }
     if (d.kind === 'tileset') {
@@ -1223,8 +1234,11 @@
       body.appendChild(row('行列号',
         g.inside ? '行 ' + g.row + ' · 列 ' + g.col : '落在数据范围外'));
       (g.bands || []).forEach((b) => {
-        body.appendChild(row(b.description || ('波段' + b.index),
-          b.nodata ? 'NoData' : fmtValue(b.value)));
+        /* 引擎给的是换算了缩放系数的物理值，单位一并缀上；
+           没换算的（系数为 1）也照样带单位，来源文件写了就显示 */
+        const text = b.nodata ? 'NoData'
+          : fmtValue(b.value) + (b.unit ? ' ' + b.unit : '');
+        body.appendChild(row(b.description || ('波段' + b.index), text));
       });
       box.appendChild(body);
       return widen(box, body, body.childElementCount);

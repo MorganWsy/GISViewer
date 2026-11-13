@@ -95,6 +95,51 @@ def _stored_stats(band):
     }
 
 
+def _meta_overrides(band):
+    """驱动没填、但元数据里有的那几项：无效值、缩放、偏移、单位。
+
+    HDF5Image 这类驱动只把文件属性塞进波段元数据（`no-data value` / `scale` /
+    `units`），GetNoDataValue() 之类一律返回空。不把这几项捡起来，界面就既看不到
+    单位，也算不对统计值——整幅数据的均值会被 -9999 这类填充值拖到沟里。
+    键名按 HDF/NetCDF 生态的常见写法排，先命中先用。
+    """
+    md = band.GetMetadata() or {}
+
+    def pick(keys):
+        for k in keys:
+            for real, value in md.items():
+                if real.lower() == k.lower() and str(value).strip() != "":
+                    return real, str(value).strip()
+        return None, None
+
+    def as_number(text):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return None
+
+    out = {}
+    key, text = pick(("no-data value", "no-data_value", "no_data_value", "_FillValue",
+                      "missing_value", "nodata", "NODATA_VALUE", "fill_value"))
+    if key:
+        out["nodata"] = as_number(text)
+        out["nodata_text"] = text
+        out["nodata_key"] = key
+    key, text = pick(("scale_factor", "scale", "SCALE_FACTOR", "SCALE"))
+    if key:
+        out["scale"] = as_number(text)
+        out["scale_key"] = key
+    key, text = pick(("add_offset", "offset", "OFFSET"))
+    if key:
+        out["offset"] = as_number(text)
+        out["offset_key"] = key
+    key, text = pick(("units", "unit", "UNIT", "unit_type"))
+    if key:
+        out["unit"] = text
+        out["unit_key"] = key
+    return out
+
+
 def _computed_stats(band):
     """让 GDAL 自己选：有金字塔就走金字塔，否则全图扫描。"""
     try:
@@ -123,8 +168,12 @@ def _bin_plan(dtype_name, lo, hi, want=HIST_BINS):
     return want, lo, hi, False
 
 
-def _sample_band(target, band_index, height, width, dtype_name):
-    """降采样读一次，统计值和值分布一起拿到，避免大文件重复读。"""
+def _sample_band(target, band_index, height, width, dtype_name, nodata=None):
+    """降采样读一次，统计值和值分布一起拿到，避免大文件重复读。
+
+    nodata 是"驱动没声明、但文件属性里写了"的那种无效值（见 _meta_overrides）：
+    rasterio 只认驱动声明的那一份，所以这里拿到数组后自己再按它挖一遍。
+    """
     import numpy as np
     import rasterio
 
@@ -133,6 +182,9 @@ def _sample_band(target, band_index, height, width, dtype_name):
     try:
         with rasterio.open(target) as src:
             arr = src.read(band_index, out_shape=(out_h, out_w), masked=True)
+            if nodata is not None:
+                arr = np.ma.masked_array(arr.data, mask=np.ma.getmaskarray(arr) |
+                                         (arr.data == nodata))
     except Exception:
         return None
     flat = arr.compressed()
@@ -177,6 +229,49 @@ def _sample_band(target, band_index, height, width, dtype_name):
             "source_label": label,
         },
     }
+
+
+def _coord_arrays(target):
+    """多维文件里有没有经纬度/投影坐标变量（lat、lon、x、y 这类名字）。"""
+    try:
+        ds = gdal.OpenEx(target, gdal.OF_MULTIDIM_RASTER | gdal.OF_READONLY)
+        if ds is None:
+            return None
+        try:
+            root = ds.GetRootGroup()
+            names = root.GetMDArrayNames() or []
+            hits = [n for n in names if n.strip().lower() in
+                    ("lat", "lon", "lats", "lons", "latitude", "longitude",
+                     "x", "y", "lat_1", "lon_1", "rlat", "rlon")]
+            dims = []
+            for n in names:
+                arr = root.OpenMDArray(n)
+                dims.append((n, arr.GetDimensionCount() if arr else 0))
+            # 一维的经纬度变量才可能是坐标轴，二维的通常就是数据本身
+            return {"arrays": [n for n, c in dims if c == 1],
+                    "coords": hits}
+        finally:
+            del ds
+    except Exception:
+        return None
+
+
+def _no_georef_reason(info, target):
+    """把"没有地理参照"拆成一句能对症下药的话，而不是笼统地报"没有坐标系"。"""
+    unknown_crs = (info.get("crs") or {}).get("kind") in (None, "unknown")
+    parts = []
+    if unknown_crs:
+        parts.append("没有投影/坐标系属性")
+    parts.append("没有像元到坐标的变换（GeoTransform）")
+    probe = _coord_arrays(target)
+    if probe is not None:
+        if probe["coords"]:
+            parts.append("虽然找到坐标变量 " + "、".join(probe["coords"]) + "，但驱动没有把它当作坐标轴")
+        elif probe["arrays"]:
+            parts.append("组里的一维变量只有 " + "、".join(probe["arrays"][:6]) + "，没有经纬度")
+        else:
+            parts.append("文件里也没有经纬度变量")
+    return "；".join(parts)
 
 
 def inspect(target, real_path=None, file_size=None):
@@ -278,6 +373,7 @@ def inspect(target, real_path=None, file_size=None):
         info["geotransform"] = None
         info["extent"] = None
         info["no_georeference"] = True
+        info["no_georef_reason"] = _no_georef_reason(info, target)
 
     bands = []
     total_bytes = 0
@@ -296,6 +392,26 @@ def inspect(target, real_path=None, file_size=None):
             except Exception:
                 resampling = None
         raw_nodata = b.GetNoDataValue()
+        over = _meta_overrides(b)
+        nodata_from = "band" if raw_nodata is not None else None
+        if raw_nodata is None and over.get("nodata") is not None:
+            raw_nodata = over["nodata"]
+            nodata_from = "metadata"
+        scale = b.GetScale()
+        scale_from = "band" if scale is not None else None
+        if scale is None and over.get("scale") is not None:
+            scale = over["scale"]
+            scale_from = "metadata"
+        offset = b.GetOffset()
+        offset_from = "band" if offset is not None else None
+        if offset is None and over.get("offset") is not None:
+            offset = over["offset"]
+            offset_from = "metadata"
+        unit = b.GetUnitType() or None
+        unit_from = "band" if unit else None
+        if not unit and over.get("unit"):
+            unit = over["unit"]
+            unit_from = "metadata"
         bands.append({
             "index": i,
             "description": b.GetDescription() or None,
@@ -308,13 +424,17 @@ def inspect(target, real_path=None, file_size=None):
             "nodata_raw": None if raw_nodata is None else str(raw_nodata),
             "nodata_is_nan": raw_nodata is not None and _clean(raw_nodata) is None,
             "has_nodata": raw_nodata is not None,
+            "nodata_from": nodata_from,
             "block_size": block,
             "tiled": block[1] != 1 and block[0] < width,
             "overviews": overviews,
             "overview_resampling": resampling,
-            "scale": _clean(b.GetScale()) or None,
-            "offset": _clean(b.GetOffset()) or None,
-            "unit_type": b.GetUnitType() or None,
+            "scale": _clean(scale) or None,
+            "offset": _clean(offset) or None,
+            "unit_type": unit,
+            "scale_from": scale_from,
+            "unit_from": unit_from,
+            "offset_from": offset_from,
             "palette_count": ct.GetCount() if ct else 0,
             "categories": (b.GetCategoryNames() or [])[:8] or None,
             "statistics": _stored_stats(b),
@@ -370,26 +490,32 @@ def fill_band_numbers(info, target, histograms=True):
     small = pixels <= FULL_SCAN_LIMIT
     cache = {}
 
-    def sampled(index, dtype_name):
-        if index not in cache:
-            cache[index] = _sample_band(target, index, info["height"], info["width"], dtype_name)
-        return cache[index]
+    def sampled(index, dtype_name, nodata=None):
+        key = (index, nodata)
+        if key not in cache:
+            cache[key] = _sample_band(target, index, info["height"], info["width"], dtype_name, nodata)
+        return cache[key]
 
     for pos, band in enumerate(info["bands"]):
+        # 驱动没声明、属性里写的无效值：GDAL 自带的统计不认它，只能自己挖
+        nd = band.get("nodata") if band.get("nodata_from") == "metadata" else None
+        if nd is not None and (band.get("statistics") or {}).get("source") in ("file", "approximate"):
+            # 文件里那份统计是按原始数值算的，填充值也算了进去，不能用
+            band["statistics"] = None
         if band["statistics"] is None:
             got = None
-            if small:
+            if small and nd is None:
                 ds = gdal.Open(target, gdal.GA_ReadOnly)
                 try:
                     got = _computed_stats(ds.GetRasterBand(band["index"]))
                 finally:
                     del ds
             if got is None:
-                data = sampled(band["index"], band["type"])
+                data = sampled(band["index"], band["type"], nd)
                 got = data["stats"] if data else None
             band["statistics"] = got
         if histograms and pos < MAX_HIST_BANDS and not band.get("histogram"):
-            data = sampled(band["index"], band["type"])
+            data = sampled(band["index"], band["type"], nd)
             if data:
                 band["histogram"] = data["histogram"]
                 _check_stats_match(band)
@@ -414,8 +540,15 @@ def _nstr(value):
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
-def band_histogram(target, band_index, height, width, dtype_name, exact=True):
-    """值分布。默认全图逐像元扫描，只有超大文件才退回抽样。"""
+def band_histogram(target, band_index, height, width, dtype_name, exact=True, nodata=None):
+    """值分布。默认全图逐像元扫描，只有超大文件才退回抽样。
+
+    nodata 非空时不能走 GDAL 的 GetHistogram：它只认驱动声明的无效值，属性里写的那种
+    会原样进直方图，于是 -9999 那一格高得离谱、把真实分布压成一条线。
+    """
+    if nodata is not None:
+        got = _sample_band(target, band_index, height, width, dtype_name, nodata)
+        return (got or {}).get("histogram")
     ds = gdal.Open(target, gdal.GA_ReadOnly)
     if ds is None:
         return None
@@ -641,12 +774,34 @@ def identify_value(target, lon, lat):
             band = ds.GetRasterBand(index)
             data = band.ReadAsArray(col, row, 1, 1)
             value = None if data is None else np.asarray(data).reshape(-1)[0]
+            over = _meta_overrides(band)
             nodata = band.GetNoDataValue()
+            if nodata is None:
+                # 属性里写的无效值（HDF5Image 这类驱动不会填进 GetNoDataValue）
+                nodata = over.get("nodata")
             dead = value is None or (nodata is not None and float(value) == float(nodata))
+            # 缩放与偏移同信息栏一套：给出去的是物理值，原始整数值留在 raw_value 里
+            scale = band.GetScale()
+            if scale is None:
+                scale = over.get("scale")
+            offset = band.GetOffset()
+            if offset is None:
+                offset = over.get("offset")
+            scaled = (scale is not None and float(scale) != 1) or \
+                     (offset is not None and float(offset) != 0)
+            shown = None
+            if not dead:
+                shown = float(value)
+                if scaled:
+                    shown = shown * float(scale or 1) + float(offset or 0)
+                shown = _number(shown, 8)
             out.append({
                 "index": index,
                 "description": band.GetDescription() or f"波段 {index}",
-                "value": None if dead else _number(value, 8),
+                "value": shown,
+                "raw_value": None if dead else _number(value, 8),
+                "scaled": bool(scaled),
+                "unit": band.GetUnitType() or over.get("unit") or None,
                 "nodata": bool(dead),
             })
         return {"inside": True, "col": col, "row": row, "bands": out,
