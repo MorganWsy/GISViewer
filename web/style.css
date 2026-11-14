@@ -3163,8 +3163,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-form {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
-  align-items: start;
-  gap: 7px 8px;
+  align-items: center;  /* 标签与右侧控件在同一行里上下居中，不再靠 padding-top 凑 */
+  gap: 7px 4px;         /* 行距照旧；标签到控件的横向间距减到原来的一半 */
   padding: 1px 9px 0 1px;
   /* 内容长了只让表单这一段滚，底部那颗"开始转换"始终看得见。
      滚动条落在控件右侧那 9px 内边距里，与浮层边框之间不留空 */
@@ -3174,7 +3174,6 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overscroll-behavior: contain;
 }
 .cv-lab {
-  padding-top: 4px;   /* 视觉上与 26px 高控件里的文字对齐 */
   font-size: 12px;
   line-height: 18px;
   color: var(--text-dim);
@@ -3191,6 +3190,15 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   background: var(--panel-alt);
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+/* controls.js 把下拉换成了 combo 按钮，那边默认 36px 高、14px 字。这里压到
+   与源文件输入框一样的 --ctl-h、13px，四个输入态才是一般高 */
+.cv-form .combo { display: block; width: 100%; min-width: 0; }
+.cv-form .combo-btn {
+  height: var(--ctl-h);
+  min-height: 0;
+  padding: 0 26px 0 6px;
+  font-size: 13px;
 }
 .cv-sel:focus {
   outline: none;

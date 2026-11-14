@@ -410,6 +410,80 @@ def main(argv=None):
         need(status == 200 and not data.get("ok"), "没有坐标系也照写了")
         need("坐标系" in (data.get("error") or {}).get("hint", ""), "没说清缺的是坐标系")
 
+    @check("convert 目标格式支持投影坐标系时保持原坐标系")
+    def _(cli):
+        src = Path(tmp, "keep-src.geojson")
+        src.write_text(json.dumps({
+            "type": "FeatureCollection",
+            "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::4547"}},
+            "features": [
+                {"type": "Feature", "properties": {"name": "甲"},
+                 "geometry": {"type": "Point", "coordinates": [500000.0, 3320113.398]}},
+                {"type": "Feature", "properties": {"name": "乙"},
+                 "geometry": {"type": "Point", "coordinates": [547999.761, 3375648.033]}},
+            ]}, ensure_ascii=False), encoding="utf-8")
+        # 只有按规范只收经纬度的三种格式才换算，其余一律照搬源坐标系
+        for fmt in ("gpkg", "shp", "geoparquet"):
+            out = Path(tmp, "keep-" + fmt)
+            status, data, _ = cli.post("/api/convert",
+                                       {"path": str(src), "layer": 0, "fmt": fmt, "out_dir": str(out)})
+            need(status == 200 and data.get("ok"), "%s 转换失败：%s" % (fmt, data.get("error")))
+            need(all(r["same"] for r in data.get("compare") or [] if r["name"] == "坐标系"),
+                 "%s 把源坐标系改掉了：%s" % (fmt, data.get("compare")))
+            status, info, _ = cli.get("/api/inspect", path=str(data.get("out_path")))
+            # 单图层的矢量，坐标系在顶层；多图层的在第一个图层里
+            crs = info.get("crs") or ((info.get("layers") or [{}])[0].get("crs") or {})
+            need("4547" in str(crs.get("code") or crs.get("label") or ""),
+                 "%s 输出不是 EPSG:4547：%s" % (fmt, crs))
+
+    @check("convert 混合几何按类型分开写出，不丢要素")
+    def _(cli):
+        src = Path(tmp, "mixed-src.geojson")
+        src.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"n": 1},
+             "geometry": {"type": "Point", "coordinates": [116.0, 39.0]}},
+            {"type": "Feature", "properties": {"n": 2},
+             "geometry": {"type": "LineString", "coordinates": [[116.0, 39.0], [116.2, 39.2]]}},
+            {"type": "Feature", "properties": {"n": 3},
+             "geometry": {"type": "Polygon", "coordinates": [
+                 [[116.3, 39.3], [116.4, 39.3], [116.4, 39.4], [116.3, 39.3]]]}},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        out = Path(tmp, "mixed-out")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(src), "layer": 0, "fmt": "shp", "out_dir": str(out)})
+        need(status == 200 and data.get("ok"), "混合几何转换失败：%s" % data.get("error"))
+        paths = data.get("out_paths") or []
+        need(len(paths) == 3, "没按几何类型拆开：%s" % paths)
+        need(all(Path(p).is_file() for p in paths), "有分片没写出来：%s" % paths)
+        cmp = {r["name"]: r for r in data.get("compare") or []}
+        need(cmp["要素数"]["same"], "要素数没对上：%s" % cmp["要素数"])
+        need(cmp["几何类型"]["same"], "分开写出被当成了差异：%s" % cmp["几何类型"])
+
+    @check("convert 源文件是 .zip 时按包内成员转换")
+    def _(cli):
+        import zipfile
+        inner = Path(tmp, "包内数据.geojson")
+        inner.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"name": "甲"},
+             "geometry": {"type": "Point", "coordinates": [116.0, 39.0]}},
+            {"type": "Feature", "properties": {"name": "乙"},
+             "geometry": {"type": "Point", "coordinates": [116.1, 39.1]}},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        zpath = Path(tmp, "打包.zip")
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(inner, "包内数据.geojson")
+        # 图层清单要能列出包内成员，用户按成员选
+        status, info, _ = cli.get("/api/inspect", path=str(zpath))
+        need(status == 200 and info.get("kind") == "archive", "压缩包没按压缩包打开")
+        need((info.get("layers") or [{}])[0].get("member"), "图层清单里没有包内成员")
+        out = Path(tmp, "zip-out")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(zpath), "layer": 0, "fmt": "shp", "out_dir": str(out)})
+        need(status == 200 and data.get("ok"), "压缩包转换失败：%s" % data.get("error"))
+        need(Path(data.get("out_path") or "").is_file(), "输出文件没写出来")
+        need("/vsizip" not in (data.get("out_path") or ""), "输出落进了包内的虚拟路径")
+        need(data["after"]["feature_count"] == 2, "要素数不对：%s" % data["after"])
+
     try:
         wait_ready(base)
         c = Client(base)

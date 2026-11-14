@@ -4121,6 +4121,11 @@ function paintConvFmt() {
   if (note) note.textContent = (fmt && fmt.note) || '';
 }
 
+/* 压缩包里的每一项是包内的一个文件，用文件名比用图层名更好认 */
+function convLayerName(l, i) {
+  return (l && (l.member || l.name)) || ('图层 ' + (i + 1));
+}
+
 /* 图层清单：源就是当前打开的这份就直接用内存里的；换了个路径再问引擎 */
 function convLoadLayers() {
   const sel = $('convLayer');
@@ -4129,7 +4134,7 @@ function convLoadLayers() {
   const cur = current || {};
   const layers = cur.data && cur.data.ok ? (cur.data.layers || []) : [];
   if (cur.path && samePath(path, cur.path) && layers.length) {
-    fillConvLayers(layers.map((l, i) => ({ index: i, name: l.name || ('图层 ' + (i + 1)) })));
+    fillConvLayers(layers.map((l, i) => ({ index: i, name: convLayerName(l, i) })));
     return;
   }
   if (!path) { fillConvLayers([]); return; }
@@ -4139,7 +4144,7 @@ function convLoadLayers() {
     body: JSON.stringify({ path, fast: true }),
   }).then((r) => r.json()).then((d) => {
     const list = (d && d.ok && d.layers) || [];
-    fillConvLayers(list.map((l, i) => ({ index: i, name: l.name || ('图层 ' + (i + 1)) })));
+    fillConvLayers(list.map((l, i) => ({ index: i, name: convLayerName(l, i) })));
   }).catch(() => fillConvLayers([]));
 }
 
@@ -4277,10 +4282,16 @@ function renderConvResult(d) {
     table.appendChild(tr);
   });
   box.appendChild(table);
+  const outs = (d.out_paths && d.out_paths.length) ? d.out_paths : (d.out_path ? [d.out_path] : []);
   const out = el('div', 'cv-line');
-  out.appendChild(el('b', null, '输出文件：'));
-  out.appendChild(document.createTextNode(d.out_path || ''));
+  out.appendChild(el('b', null, outs.length > 1 ? '输出文件（按几何类型分开）：' : '输出文件：'));
+  out.appendChild(document.createTextNode(outs[0] || ''));
   box.appendChild(out);
+  outs.slice(1).forEach((p) => {
+    const row = el('div', 'cv-line cv-indent');
+    row.textContent = p;
+    box.appendChild(row);
+  });
   (d.warnings || []).forEach((w) => box.appendChild(convMsg('warn', w)));
 }
 
@@ -5320,7 +5331,9 @@ function init() {
     cvTip.setAttribute('data-tip', [
       '格式互转把同一份数据换成另一种文件格式存放：',
       '· 坐标系、几何与属性按原样保留，不做裁剪、合并或简化；',
-      '· KML、GPX、TopoJSON 按规范只收经纬度，源数据是投影坐标时会重投影到 WGS 84，并在结果里注明；',
+      '· KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，源数据是投影坐标时会换算成经纬度，并在结果里注明；',
+      '· 源文件可以直接填压缩包，包里有几份数据，「图层」里就列出几份；',
+      '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，混合几何会按点、线、面分开写成多个文件；',
       '· 输出写入新目录（默认为源文件旁的「文件名_转出」），存在同名文件时不覆盖；',
       '· 转换前给出该格式的已知代价，转换后逐项对比要素数、字段数、几何与坐标系。',
     ].join('\n'));
