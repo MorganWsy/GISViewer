@@ -240,8 +240,12 @@ class _Line:
         self.arcs = []
 
 
-def write(lyr, out_path, layer_name):
+def write(lyr, out_path, layer_name, xf=None):
     """把图层写成 TopoJSON。
+
+    xf 是"换算到 WGS 84"的坐标转换器（KML/GPX/TopoJSON 这类按规范只收经纬度，
+    源数据是投影坐标时要先换过来）。有 xf 时范围按换算后的几何现算，
+    量化格网才对得上。
 
     返回 (写出要素数, 跳过的无几何要素数, 保存不了的字段数)。
     """
@@ -256,11 +260,7 @@ def write(lyr, out_path, layer_name):
         fields.append((i, fd.GetNameRef(), fd.GetType()))
 
     ext = _extent(lyr)
-    if ext is None:
-        raise RuntimeError("这份数据没有可用的范围，写不了 TopoJSON")
-
-    builder = _Builder(ext)
-    items = []
+    raw = []
     skipped = 0
     lyr.ResetReading()
     while True:
@@ -271,11 +271,24 @@ def write(lyr, out_path, layer_name):
         if geom is None or geom.IsEmpty():
             skipped += 1
             continue
+        if xf is not None:
+            geom = geom.Clone()
+            try:
+                geom.Transform(xf)
+            except Exception:
+                skipped += 1
+                continue
+            env = geom.GetEnvelope()   # (minx, maxx, miny, maxy)
+            if not raw:
+                ext = (env[0], env[1], env[2], env[3])
+            else:
+                ext = (min(ext[0], env[0]), max(ext[1], env[1]),
+                       min(ext[2], env[2]), max(ext[3], env[3]))
+            if not all(math.isfinite(v) for v in ext):
+                raise RuntimeError("换算后的坐标不是有限数值，写不了 TopoJSON")
         try:
-            node = builder.prepare(json.loads(geom.ExportToJson()))
+            text = geom.ExportToJson()
         except Exception:
-            node = None
-        if node is None:
             skipped += 1
             continue
         props = {}
@@ -283,9 +296,25 @@ def write(lyr, out_path, layer_name):
             v = _value(feat, idx, ftype)
             if v is not _DROP:
                 props[name] = v
-        items.append((node, props))
+        raw.append((text, props))
     lyr.ResetReading()
 
+    if not raw:
+        raise RuntimeError("没有可写的要素")
+    if ext is None:
+        raise RuntimeError("这份数据没有可用的范围，写不了 TopoJSON")
+
+    builder = _Builder(ext)
+    items = []
+    for text, props in raw:
+        try:
+            node = builder.prepare(json.loads(text))
+        except Exception:
+            node = None
+        if node is None:
+            skipped += 1
+            continue
+        items.append((node, props))
     if not items:
         raise RuntimeError("没有可写的要素")
 

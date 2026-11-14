@@ -11,6 +11,7 @@ from pathlib import Path
 from . import bootstrap
 from . import dwg as _dwg
 from . import encoding as dbfenc
+from . import geoparquet
 from . import labels
 from . import vindex
 from .errors import InspectError
@@ -199,7 +200,12 @@ def _open_vector(target):
     打开后再补一次（见 _xy_upgrade）。
 
     shp 在打开前先认一遍 DBF 的编码（见 encoding 模块），认出来的写进
-    SHAPE_ENCODING，GBK 那类老文件的属性表才不致于满屏乱码。"""
+    SHAPE_ENCODING，GBK 那类老文件的属性表才不致于满屏乱码。
+
+    GeoParquet 本机的 GDAL 没有驱动，先摊成一份临时 GeoJSON（见 geoparquet 模块），
+    之后所有接口都照常按矢量读，不必另开分支。"""
+    if geoparquet.is_parquet(target):
+        target = geoparquet.materialize(target)
     force = dbfenc.gdal_shape_encoding(target)
     gdal.SetConfigOption("SHAPE_ENCODING", force)
     options = _XY_OPEN_OPTIONS if str(target).lower().endswith(".csv") else None
@@ -475,7 +481,10 @@ def inspect(target, quick=False):
     if ds is None:
         raise ValueError("没有可识别的矢量图层")
 
-    driver = _driver_name(ds)
+    # GeoParquet 摊出来的临时 GeoJSON 在 OGR 眼里就是 GeoJSON，
+    # 对外仍要说它是 GeoParquet，否则文件卡上会写成"GeoJSON"
+    parquet = geoparquet.is_parquet(target)
+    driver = "Parquet" if parquet else _driver_name(ds)
     # 表格驱动补出的几何与 GeoJSON 同权：没写坐标系就按规范默认 WGS 84
     fallback = 4326 if driver in _TABLE_WGS84_DRIVERS else None
     # 属性表编码：shp/csv 靠字节判，其余按格式规范固定（界面只给结果，不露依据）
@@ -504,7 +513,7 @@ def inspect(target, quick=False):
         "quick": bool(quick),
         "driver": driver,
         "driver_label": labels.driver(driver),
-        "driver_long": _driver_long(ds),
+        "driver_long": "GeoParquet" if parquet else _driver_long(ds),
         "layer_count": total,
         "layers": layers,
         "dataset_metadata": ds.GetMetadata() or {},

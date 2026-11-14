@@ -212,7 +212,7 @@ SHOW_FOR_DRIVERS = ("ESRI Shapefile", "CSV")
 # 信息栏照给一行，用户不必为"这文件会不会乱码"再猜一次
 FIXED_UTF8_DRIVERS = (
     "OpenFileGDB", "FileGDB", "GPKG", "GeoJSON", "TopoJSON", "KML", "LIBKML",
-    "GML", "FlatGeobuf", "SQLite", "ESRIJSON", "XLSX", "ODS",
+    "GML", "FlatGeobuf", "SQLite", "ESRIJSON", "XLSX", "ODS", "Parquet",
 )
 
 

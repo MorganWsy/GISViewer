@@ -297,12 +297,15 @@ def main(argv=None):
         status, data, _ = cli.get("/api/convert_formats")
         need(status == 200 and data.get("ok"), "200/ok 不对")
         fmts = data.get("formats") or []
-        need(len(fmts) >= 11, "目标格式太少：%s" % len(fmts))
+        need(len(fmts) >= 13, "目标格式太少：%s" % len(fmts))
         keys = {f.get("key") for f in fmts}
-        need({"shp", "geojson", "gpkg", "topojson"} <= keys, "常用格式不齐：%s" % sorted(keys))
+        need({"shp", "geojson", "gpkg", "topojson", "geoparquet"} <= keys,
+             "常用格式不齐：%s" % sorted(keys))
         # 说明是给用户看的代价提示；CSV 已按要求去掉那段说明，其余都得有
         need(all(f.get("note") for f in fmts if f.get("key") != "csv"), "有格式没写代价说明")
         need(not next(f for f in fmts if f.get("key") == "csv").get("note"), "CSV 说明应当为空")
+        labels = [f.get("label") for f in fmts]
+        need(labels == sorted(labels, key=str.lower), "格式没按字母顺序：%s" % labels)
 
     @check("convert 预检不落文件、转换有前后对比")
     def _(cli):
@@ -346,6 +349,66 @@ def main(argv=None):
         need(out_path.is_file(), "TopoJSON 文件没写出来")
         doc = json.loads(out_path.read_text(encoding="utf-8"))
         need(doc.get("type") == "Topology" and doc.get("arcs"), "不是 TopoJSON 结构")
+
+    @check("convert 支持 GeoParquet 输出，且能当矢量再打开")
+    def _(cli):
+        out = Path(tmp, "parquet-out")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(china), "layer": 0, "fmt": "geoparquet",
+                                    "out_dir": str(out)})
+        need(status == 200 and data.get("ok"), "GeoParquet 转换失败：%s" % data.get("error"))
+        cmp = {r["name"]: r for r in data.get("compare") or []}
+        need(cmp["要素数"]["same"], "要素数没对上：%s" % cmp["要素数"])
+        need(cmp["字段数"]["same"], "字段数没对上：%s" % cmp["字段数"])
+        need(cmp["坐标系"]["same"], "坐标系没对上：%s" % cmp["坐标系"])
+        out_path = Path(data.get("out_path") or "")
+        need(out_path.is_file() and out_path.suffix == ".parquet", "parquet 文件没写出来")
+        need(out_path.read_bytes()[:4] == b"PAR1", "不是 Parquet 文件头")
+        # 写出来的东西必须能被软件当矢量打开：驱动按 GeoParquet 报，属性编码 UTF-8
+        status, info, _ = cli.get("/api/inspect", path=str(out_path))
+        need(status == 200 and info.get("ok"), "GeoParquet 打不开：%s" % info.get("error"))
+        need(info.get("driver") == "Parquet", "驱动报错了：%s" % info.get("driver"))
+        need(info.get("driver_label") == "GeoParquet", "格式名报错了：%s" % info.get("driver_label"))
+        need(info.get("feature_count_total") == 35, "读回要素数不对：%s" % info.get("feature_count_total"))
+        need(info["layers"][0].get("attr_encoding") == "UTF-8", "属性编码没给出来")
+
+    @check("convert 投影坐标转 KML 会重投影到 WGS 84")
+    def _(cli):
+        src = Path(tmp, "gk-src.geojson")
+        src.write_text(json.dumps({
+            "type": "FeatureCollection",
+            "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::4547"}},
+            "features": [
+                {"type": "Feature", "properties": {"name": "甲"},
+                 "geometry": {"type": "Point", "coordinates": [500000.0, 3320113.398]}},
+                {"type": "Feature", "properties": {"name": "乙"},
+                 "geometry": {"type": "Point", "coordinates": [547999.761, 3375648.033]}},
+            ]}, ensure_ascii=False), encoding="utf-8")
+        out = Path(tmp, "kml-out")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(src), "layer": 0, "fmt": "kml", "out_dir": str(out)})
+        need(status == 200 and data.get("ok"), "投影坐标转 KML 失败：%s" % data.get("error"))
+        need(any("重投影" in w for w in data.get("warnings") or []), "没说明做了重投影")
+        text = Path(data.get("out_path") or "").read_text(encoding="utf-8", errors="replace")
+        import re
+        pairs = re.findall(r"<coordinates>\s*([-\d.eE+]+),([-\d.eE+]+)", text)
+        need(pairs, "KML 里没找到坐标")
+        for lon, lat in pairs:
+            need(-180 <= float(lon) <= 180 and -90 <= float(lat) <= 90,
+                 "KML 里还是投影坐标：%s,%s" % (lon, lat))
+
+    @check("convert 没有坐标系记录的投影数据要明确拒绝")
+    def _(cli):
+        src = Path(tmp, "nocrs-src.geojson")
+        src.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"name": "甲"},
+             "geometry": {"type": "Point", "coordinates": [500000.0, 3320113.398]}}]},
+            ensure_ascii=False), encoding="utf-8")
+        status, data, _ = cli.post("/api/convert",
+                                   {"path": str(src), "layer": 0, "fmt": "kml",
+                                    "out_dir": str(Path(tmp, "kml-out2"))})
+        need(status == 200 and not data.get("ok"), "没有坐标系也照写了")
+        need("坐标系" in (data.get("error") or {}).get("hint", ""), "没说清缺的是坐标系")
 
     try:
         wait_ready(base)

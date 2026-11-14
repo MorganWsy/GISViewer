@@ -62,6 +62,7 @@ DRIVER_LABELS = {
     "MapInfo File": "MapInfo TAB",
     "GPX": "GPX",
     "CSV": "CSV 表格",
+    "Parquet": "GeoParquet",
     "MVT": "矢量切片",
     "PMTiles": "PMTiles",
     "MBTiles": "MBTiles",

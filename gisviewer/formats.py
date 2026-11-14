@@ -13,6 +13,7 @@ VECTOR_EXT = {
     ".shp", ".geojson", ".json", ".jsonl", ".ndjson", ".topojson", ".esrijson", ".kml", ".kmz",
     ".gpx", ".gpkg", ".gdb", ".dxf", ".dwg", ".tab", ".mid", ".mif", ".osm", ".pbf", ".mbtiles",
     ".pmtiles", ".sqlite", ".db", ".csv", ".s57", ".000", ".fgb", ".vdf", ".gml", ".gfg", ".xlsx",
+    ".parquet", ".geoparquet",
 }
 JSON_EXT = {".json", ".geojson", ".jsonl", ".ndjson", ".topojson", ".esrijson"}
 # 这些压缩包 GDAL 的虚拟文件系统能直接进，不用解压
@@ -24,7 +25,7 @@ HEAVY_ARCHIVE_EXT = {".gz", ".bz2", ".zst", ".7z", ".rar", ".tar"}
 # Directory 下，这里不列。压缩包里最常见的是 .zip，其余的不挂，免得右键菜单过长。
 MENU_EXT = {
     ".shp", ".geojson", ".json", ".kml", ".kmz", ".gpx", ".gpkg", ".csv", ".gml",
-    ".dxf", ".dwg", ".mbtiles", ".pmtiles", ".fgb", ".tab", ".xlsx",
+    ".dxf", ".dwg", ".mbtiles", ".pmtiles", ".fgb", ".tab", ".xlsx", ".parquet",
     ".tif", ".tiff", ".img", ".nc", ".hdf", ".h5", ".jp2", ".grib", ".grib2", ".asc", ".zip",
 }
 

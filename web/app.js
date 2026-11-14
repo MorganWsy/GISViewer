@@ -4013,9 +4013,41 @@ function convFmtKey() {
   return (sel && sel.value) || 'geojson';
 }
 
-function setConvHint(text) {
-  const hint = $('convHint');
-  if (hint) hint.textContent = text || '';
+const CONV_WARN_ICO = 'M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23l-9.2-15.94zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z';
+const CONV_ERR_ICO = 'M12 2a10 10 0 100 20 10 10 0 000-20zm-1.1 4.6h2.2v7.2h-2.2V6.6zm0 9h2.2v2.2h-2.2v-2.2z';
+
+/* 一条说明：与地图底栏同一套写法——一枚 13px 图标加一行字，不套底色、不单靠颜色分辨 */
+function convMsg(kind, text) {
+  // 类名别再叫 err：全局 .err 带底色与描边，会把这一行画成一块红框
+  const row = el('div', 'cv-msg' + (kind === 'err' ? ' cv-bad' : ''));
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'mn-ico');
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('fill-rule', 'evenodd');
+  p.setAttribute('clip-rule', 'evenodd');
+  p.setAttribute('d', kind === 'err' ? CONV_ERR_ICO : CONV_WARN_ICO);
+  svg.appendChild(p);
+  row.appendChild(svg);
+  row.appendChild(el('span', null, text));
+  return row;
+}
+
+function convStatusBox() { return $('convStatus'); }
+
+function clearConvStatus() {
+  const box = convStatusBox();
+  if (box) box.textContent = '';
+}
+
+/* 错误：一句结论加一句该怎么办，都落在输出目录下方，不往标题旁边挤 */
+function convError(title, hint) {
+  const box = convStatusBox();
+  if (!box) return;
+  box.textContent = '';
+  if (title) box.appendChild(convMsg('err', title));
+  if (hint) box.appendChild(el('div', 'cv-line cv-indent', hint));
 }
 
 /* 与体检浮层同一套定位：贴着"格式互转"按钮下方，左右夹回窗口内 */
@@ -4052,7 +4084,6 @@ function hideConvPop() {
   const pop = $('convPop');
   if (pop) pop.hidden = true;
   markBtn('convBtn', false);
-  setConvHint('');
 }
 
 function toggleConvPop() {
@@ -4069,7 +4100,7 @@ function loadConvFormats() {
     convFormats = (d && d.ok && d.formats) || [];
     paintConvFmt();
     convScheduleDry();
-  }).catch(() => { setConvHint('无法读取格式清单，请重试。'); });
+  }).catch(() => { convError('无法读取格式清单。', '请关闭浮层后重试。'); });
 }
 
 function paintConvFmt() {
@@ -4085,6 +4116,9 @@ function paintConvFmt() {
   if (last && (convFormats || []).some((f) => f.key === last)) sel.value = last;
   // 下拉的可见部分是 combo 按钮，换完 options 得让它把标签重画一遍
   if (window.syncSelect) window.syncSelect(sel);
+  const fmt = (convFormats || []).find((f) => f.key === sel.value);
+  const note = $('convFmtNote');
+  if (note) note.textContent = (fmt && fmt.note) || '';
 }
 
 /* 图层清单：源就是当前打开的这份就直接用内存里的；换了个路径再问引擎 */
@@ -4136,52 +4170,51 @@ function convScheduleDry() {
 
 /* 换了源文件、图层、格式或输出目录，上一次的结果就不再对应当前设置，先收起来 */
 function clearConvResult() {
-  const wrap = $('convResult');
-  const res = $('convRes');
-  if (wrap) wrap.hidden = true;
-  if (res) res.textContent = '';
+  clearConvStatus();
 }
 
-/* 预检：不写任何文件，把该格式的代价、这份数据的警告、转换前概况摆在按钮上面 */
+/* 预检：源数据概况跟着源文件，格式说明跟着格式，警告落在输出目录下方 */
 function runConvDry() {
-  const note = $('convNote');
-  if (!note) return;
+  const sum = $('convSrcSum');
+  const box = convStatusBox();
+  if (!sum || !box) return;
   const path = convTargetPath();
   const fmtKey = convFmtKey();
   const fmt = (convFormats || []).find((f) => f.key === fmtKey);
-  note.hidden = false;
-  note.textContent = '';
-  if (fmt && fmt.note) note.appendChild(el('div', null, fmt.note));
-  if (!path) {
-    note.appendChild(el('div', 'cv-err', '请先填写要转换的文件'));
-    return;
-  }
+  const note = $('convFmtNote');
+  if (note) note.textContent = (fmt && fmt.note) || '';
+  sum.textContent = '';
+  clearConvStatus();
+  if (!path) { sum.textContent = '尚未选择源文件。'; return; }
+  sum.textContent = '正在读取源数据…';
   fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, layer: convLayerIndex(), fmt: fmtKey, dry: true }),
   }).then((r) => r.json()).then((d) => {
     if ($('convPop') && $('convPop').hidden) return;
-    const box = $('convNote');
-    box.hidden = false;
-    box.textContent = '';
-    if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
+    const box2 = convStatusBox();
+    const sum2 = $('convSrcSum');
+    if (!box2 || !sum2) return;
+    box2.textContent = '';
     if (!d || !d.ok) {
       const err = (d && d.error) || {};
-      box.appendChild(el('div', 'cv-err', err.title || '预检未通过。'));
-      if (err.hint) box.appendChild(el('div', 'cv-line', err.hint));
+      sum2.textContent = '';
+      convError(err.title || '预检未通过。', err.hint);
       return;
     }
-    (d.warnings || []).forEach((w) => box.appendChild(el('div', 'cv-warn', w)));
     const b = d.before || {};
-    box.appendChild(el('div', null, '源数据：' + b.feature_count + ' 个要素 · ' +
-      b.field_count + ' 个字段 · ' + (b.geometry || '几何未知') + ' · ' + (b.crs || '坐标系未记录')));
+    sum2.textContent = [
+      b.feature_count + ' 个要素',
+      b.field_count + ' 个字段',
+      b.geometry || '几何未知',
+      b.crs || '坐标系未记录',
+    ].join(' · ');
+    (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
   }).catch(() => {
-    const box = $('convNote');
-    box.hidden = false;
-    box.textContent = '';
-    if (fmt && fmt.note) box.appendChild(el('div', null, fmt.note));
-    box.appendChild(el('div', 'cv-err', '预检未完成，请重试。'));
+    const sum2 = $('convSrcSum');
+    if (sum2) sum2.textContent = '';
+    convError('预检未完成。', '请关闭浮层后重试。');
   });
 }
 
@@ -4195,8 +4228,7 @@ function setConvBusy(on) {
 
 function runConv() {
   const path = convTargetPath();
-  if (!path) { setConvHint('请先填写源文件。'); return; }
-  setConvHint('');
+  if (!path) { convError('未填写源文件。', '请先选择要转换的文件。'); return; }
   const out = $('convOut');
   setConvBusy(true);
   fetch('/api/convert', {
@@ -4216,29 +4248,20 @@ function runConv() {
       return;
     }
     renderConvResult(d);
-    convScheduleDry();   // 同名文件的预检状态跟着变，收一下
   }).catch(() => {
     setConvBusy(false);
-    setConvHint('转换未完成，请重试。');
+    convError('转换未完成。', '请重试。');
   });
 }
 
 function renderConvError(err) {
-  const wrap = $('convResult');
-  const res = $('convRes');
-  if (!wrap || !res) return;
-  res.textContent = '';
-  wrap.hidden = false;
-  res.appendChild(el('div', 'cv-err', (err && err.title) || '转换未完成。'));
-  if (err && err.hint) res.appendChild(el('div', 'cv-line', err.hint));
+  convError((err && err.title) || '转换未完成。', err && err.hint);
 }
 
 function renderConvResult(d) {
-  const wrap = $('convResult');
-  const res = $('convRes');
-  if (!wrap || !res) return;
-  res.textContent = '';
-  wrap.hidden = false;
+  const box = convStatusBox();
+  if (!box) return;
+  box.textContent = '';
   const table = el('table', 'cv-cmp');
   const head = el('tr');
   ['项目', '转换前', '转换后'].forEach((t) => head.appendChild(el('th', null, t)));
@@ -4253,12 +4276,12 @@ function renderConvResult(d) {
     tr.appendChild(b);
     table.appendChild(tr);
   });
-  res.appendChild(table);
+  box.appendChild(table);
   const out = el('div', 'cv-line');
   out.appendChild(el('b', null, '输出文件：'));
   out.appendChild(document.createTextNode(d.out_path || ''));
-  res.appendChild(out);
-  (d.warnings || []).forEach((w) => res.appendChild(el('div', 'cv-warn', w)));
+  box.appendChild(out);
+  (d.warnings || []).forEach((w) => box.appendChild(convMsg('warn', w)));
 }
 
 function refreshCacheSize() {
@@ -5296,7 +5319,8 @@ function init() {
   if (cvTip) {
     cvTip.setAttribute('data-tip', [
       '格式互转把同一份数据换成另一种文件格式存放：',
-      '· 坐标系、几何与属性按原样保留，不做重投影、裁剪、合并或简化；',
+      '· 坐标系、几何与属性按原样保留，不做裁剪、合并或简化；',
+      '· KML、GPX、TopoJSON 按规范只收经纬度，源数据是投影坐标时会重投影到 WGS 84，并在结果里注明；',
       '· 输出写入新目录（默认为源文件旁的「文件名_转出」），存在同名文件时不覆盖；',
       '· 转换前给出该格式的已知代价，转换后逐项对比要素数、字段数、几何与坐标系。',
     ].join('\n'));

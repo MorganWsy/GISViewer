@@ -87,32 +87,32 @@
     <div class="cp-head">
       <span class="cp-title">格式互转</span>
       <i class="tip-ico" id="cvTip"></i>
-      <span class="cp-hint" id="convHint"></span>
     </div>
+    <!-- 一列到底：标签在左、控件占满右侧，两个下拉自然等宽。源数据概况跟着源文件，
+         格式说明跟着格式，结果与警告跟着输出目录 -->
     <div class="cv-form">
       <label class="cv-lab" for="convPath">源文件</label>
-      <div class="cp-field cv-span">
+      <div class="cp-field">
         <input id="convPath" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-path" placeholder="选择或粘贴矢量文件路径">
         <button id="convFilePick" class="cp-in" type="button" data-tip="选择文件" aria-label="选择文件">
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
       </div>
+      <div class="cv-sub" id="convSrcSum"></div>
       <label class="cv-lab" for="convLayer">图层</label>
       <select id="convLayer" class="cv-sel" aria-label="要转换的图层"></select>
       <label class="cv-lab" for="convFmt">转为</label>
       <select id="convFmt" class="cv-sel" aria-label="目标格式"></select>
+      <div class="cv-sub" id="convFmtNote"></div>
       <label class="cv-lab" for="convOut">输出目录</label>
-      <div class="cp-field cv-span">
+      <div class="cp-field">
         <input id="convOut" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-out" placeholder="留空则输出到源文件旁的「文件名_转出」">
         <button id="convDirPick" class="cp-in" type="button" data-tip="选择输出目录" aria-label="选择输出目录">
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
       </div>
-    </div>
-    <!-- 预检：格式的已知代价 + 这份数据的警告 + 源数据概况 -->
-    <div class="cv-note" id="convNote" hidden></div>
-    <div class="cp-result" id="convResult" hidden>
-      <div class="cv-res" id="convRes"></div>
+      <!-- 转换结果、警告与错误都落这一格，与地图底栏同一套图标加文字的写法 -->
+      <div class="cv-sub" id="convStatus"></div>
     </div>
     <div class="cv-foot">
       <button id="convRun" class="cv-run" type="button">开始转换</button>

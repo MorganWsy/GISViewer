@@ -14,6 +14,7 @@ import os
 
 from . import bootstrap
 from . import encoding as dbfenc
+from . import geoparquet
 from . import labels
 from . import topojson
 from . import vector
@@ -44,6 +45,8 @@ FORMATS = [
      "note": "轨迹格式：点、线、多线分别存为独立图层，按规范仅支持 WGS 84 经纬度；面与无几何要素无法保存；自定义字段写入扩展节点。"},
     {"key": "topojson", "label": "TopoJSON", "ext": ".topojson", "driver": "TopoJSON",
      "note": "文本格式，相邻要素的公共边界合并为同一条弧，文件比 GeoJSON 小；按规范仅支持 WGS 84 经纬度。"},
+    {"key": "geoparquet", "label": "GeoParquet", "ext": ".parquet", "driver": "Parquet",
+     "note": "列式存储，几何以 WKB 写入并记录坐标系与范围，属性按列保存；单文件，适合大体量数据与跨工具交换。"},
     {"key": "dxf", "label": "DXF", "ext": ".dxf", "driver": "DXF",
      "note": "CAD 交换格式，仅保存几何，属性字段无法保留。"},
 ]
@@ -56,6 +59,8 @@ _SKIP_GEOM = ("gpx",)
 _NAME_LIMIT = {"shp": 10}
 # 按规范只认 WGS 84 经纬度、坐标数值不做转换的目标
 _WGS84_ONLY = ("kml", "gpx", "topojson")
+# 一个图层只放得下一种几何的目标：混合几何的数据要挑占多数的那种建图层
+_SINGLE_GEOM = ("shp", "tab", "dxf")
 
 # GPX 按几何类型分图层：点→waypoints，线→routes，多线→tracks
 _GPX_LAYERS = (
@@ -66,8 +71,9 @@ _GPX_LAYERS = (
 
 
 def formats():
-    """给界面的格式清单（不带驱动名这种内部细节）。"""
-    return [{"key": f["key"], "label": f["label"], "note": f["note"]} for f in FORMATS]
+    """给界面的格式清单（不带驱动名这种内部细节）。按字母顺序，下拉里好找。"""
+    rows = [{"key": f["key"], "label": f["label"], "note": f["note"]} for f in FORMATS]
+    return sorted(rows, key=lambda r: r["label"].lower())
 
 
 def _srs_name(lyr):
@@ -109,15 +115,50 @@ def _crs_same(wkt_a, wkt_b):
 
 
 def _srs_is_wgs84(srs):
+    """是不是 WGS 84 经纬度。按定义比，不看有没有 EPSG 编号。"""
     if srs is None:
         return True
     try:
-        code = srs.GetAuthorityCode(None)
-        if code and str(code) == "4326":
-            return True
+        wgs = bootstrap.osr.SpatialReference()
+        wgs.ImportFromEPSG(4326)
+        wgs.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+        probe = srs.Clone()
+        probe.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+        return bool(probe.IsSame(wgs))
     except Exception:
         pass
-    return False
+    try:
+        return str(srs.GetAuthorityCode(None) or "") == "4326"
+    except Exception:
+        return False
+
+
+def _to_wgs84(srs):
+    """源坐标系 → WGS 84 经纬度的转换器。
+
+    KML / GPX / TopoJSON 按规范只收经纬度，源数据是投影坐标时只能先换过来；
+    换的时候按传统轴序（经度在前），否则高斯-克吕格那类会写成"纬度 经度"。
+    """
+    wgs = bootstrap.osr.SpatialReference()
+    wgs.ImportFromEPSG(4326)
+    wgs.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+    src = srs.Clone()
+    src.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+    return bootstrap.osr.CoordinateTransformation(src, wgs)
+
+
+_WGS84_SRS = None
+
+
+def _wgs84_srs():
+    """全进程共用一份 WGS 84：每个图层新建一次没必要。"""
+    global _WGS84_SRS
+    if _WGS84_SRS is None:
+        srs = bootstrap.osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        srs.SetAxisMappingStrategy(bootstrap.osr.OAMS_TRADITIONAL_GIS_ORDER)
+        _WGS84_SRS = srs
+    return _WGS84_SRS
 
 
 def _layer_summary(lyr, path, encoding_label):
@@ -258,9 +299,12 @@ def _precheck(src_lyr, fmt):
         out.append("GPX 不支持面与无几何要素，这些要素将被跳过。")
     if fmt["key"] == "dxf" and fields:
         out.append("DXF 仅保存几何，%d 个属性字段无法保留。" % len(fields))
+    if fmt["key"] in _SINGLE_GEOM and ogr.GT_Flatten(src_lyr.GetGeomType()) == ogr.wkbUnknown:
+        out.append("%s 每个图层只能存一种几何，这份数据含多种几何，"
+                   "将按占多数的那种写出，其余要素跳过。" % fmt["label"])
     if fmt["key"] in _WGS84_ONLY and not _srs_is_wgs84(src_lyr.GetSpatialRef()):
-        out.append("该格式按规范仅支持 WGS 84 经纬度；本功能不做重投影，"
-                   "坐标数值将原样写入，位置会发生偏移。")
+        out.append("源坐标系为 %s，写入时将重投影到 WGS 84（该格式按规范只收经纬度）。"
+                   % (_srs_label(src_lyr.GetSpatialRef()) or "未记录"))
     return out
 
 
@@ -318,13 +362,31 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                     "hint": "请更换输出目录，或先移动 %s。" % os.path.basename(out_path)}}
 
             before = _layer_summary(src_lyr, src, dbfenc.detect(src))
-            # 坐标越界这件事预检就要说清：这类格式按规范只存经纬度，转换时也是同一道拦
-            if fmt["key"] in _WGS84_ONLY and _extent_out_of_lonlat(src_lyr):
+            # 只收经纬度的格式：源数据是投影坐标就换算过去；没有坐标系记录的没法换
+            xf = None
+            only_geom = None
+            out_srs = src_lyr.GetSpatialRef()
+            if fmt["key"] in _WGS84_ONLY and not _srs_is_wgs84(out_srs):
+                if out_srs is None:
+                    return {"ok": False, "error": {
+                        "title": "%s 无法存放这份数据的坐标" % fmt["label"],
+                        "hint": "该格式按规范只收 WGS 84 经纬度，而这份数据没有记录坐标系，"
+                                "无法判断该怎么换算。请先在其他软件中补上坐标系并投影到 WGS 84。"}}
+                try:
+                    xf = _to_wgs84(out_srs)
+                except Exception as exc:
+                    return {"ok": False, "error": {
+                        "title": "无法重投影到 WGS 84",
+                        "hint": labels.friendly_error(exc)[:200]}}
+                out_srs = _wgs84_srs()
+            elif fmt["key"] in _WGS84_ONLY and _extent_out_of_lonlat(src_lyr):
+                # 坐标系写着 WGS 84（或压根没写，GeoJSON 按规范默认 WGS 84），
+                # 数值却是米制——这种文件只能先让人改正，猜一个坐标系去换更危险
                 return {"ok": False, "error": {
                     "title": "%s 无法存放这份数据的坐标" % fmt["label"],
-                    "hint": "该格式按规范仅支持 WGS 84 经纬度（-180~180 / -90~90），"
-                            "当前坐标数值超出此范围，可能为投影坐标。本功能不做重投影，"
-                            "请先在其他软件中重投影到 WGS 84。"}}
+                    "hint": "坐标数值超出经纬度范围（-180~180 / -90~90），而坐标系记录为 WGS 84 "
+                            "或没有记录，无法据此换算。请先确认坐标系标注是否正确，"
+                            "或先在其它软件中投影到 WGS 84。"}}
             if dry:
                 return {"ok": True, "warnings": warnings, "before": before,
                         "format_note": fmt["note"], "dry": True}
@@ -339,7 +401,20 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                 written = skipped = no_geom = dropped_fields = 0
                 try:
                     written, skipped, dropped_fields = topojson.write(
-                        src_lyr, out_path, src_lyr.GetName() or stem)
+                        src_lyr, out_path, src_lyr.GetName() or stem, xf=xf)
+                except Exception as exc:
+                    _cleanup(out_path)
+                    return {"ok": False, "error": {
+                        "title": "转换未完成",
+                        "hint": labels.friendly_error(exc)[:200]}}
+            elif fmt["key"] == "geoparquet":
+                # 本机的 GDAL 没有 Parquet 驱动，写出走 duckdb（见 geoparquet 模块）
+                out_ds = None
+                out_lyr = None
+                gpx_lyrs = {}
+                written = skipped = no_geom = dropped_fields = 0
+                try:
+                    written, dropped_fields = geoparquet.write(src_lyr, out_path, stem)
                 except Exception as exc:
                     _cleanup(out_path)
                     return {"ok": False, "error": {
@@ -360,6 +435,12 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                     if bounds:
                         layer_opts.append(bounds)   # MapInfo 默认 (-1000,-1000)-(1000,1000)，米制坐标会被写坏
                 ds_opts = ["GPX_USE_EXTENSIONS=YES"] if fmt["key"] == "gpx" else None
+                # 混合几何 + 只存一种几何的格式：按占多数的那种建图层，其余跳过
+                out_geom = src_lyr.GetGeomType()
+                if fmt["key"] in _SINGLE_GEOM and ogr.GT_Flatten(out_geom) == ogr.wkbUnknown:
+                    only_geom = _dominant_geom(src_lyr)
+                    if only_geom is not None:
+                        out_geom = only_geom
 
                 attempt = 0
                 while True:
@@ -374,7 +455,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                             raise RuntimeError("创建输出文件失败")
                         if fmt["key"] == "gpx":
                             written, skipped, no_geom, dropped_fields = _write_gpx(
-                                out_ds, src_lyr, src_defn, gpx_lyrs)
+                                out_ds, src_lyr, src_defn, gpx_lyrs, xf)
                             if not written:
                                 raise RuntimeError("GPX 放不下面与无几何要素，没有可写的要素")
                         else:
@@ -383,7 +464,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                                 kw["options"] = layer_opts
                             out_lyr = out_ds.CreateLayer(
                                 os.path.splitext(os.path.basename(out_path))[0],
-                                srs=src_lyr.GetSpatialRef(), geom_type=src_lyr.GetGeomType(), **kw)
+                                srs=out_srs, geom_type=out_geom, **kw)
                             if out_lyr is None:
                                 raise RuntimeError("驱动没有建出图层")
                             kept, dropped_fields = _copy_fields(src_defn, out_lyr, fmt)
@@ -396,8 +477,16 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                                 if fmt["key"] == "dxf" and feat.GetGeometryRef() is None:
                                     no_geom += 1   # DXF 必须有几何才写得出实体
                                     continue
+                                if only_geom is not None:
+                                    g = feat.GetGeometryRef()
+                                    if g is None:
+                                        no_geom += 1
+                                        continue
+                                    if ogr.GT_Flatten(g.GetGeometryType()) != only_geom:
+                                        skipped += 1
+                                        continue
                                 out_feat = ogr.Feature(out_defn)
-                                _copy_feature(feat, out_feat, kept)
+                                _copy_feature(feat, out_feat, kept, xf)
                                 out_lyr.CreateFeature(out_feat)
                                 written += 1
                             out_lyr.SyncToDisk()
@@ -427,7 +516,11 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
             out_ds = None
 
             if skipped:
-                if fmt["key"] == "topojson":
+                if only_geom is not None:
+                    warnings.append("这份数据含多种几何，%s 每个图层只能存一种，"
+                                    "已按占多数的%s写出，其余 %d 个要素跳过。"
+                                    % (fmt["label"], vector.geom_type_label(int(only_geom)), skipped))
+                elif fmt["key"] == "topojson":
                     warnings.append("已跳过 %d 个无几何要素（TopoJSON 要求要素带几何）。" % skipped)
                 else:
                     warnings.append("已跳过 %d 个面状要素（GPX 仅支持点与线）。" % skipped)
@@ -435,11 +528,17 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                 warnings.append("已跳过 %d 个无几何要素（%s 要求要素带几何）。" % (no_geom, fmt["label"]))
             if dropped_fields:
                 warnings.append("%d 个属性字段无法保存（%s 不支持）。" % (dropped_fields, fmt["label"]))
+            if xf is not None:
+                warnings.append("坐标已从 %s 重投影到 WGS 84。" % (before.get("crs") or "源坐标系"))
             if fmt["key"] == "csv":
                 _write_prj(out_path, src_lyr.GetSpatialRef())
 
             enc = dbfenc.detect(out_path) if fmt["key"] == "shp" else (
-                "UTF-8" if fmt["key"] in ("geojson", "gpkg", "gml", "kml", "fgb", "gpx", "topojson") else None)
+                "UTF-8" if fmt["key"] in ("geojson", "gpkg", "gml", "kml", "fgb", "gpx",
+                                          "topojson", "geoparquet") else None)
+            # 预检里"将要…"那两句，转换完已经有实际结果，留着就是同一件事说两遍
+            warnings = [w for w in warnings
+                        if "将按占多数的那种写出" not in w and "写入时将重投影到" not in w]
             after = _after_summary(out_path, enc, fmt["key"])
             if after is None:
                 return {"ok": False, "error": {"title": "输出文件读取失败",
@@ -466,6 +565,28 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
             }
         finally:
             ds = None
+
+
+def _dominant_geom(lyr):
+    """混合几何里占多数的那一种（扁平类型码）。
+
+    Shapefile、MapInfo TAB、DXF 一个图层只存得下一种几何，先看一眼再建图层，
+    总比建到一半被驱动拒掉、整份回滚好。抽样上限与信息栏统计一致。"""
+    counts = {}
+    lyr.ResetReading()
+    for _ in range(2000):
+        feat = lyr.GetNextFeature()
+        if feat is None:
+            break
+        geom = feat.GetGeometryRef()
+        if geom is None:
+            continue
+        code = ogr.GT_Flatten(geom.GetGeometryType())
+        counts[code] = counts.get(code, 0) + 1
+    lyr.ResetReading()
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda kv: kv[1])[0]
 
 
 def _extent_out_of_lonlat(lyr):
@@ -518,11 +639,14 @@ def _copy_fields(src_defn, out_lyr, fmt):
     return kept, dropped
 
 
-def _copy_feature(src_feat, out_feat, kept):
-    """几何照搬，属性按 kept 的 (源序号, 目标序号) 对拷。"""
+def _copy_feature(src_feat, out_feat, kept, xf=None):
+    """几何照搬（需要时先换算到 WGS 84），属性按 kept 的 (源序号, 目标序号) 对拷。"""
     geom = src_feat.GetGeometryRef()
     if geom is not None:
-        out_feat.SetGeometry(geom.Clone())
+        dup = geom.Clone()
+        if xf is not None:
+            dup.Transform(xf)
+        out_feat.SetGeometry(dup)
     for src_i, out_i in kept:
         if src_feat.IsFieldNull(src_i):
             out_feat.SetFieldNull(out_i)
@@ -534,12 +658,13 @@ def _copy_feature(src_feat, out_feat, kept):
                 out_feat.SetField(out_i, src_feat.GetField(src_i))
 
 
-def _write_gpx(out_ds, src_lyr, src_defn, gpx_lyrs):
+def _write_gpx(out_ds, src_lyr, src_defn, gpx_lyrs, xf=None):
     """GPX 按几何类型分流：点→waypoints，线→routes，多线→tracks。
 
     返回 (写出数, 面跳过数, 无几何跳过数, 丢失字段数)。"""
     written = skipped = no_geom = 0
     dropped_fields = 0
+    srs = _wgs84_srs() if xf is not None else src_lyr.GetSpatialRef()
     src_lyr.ResetReading()
     while True:
         feat = src_lyr.GetNextFeature()
@@ -555,8 +680,7 @@ def _write_gpx(out_ds, src_lyr, src_defn, gpx_lyrs):
             continue
         lkey, subs = plan
         if lkey not in gpx_lyrs:
-            lyr = out_ds.CreateLayer(lkey, srs=src_lyr.GetSpatialRef(),
-                                     geom_type=dict(_GPX_LAYERS)[lkey])
+            lyr = out_ds.CreateLayer(lkey, srs=srs, geom_type=dict(_GPX_LAYERS)[lkey])
             if lyr is None:
                 raise RuntimeError("GPX 建不出 %s 图层" % lkey)
             kept, dropped_fields = _copy_fields(src_defn, lyr, {"key": "gpx"})
@@ -566,7 +690,10 @@ def _write_gpx(out_ds, src_lyr, src_defn, gpx_lyrs):
         for g in subs:
             out_feat = ogr.Feature(out_defn)
             _copy_feature(feat, out_feat, kept)
-            out_feat.SetGeometry(g.Clone())
+            dup = g.Clone()
+            if xf is not None:
+                dup.Transform(xf)
+            out_feat.SetGeometry(dup)
             lyr.CreateFeature(out_feat)
             written += 1
     return written, skipped, no_geom, dropped_fields

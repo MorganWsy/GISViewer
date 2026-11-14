@@ -3036,6 +3036,17 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-color: transparent;
 }
 .upd-btn:hover { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+/* 更新提示不套方框：它是一件"要处理的事"，不是一个开着的面板。
+   悬停、按下、弹层打开都只改图标颜色，不加底色也不描边，外面只有那圈细环 */
+.upd-btn:hover,
+.upd-btn:active,
+.upd-btn.on,
+.upd-btn.on:hover {
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--accent);
+}
 .upd-btn svg { width: 22px; height: 22px; display: block; }
 .upd-btn .upd-arrow { animation: upd-drop 1.2s cubic-bezier(.35, 0, .25, 1) infinite; }
 @keyframes upd-drop {
@@ -3137,7 +3148,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   flex-direction: column;
   gap: 7px;
   padding: 7px 0 7px 9px;
-  overflow: auto;
+  overflow: hidden;     /* 滚动交给中间的 .cv-form，横向一律不出条 */
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3147,21 +3158,28 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 #convFilePick, #convDirPick { right: 3px; }
 /* 与体检浮层的文件夹图标同款：1251×1024 视图框按宽度给尺寸 */
 #convFilePick svg, #convDirPick svg { width: 17px; height: auto; }
-/* 标签 | 控件 | 标签 | 控件。源文件与输出目录跨后三列，长路径占满一行 */
+/* 标签在左、控件占满右侧一列。早先是"标签 控件 标签 控件"四列，
+   中间那个"转为"夹在两个控件之间，间距怎么调都不对，两个下拉还长短不一 */
 .cv-form {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 40px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: start;
   gap: 7px 8px;
   padding: 1px 9px 0 1px;
+  /* 内容长了只让表单这一段滚，底部那颗"开始转换"始终看得见。
+     滚动条落在控件右侧那 9px 内边距里，与浮层边框之间不留空 */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 .cv-lab {
+  padding-top: 4px;   /* 视觉上与 26px 高控件里的文字对齐 */
   font-size: 12px;
-  line-height: 16px;
+  line-height: 18px;
   color: var(--text-dim);
   white-space: nowrap;
 }
-.cv-span { grid-column: 2 / -1; }
 .cv-sel {
   width: 100%;
   min-width: 0;
@@ -3179,21 +3197,35 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
-/* 预检：格式的已知代价、这份数据的警告、源数据概况，各占一行小字 */
-.cv-note {
+/* controls.js 把原生 select 换成 combo，原控件退成藏起来的替身。
+   别让它吃到上面的 width:100%，否则 520 宽的浮层会被它顶出横向滚动条 */
+.cv-sel.combo-source { width: 1px; }
+/* 跟着某一项走的说明与结果，都落在控件正下方那一列里。
+   空着的时候整格不占位：否则每项都白多一行 7px 间距 */
+.cv-sub {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 1px 9px 0 1px;
-  font-size: 12px;
-  line-height: 17px;
+  gap: 3px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 19px;
   color: var(--text-dim);
+  overflow-wrap: anywhere;
 }
-.cv-note[hidden] { display: none; }
-/* 警告与错误两类行：预检区和结果区共用 */
-.cv-warn { color: var(--warn-ico); }
-.cv-err { color: #cf3b30; }
-:root[data-tone="dark"] .cv-err { color: #ef7f74; }
+.cv-sub:empty { display: none; }
+/* 警告与错误：与地图底栏同一套——一枚 13px 图标加一行字，不套底色 */
+.cv-msg { display: flex; align-items: flex-start; gap: 6px; }
+.cv-msg .mn-ico {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-top: 3px;
+  display: block;
+  fill: var(--warn-ico);
+}
+.cv-msg.cv-bad .mn-ico { fill: #cf3b30; }
+:root[data-tone="dark"] .cv-msg.cv-bad .mn-ico { fill: #ef7f74; }
 /* 开始转换靠右，不占满一行：左边留给"转换前概况"那类说明 */
 .cv-foot { display: flex; justify-content: flex-end; padding-right: 9px; }
 .cv-run {
@@ -3211,10 +3243,11 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-run:hover:not(:disabled) { filter: brightness(1.06); }
 .cv-run:disabled { opacity: 0.55; cursor: default; }
 /* 前后对比：一行一项，中间"转换前→转换后"，对不齐的用警告色点出来 */
-.cv-res { display: flex; flex-direction: column; gap: 4px; padding: 4px 9px 6px 2px; }
-.cv-res .cv-line { font-size: 12px; line-height: 17px; color: var(--text-dim); overflow-wrap: anywhere; }
-.cv-res .cv-line b { color: var(--text); font-weight: 700; }
-.cv-cmp { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 17px; }
+.cv-line { font-size: 13px; line-height: 19px; color: var(--text-dim); }
+/* 跟在图标行下面的一句：左边让出图标那 19px，读起来是同一段 */
+.cv-indent { padding-left: 19px; }
+.cv-line b { color: var(--text); font-weight: 700; }
+.cv-cmp { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 19px; }
 .cv-cmp th {
   text-align: left;
   font-weight: 600;
