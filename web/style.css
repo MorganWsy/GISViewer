@@ -3143,7 +3143,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   z-index: 55;
   width: 520px;
   max-width: calc(100vw - 24px);
-  max-height: min(72vh, 540px);
+  max-height: min(80vh, 560px);
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -3162,7 +3162,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
    中间那个"转为"夹在两个控件之间，间距怎么调都不对，两个下拉还长短不一 */
 .cv-form {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 62px minmax(0, 1fr);   /* 「文件名后缀」是 5 个字，56px 刚好贴边 */
   align-items: center;  /* 标签与右侧控件在同一行里上下居中，不再靠 padding-top 凑 */
   gap: 7px 4px;         /* 行距照旧；标签到控件的横向间距减到原来的一半 */
   padding: 1px 9px 0 1px;

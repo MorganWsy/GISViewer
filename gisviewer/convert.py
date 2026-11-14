@@ -355,7 +355,7 @@ def _gpx_target(geom):
     return None
 
 
-def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
+def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suffix=None):
     """把 src 的第 layer_index 个图层转成 fmt_key 指定的格式，写到 out_dir。
 
     dry=True 只做预检：给出现阶段算得出的代价与转换前的概况，不写任何文件。
@@ -404,8 +404,11 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
             warnings = _precheck(src_lyr, fmt)
 
             folder, stem = _source_base(src)
-            out_dir = str(out_dir or "").strip() or os.path.join(folder, stem + "_转出")
-            out_path = os.path.join(out_dir, stem + fmt["ext"])
+            # 输出名 = 源文件名 + 后缀（留空按 _转出），默认输出目录与输出文件同名
+            suffix = _clean_suffix(suffix)
+            base = stem + suffix
+            out_dir = str(out_dir or "").strip() or os.path.join(folder, base)
+            out_path = os.path.join(out_dir, base + fmt["ext"])
             # 混合几何 + 一个图层只放一种几何的格式：按类型各写一份文件，一条不丢
             out_geom = src_lyr.GetGeomType()
             groups = []
@@ -417,8 +420,9 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                 elif counted:
                     out_geom = counted[0][0]   # 只有一种，显式按它建图层，别让驱动去猜
             if groups:
+                # 后缀放在最后：vector_点_转出.shp，一批导出认得出来
                 targets = [(code, os.path.join(
-                    out_dir, "%s_%s%s" % (stem, _geom_suffix(code), fmt["ext"])))
+                    out_dir, "%s_%s%s%s" % (stem, _geom_suffix(code), suffix, fmt["ext"])))
                     for code, _n in groups]
             else:
                 targets = [(None, out_path)]
@@ -455,7 +459,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
                             "或先在其它软件中投影到 WGS 84。"}}
             if dry:
                 return {"ok": True, "warnings": warnings, "before": before,
-                        "format_note": fmt["note"], "dry": True}
+                        "out_path": out_path, "format_note": fmt["note"], "dry": True}
             os.makedirs(out_dir, exist_ok=True)
 
             if fmt["key"] == "topojson":
@@ -577,6 +581,16 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False):
             }
         finally:
             ds = None
+
+
+def _clean_suffix(text):
+    """输出文件名后缀：直接接在源文件名后面，留空按 _转出。
+
+    只去掉文件名里不能用的字符与首尾的空白、点，长度压到 20 个字——
+    后缀是给人认的记号，不是第二个文件名。"""
+    raw = str(text or "").strip()
+    cleaned = "".join(ch for ch in raw if ch not in '\\/:*?"<>|' and ord(ch) >= 32)
+    return cleaned.strip().strip(".")[:20] or "_转出"
 
 
 def _geom_groups(lyr):

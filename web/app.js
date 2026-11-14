@@ -2899,8 +2899,10 @@ async function inspectPath(path) {
     return;
   }
   current = { path, data };
-  /* 先挂遮罩再渲染：栅格是同步画完的，等渲染返回时完成事件早发过了 */
+  /* 地图换了数据，格式互转的输入文件跟着换（用户没手填过才跟） */
+  syncConvSource();
   const staged = !!data.ok && VEIL_KINDS.indexOf(data.kind) >= 0;
+  /* 先挂遮罩再渲染：栅格是同步画完的，等渲染返回时完成事件早发过了 */
   if (staged) holdVeil('正在画图层…');
   /* 大矢量走快速元数据：信息栏立刻立起来，地图等全量检查（带范围）到了再画 */
   const deferMap = !!data.ok && data.quick && data.kind === 'vector';
@@ -3990,6 +3992,7 @@ function runDiagnose() {
 let convFormats = null;   // [{key,label,note}]，问一次引擎就缓存
 let convDryTimer = 0;
 let convBusy = false;
+let convPathDirty = false;   // 用户在浮层里手填过输入文件：这时不再跟着地图走
 
 function convDefaultTarget() {
   const d = current && current.data;
@@ -3997,9 +4000,36 @@ function convDefaultTarget() {
   return (d && geomTypesTarget(d)) || (current && current.path) || '';
 }
 
+/* 输入文件给人看的是压缩包本身，包里的哪一份交给「待转图层」选。
+   引擎那边 .zip + 图层序号 与 /vsizip/包/成员 两条路都认 */
+function convDisplayPath(p) {
+  const s = String(p || '');
+  const i = s.toLowerCase().indexOf('.zip/');
+  return (i > 0 && s.toLowerCase().startsWith('/vsizip/')) ? s.slice(8, i + 4) : s;
+}
+
+/* 地图换了数据（开了新文件、改看压缩包里的另一个成员）就让输入文件跟过去。
+   用户正在浮层里手填时不抢——那条路径是他自己挑的 */
+function syncConvSource() {
+  const input = $('convPath');
+  if (!input || convPathDirty) return;
+  const cur = convDisplayPath(convDefaultTarget());
+  if (!cur || input.value === cur) return;
+  input.value = cur;
+  clearConvResult();
+  const pop = $('convPop');
+  if (pop && !pop.hidden) convLoadLayers(true);
+}
+
 function convTargetPath() {
   const input = $('convPath');
   return (input && input.value.trim()) || convDefaultTarget();
+}
+
+/* 文件名后缀：直接接在源文件名后面，留空由引擎按 _转出 处理 */
+function convSuffixValue() {
+  const box = $('convSuffix');
+  return (box && box.value.trim()) || '';
 }
 
 function convLayerIndex() {
@@ -4039,6 +4069,8 @@ function convStatusBox() { return $('convStatus'); }
 function clearConvStatus() {
   const box = convStatusBox();
   if (box) box.textContent = '';
+  const name = $('convNameHint');
+  if (name) name.textContent = '';
 }
 
 /* 错误：一句结论加一句该怎么办，都落在输出目录下方，不往标题旁边挤 */
@@ -4073,10 +4105,15 @@ function showConvPop() {
   pop.hidden = false;
   markBtn('convBtn', true);
   loadConvFormats();
+  // 输入文件默认跟地图走：手填过就尊重手填，没填过就同步成当前数据
   const input = $('convPath');
-  const cur = convDefaultTarget();
-  if (input && !input.value.trim() && cur) input.value = cur;
-  convLoadLayers();
+  if (input && !convPathDirty) {
+    const cur = convDisplayPath(convDefaultTarget());
+    if (cur) input.value = cur;
+  }
+  // 立刻预检（不等防抖）：概况行先用"正在读取源数据…"占住位置，
+  // 浮层不会先矮后高抖一下——它只在打开那一帧画一次
+  convLoadLayers(true);
 }
 
 function hideConvPop() {
@@ -4126,29 +4163,30 @@ function convLayerName(l, i) {
   return (l && (l.member || l.name)) || ('图层 ' + (i + 1));
 }
 
-/* 图层清单：源就是当前打开的这份就直接用内存里的；换了个路径再问引擎 */
-function convLoadLayers() {
+/* 图层清单：源就是当前打开的这份就直接用内存里的；换了个路径再问引擎。
+   immediate=true 表示这是刚打开浮层，预检不用等防抖（否则浮层会先矮后高抖一下） */
+function convLoadLayers(immediate) {
   const sel = $('convLayer');
   if (!sel) return;
   const path = convTargetPath();
   const cur = current || {};
   const layers = cur.data && cur.data.ok ? (cur.data.layers || []) : [];
   if (cur.path && samePath(path, cur.path) && layers.length) {
-    fillConvLayers(layers.map((l, i) => ({ index: i, name: convLayerName(l, i) })));
+    fillConvLayers(layers.map((l, i) => ({ index: i, name: convLayerName(l, i) })), immediate);
     return;
   }
-  if (!path) { fillConvLayers([]); return; }
+  if (!path) { fillConvLayers([], immediate); return; }
   fetch('/api/path', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, fast: true }),
   }).then((r) => r.json()).then((d) => {
     const list = (d && d.ok && d.layers) || [];
-    fillConvLayers(list.map((l, i) => ({ index: i, name: convLayerName(l, i) })));
-  }).catch(() => fillConvLayers([]));
+    fillConvLayers(list.map((l, i) => ({ index: i, name: convLayerName(l, i) })), immediate);
+  }).catch(() => fillConvLayers([], immediate));
 }
 
-function fillConvLayers(items) {
+function fillConvLayers(items, immediate) {
   const sel = $('convLayer');
   if (!sel) return;
   sel.textContent = '';
@@ -4165,7 +4203,12 @@ function fillConvLayers(items) {
     });
   }
   if (window.syncSelect) window.syncSelect(sel);
-  convScheduleDry();
+  if (immediate) {
+    clearTimeout(convDryTimer);
+    runConvDry();
+  } else {
+    convScheduleDry();
+  }
 }
 
 function convScheduleDry() {
@@ -4190,12 +4233,15 @@ function runConvDry() {
   if (note) note.textContent = (fmt && fmt.note) || '';
   sum.textContent = '';
   clearConvStatus();
-  if (!path) { sum.textContent = '尚未选择源文件。'; return; }
+  if (!path) { sum.textContent = '尚未选择输入文件。'; return; }
   sum.textContent = '正在读取源数据…';
   fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, layer: convLayerIndex(), fmt: fmtKey, dry: true }),
+    body: JSON.stringify({
+      path, layer: convLayerIndex(), fmt: fmtKey, dry: true,
+      suffix: convSuffixValue(),
+    }),
   }).then((r) => r.json()).then((d) => {
     if ($('convPop') && $('convPop').hidden) return;
     const box2 = convStatusBox();
@@ -4215,6 +4261,11 @@ function runConvDry() {
       b.geometry || '几何未知',
       b.crs || '坐标系未记录',
     ].join(' · ');
+    const nameHint = $('convNameHint');
+    if (nameHint) {
+      const name = String(d.out_path || '').split(/[\\/]/).pop();
+      nameHint.textContent = name ? '这次会写成 ' + name : '';
+    }
     (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
   }).catch(() => {
     const sum2 = $('convSrcSum');
@@ -4233,7 +4284,7 @@ function setConvBusy(on) {
 
 function runConv() {
   const path = convTargetPath();
-  if (!path) { convError('未填写源文件。', '请先选择要转换的文件。'); return; }
+  if (!path) { convError('未填写输入文件。', '请先选择要转换的文件。'); return; }
   const out = $('convOut');
   setConvBusy(true);
   fetch('/api/convert', {
@@ -4244,6 +4295,7 @@ function runConv() {
       layer: convLayerIndex(),
       fmt: convFmtKey(),
       out_dir: (out && out.value.trim()) || null,
+      suffix: convSuffixValue(),
     }),
   }).then((r) => r.json()).then((d) => {
     setConvBusy(false);
@@ -5311,6 +5363,10 @@ function init() {
   $('convPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); clearConvResult(); convLoadLayers(); }
   });
+  // 手改输入文件就不再跟地图走；清空后重新跟随
+  $('convPath').addEventListener('input', () => {
+    convPathDirty = !!$('convPath').value.trim();
+  });
   $('convPath').addEventListener('change', () => { clearConvResult(); convLoadLayers(); });
   $('convLayer').addEventListener('change', () => {
     if (window.syncSelect) window.syncSelect($('convLayer'));
@@ -5323,19 +5379,20 @@ function init() {
     clearConvResult();
     convScheduleDry();
   });
+  $('convSuffix').addEventListener('input', () => { clearConvResult(); convScheduleDry(); });
   $('convOut').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convRun').addEventListener('click', runConv);
   /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */
   const cvTip = $('cvTip');
   if (cvTip) {
     cvTip.setAttribute('data-tip', [
-      '格式互转把同一份数据换成另一种文件格式存放：',
-      '· 坐标系、几何与属性按原样保留，不做裁剪、合并或简化；',
-      '· KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，源数据是投影坐标时会换算成经纬度，并在结果里注明；',
-      '· 源文件可以直接填压缩包，包里有几份数据，「图层」里就列出几份；',
-      '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，混合几何会按点、线、面分开写成多个文件；',
-      '· 输出写入新目录（默认为源文件旁的「文件名_转出」），存在同名文件时不覆盖；',
-      '· 转换前给出该格式的已知代价，转换后逐项对比要素数、字段数、几何与坐标系。',
+      '格式互转把同一份数据换成另一种文件格式存放，不做裁剪、合并或简化。',
+      '· 输入文件可以直接填压缩包（.zip），包里有几份数据，「待转图层」就列出几份。',
+      '· 坐标系、几何与属性按原样保留；只有 KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，源数据是投影坐标时会换算成经纬度，并在结果里注明。',
+      '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，遇到点线面混在一起的数据，会按几何类型分开写成多个文件，要素一条不丢。',
+      '· 输出文件名＝源文件名＋后缀；后缀留空按「_转出」，可以填 _2024 这类自己认得的记号。',
+      '· 输出目录留空时，在源文件旁建一个与输出文件同名的文件夹；同名文件一律不覆盖。',
+      '· 转换前先给出该格式的已知代价与实测警告，转换后逐项对比要素数、字段数、几何类型与坐标系。',
     ].join('\n'));
     cvTip.innerHTML = HINT_ICO;
   }

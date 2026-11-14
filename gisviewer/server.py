@@ -766,7 +766,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, convert.convert(
                 body.get("path"), int(body.get("layer") or 0),
                 str(body.get("fmt") or "geojson"), body.get("out_dir"),
-                dry=bool(body.get("dry"))))
+                dry=bool(body.get("dry")), suffix=body.get("suffix")))
         if route == "/api/diagnose":
             return self._diagnose(self._json_body())
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})

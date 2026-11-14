@@ -459,6 +459,35 @@ def main(argv=None):
         need(cmp["要素数"]["same"], "要素数没对上：%s" % cmp["要素数"])
         need(cmp["几何类型"]["same"], "分开写出被当成了差异：%s" % cmp["几何类型"])
 
+    @check("convert 文件名后缀：留空按 _转出，填了接在源文件名后面")
+    def _(cli):
+        src = Path(tmp, "suffix-src.geojson")
+        src.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"name": "甲"},
+             "geometry": {"type": "Point", "coordinates": [116.0, 39.0]}},
+            {"type": "Feature", "properties": {"name": "乙"},
+             "geometry": {"type": "Point", "coordinates": [116.1, 39.1]}},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        out = Path(tmp, "suffix-out")
+        base = {"path": str(src), "layer": 0, "fmt": "geojson", "out_dir": str(out)}
+        status, data, _ = cli.post("/api/convert", dict(base))
+        need(status == 200 and data.get("ok"), "转换失败：%s" % data.get("error"))
+        need(Path(data["out_path"]).name == "suffix-src_转出.geojson",
+             "留空没按 _转出：%s" % data["out_path"])
+        status, data, _ = cli.post("/api/convert", dict(base, suffix="_2024"))
+        need(status == 200 and data.get("ok"), "带后缀转换失败：%s" % data.get("error"))
+        need(Path(data["out_path"]).name == "suffix-src_2024.geojson",
+             "后缀没接上去：%s" % data["out_path"])
+        # 预检要把最终文件名带回来，界面靠它显示"这次会写成 …"
+        status, data, _ = cli.post("/api/convert", dict(base, suffix="_甲", dry=True))
+        need(status == 200 and data.get("ok"), "预检失败：%s" % data.get("error"))
+        need(Path(data.get("out_path") or "").name == "suffix-src_甲.geojson",
+             "预检没给出最终文件名：%s" % data.get("out_path"))
+        # 文件名里不能用的字符要剔掉，而不是把路径写坏
+        status, data, _ = cli.post("/api/convert", dict(base, suffix=" a/b:c ", dry=True))
+        need(Path(data.get("out_path") or "").name == "suffix-srcabc.geojson",
+             "非法字符没剔干净：%s" % data.get("out_path"))
+
     @check("convert 源文件是 .zip 时按包内成员转换")
     def _(cli):
         import zipfile
