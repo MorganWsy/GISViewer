@@ -430,8 +430,10 @@ function tipInBubble(node) {
 
 document.addEventListener('pointermove', (e) => {
   tipPointer = { x: e.clientX, y: e.clientY };
+  /* 指针在气泡里：选字要能拖动（拖动时 e.buttons 为真）、链接要能点，
+     所以这一分支必须排在"拖动中一律收起"前面——排在后面，一按下去就没了 */
+  if (tipInBubble(e.target)) { clearTimeout(tipState.timer); tipState.timer = 0; return; }
   if (e.buttons || tipPressed) { hideTipBox(); return; }   // 拖动中
-  if (tipInBubble(e.target)) { clearTimeout(tipState.timer); tipState.timer = 0; return; }   // 移到气泡上：留着，里面的字要能选
   const t = tipAnchorOf(e.target);
   if (t) {
     if (t !== tipState.anchor) showTipBox(t, t.getAttribute('data-tip'));
@@ -3984,8 +3986,8 @@ function runDiagnose() {
   }).catch(() => setHint('诊断包未能生成，请稍后重试'));
 }
 
-/* ---------- 格式互转浮层 ----------
-   源文件、图层、目标格式、输出目录四件事都在一块浮层里。
+/* ---------- 矢量格式互转浮层 ----------
+   输入文件、待转图层、输出格式、文件后缀、输出目录五件事都在一块浮层里。
    转换前先跑一遍预检（dry）：给格式的已知代价、这份数据的警告、转换前概况；
    转换后给出要素数、字段数、几何、坐标系的前后对比。 */
 
@@ -4026,7 +4028,7 @@ function convTargetPath() {
   return (input && input.value.trim()) || convDefaultTarget();
 }
 
-/* 文件名后缀：直接接在源文件名后面，留空由引擎按 _转出 处理 */
+/* 文件后缀：直接接在输入文件名后面，留空由引擎按 _转出 处理 */
 function convSuffixValue() {
   const box = $('convSuffix');
   return (box && box.value.trim()) || '';
@@ -4069,8 +4071,8 @@ function convStatusBox() { return $('convStatus'); }
 function clearConvStatus() {
   const box = convStatusBox();
   if (box) box.textContent = '';
-  const name = $('convNameHint');
-  if (name) name.textContent = '';
+  const out = $('convOutHint');
+  if (out) out.textContent = '';
 }
 
 /* 错误：一句结论加一句该怎么办，都落在输出目录下方，不往标题旁边挤 */
@@ -4111,7 +4113,7 @@ function showConvPop() {
     const cur = convDisplayPath(convDefaultTarget());
     if (cur) input.value = cur;
   }
-  // 立刻预检（不等防抖）：概况行先用"正在读取源数据…"占住位置，
+  // 立刻预检（不等防抖）：概况行先用"正在读取数据…"占住位置，
   // 浮层不会先矮后高抖一下——它只在打开那一帧画一次
   convLoadLayers(true);
 }
@@ -4216,12 +4218,12 @@ function convScheduleDry() {
   convDryTimer = setTimeout(runConvDry, 250);
 }
 
-/* 换了源文件、图层、格式或输出目录，上一次的结果就不再对应当前设置，先收起来 */
+/* 换了输入文件、图层、格式、后缀或输出目录，上一次的结果就对不上当前设置，先收起来 */
 function clearConvResult() {
   clearConvStatus();
 }
 
-/* 预检：源数据概况跟着源文件，格式说明跟着格式，警告落在输出目录下方 */
+/* 预检：数据概况跟着输入文件，格式说明跟着输出格式，落点路径与警告跟着输出目录 */
 function runConvDry() {
   const sum = $('convSrcSum');
   const box = convStatusBox();
@@ -4234,7 +4236,7 @@ function runConvDry() {
   sum.textContent = '';
   clearConvStatus();
   if (!path) { sum.textContent = '尚未选择输入文件。'; return; }
-  sum.textContent = '正在读取源数据…';
+  sum.textContent = '正在读取数据…';
   fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -4261,16 +4263,14 @@ function runConvDry() {
       b.geometry || '几何未知',
       b.crs || '坐标系未记录',
     ].join(' · ');
-    const nameHint = $('convNameHint');
-    if (nameHint) {
-      const name = String(d.out_path || '').split(/[\\/]/).pop();
-      nameHint.textContent = name ? '这次会写成 ' + name : '';
-    }
+    // 落点直接给完整路径：跟输出目录同一格，不再另起一句"这次会写成…"
+    const outHint = $('convOutHint');
+    if (outHint) outHint.textContent = d.out_path || '';
     (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
   }).catch(() => {
     const sum2 = $('convSrcSum');
     if (sum2) sum2.textContent = '';
-    convError('预检未完成。', '请关闭浮层后重试。');
+    convError('预检没能完成。', '请确认引擎在运行，然后重试。');
   });
 }
 
@@ -5386,12 +5386,12 @@ function init() {
   const cvTip = $('cvTip');
   if (cvTip) {
     cvTip.setAttribute('data-tip', [
-      '格式互转把同一份数据换成另一种文件格式存放，不做裁剪、合并或简化。',
+      '矢量格式互转把点线面这类数据换成另一种文件格式存放，不做裁剪、合并或简化。',
+      '· 只处理矢量数据；影像、DEM 这类栅格不在其中。',
       '· 输入文件可以直接填压缩包（.zip），包里有几份数据，「待转图层」就列出几份。',
-      '· 坐标系、几何与属性按原样保留；只有 KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，源数据是投影坐标时会换算成经纬度，并在结果里注明。',
+      '· 坐标系、几何与属性按原样保留；只有 KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，输入文件是投影坐标时会换算成经纬度，并在结果里注明。',
       '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，遇到点线面混在一起的数据，会按几何类型分开写成多个文件，要素一条不丢。',
-      '· 输出文件名＝源文件名＋后缀；后缀留空按「_转出」，可以填 _2024 这类自己认得的记号。',
-      '· 输出目录留空时，在源文件旁建一个与输出文件同名的文件夹；同名文件一律不覆盖。',
+      '· 输出目录留空时，在输入文件旁建一个与输出文件同名的文件夹；同名文件一律不覆盖。',
       '· 转换前先给出该格式的已知代价与实测警告，转换后逐项对比要素数、字段数、几何类型与坐标系。',
     ].join('\n'));
     cvTip.innerHTML = HINT_ICO;

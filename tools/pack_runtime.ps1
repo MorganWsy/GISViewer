@@ -17,6 +17,9 @@ $excludeDir = @(
   # tkinter 只有另装界面才用得上
   'Lib\site-packages\pyogrio',
   'Lib\site-packages\pyogrio-0.11.0.dist-info',
+  # osgeo_utils 是 GDAL 的命令行小工具，snuggs 只有 rasterio 的表达式解析才用
+  'Lib\site-packages\osgeo_utils', 'Lib\site-packages\snuggs',
+  'Lib\site-packages\snuggs-1.4.7.dist-info',
   'Lib\ensurepip', 'Lib\tkinter',
   # Perl / CGI 的零碎
   'Library\mod', 'Library\libexec', 'Library\perl_licenses',
@@ -32,7 +35,12 @@ $excludeDir = @(
 # 静态链接库和头文件；注意 gdalplugins 要留着，格式驱动插件都在里面
 # 调试符号占 52 MB（libcrypto 24.5、python312 17、libssl 5.7、openssl 3.8），运行时不读；
 # tcl/tk 的两个 dll 与 _tkinter 一起删，tkinter 目录已经不带了
-$excludeFile = @('*.lib', '*.a', '*.exp', '*.pdb', '_tkinter.pyd', 'tcl86t.dll', 'tk86t.dll')
+# icu*（不带 78 的旧版）是 spatialite 那一代用的，78 系列不能动：
+# 把 icudt78/icuuc78/icuin78 一起删掉，连 _gdal 都加载不起来（实测）
+# perl* 全是 conda 带的 Perl 运行时，本软件不跑 Perl
+$excludeFile = @('*.lib', '*.a', '*.exp', '*.pdb', '_tkinter.pyd', 'tcl86t.dll', 'tk86t.dll',
+                 'icudt.dll', 'icuin.dll', 'icuio.dll', 'icutest.dll', 'icutu.dll', 'icuuc.dll',
+                 'perl*')
 if ($Full) { $excludeDir = @(); $excludeFile = @() }
 
 if (Test-Path $Dst) { Remove-Item $Dst -Recurse -Force }
@@ -48,6 +56,11 @@ if ($code -ge 8) { throw "robocopy 失败，退出码 $code" }
 
 # 缓存和字节码不带，首启动反而更快也更小
 Get-ChildItem -Path $Dst -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
+
+# Library\bin 里 190 个命令行工具（gdal_translate、ogr2ogr、projinfo、sqlite3…）合 24 MB，
+# 全项目只用到 dwg2dxf 一个（gisviewer/dwg.py 转 DWG 用），其余清掉
+Get-ChildItem (Join-Path $Dst 'Library\bin') -Filter '*.exe' |
+  Where-Object { $_.Name -ne 'dwg2dxf.exe' } | Remove-Item -Force
 
 # Library\lib 里除了 gdalplugins 全是 Perl 的 .pm/.pod（82 个子目录、约 21 MB）。
 # gdalplugins 里是 HDF4/HDF5/netCDF 这几个格式驱动，删了 netCDF、HDF 就打不开了——

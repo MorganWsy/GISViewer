@@ -1491,8 +1491,12 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
-  /* 鼠标能进到气泡里：不这样的话里面的文字选不中，链接也点不了 */
+  /* 鼠标能进到气泡里：不这样的话里面的文字选不中，链接也点不了。
+     文字要能拖选复制：顶栏整块是 user-select:none，气泡挂在 body 上虽不受它管，
+     但显式写一次，免得以后被别的规则带走 */
   pointer-events: auto;
+  user-select: text;
+  cursor: text;
 }
 
 /* 指向锚点的小箭头：双层实心三角（外层描边色、内层面板色），四方向同一套写法。
@@ -3222,6 +3226,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .cv-sub:empty { display: none; }
+/* 落点路径那一行先占住位置：预检回来才填路径，空着会顶得浮层往上长一截 */
+#convOutHint, #convOutHint:empty { display: flex; min-height: 19px; }
 /* 警告与错误：与地图底栏同一套——一枚 13px 图标加一行字，不套底色 */
 .cv-msg { display: flex; align-items: flex-start; gap: 6px; }
 .cv-msg .mn-ico {

@@ -513,6 +513,17 @@ def main(argv=None):
         need("/vsizip" not in (data.get("out_path") or ""), "输出落进了包内的虚拟路径")
         need(data["after"]["feature_count"] == 2, "要素数不对：%s" % data["after"])
 
+    @check("convert 栅格文件要明说不能互转")
+    def _(cli):
+        status, data, _ = cli.post("/api/convert", {
+            "path": str(tif), "layer": 0, "fmt": "shp",
+            "out_dir": str(Path(tmp, "ras-out")), "dry": True})
+        # 以前这里抛异常回 500，界面只能显示"预检未完成"，看不出是栅格
+        need(status == 200, "接口回了 %s，异常没被吃掉" % status)
+        need(not data.get("ok"), "栅格竟然通过了预检")
+        err = data.get("error") or {}
+        need("栅格" in err.get("title", ""), "没说清是栅格：%s" % err)
+
     try:
         wait_ready(base)
         c = Client(base)

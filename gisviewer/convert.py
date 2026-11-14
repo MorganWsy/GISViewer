@@ -33,7 +33,7 @@ FORMATS = [
     {"key": "gpkg", "label": "GeoPackage", "ext": ".gpkg", "driver": "GPKG",
      "note": "单文件可容纳多个图层，字段名不限长。"},
     {"key": "kml", "label": "KML", "ext": ".kml", "driver": "KML",
-     "note": "Google Earth 通用格式；按规范只收 WGS 84 经纬度，源数据是投影坐标时会自动换算成经纬度。"},
+     "note": "Google Earth 通用格式；按规范只收 WGS 84 经纬度，输入文件是投影坐标时会自动换算成经纬度。"},
     {"key": "gml", "label": "GML", "ext": ".gml", "driver": "GML",
      "note": "OGC 通用交换格式，同目录另存 .xsd 结构文件。"},
     {"key": "csv", "label": "CSV", "ext": ".csv", "driver": "CSV", "note": ""},
@@ -334,7 +334,7 @@ def _precheck(src_lyr, fmt):
         out.append("%s 每个图层只能存一种几何，这份数据含多种几何，"
                    "将按几何类型分开写出成多个文件。" % fmt["label"])
     if fmt["key"] in _WGS84_ONLY and not _srs_is_wgs84(src_lyr.GetSpatialRef()):
-        out.append("源坐标系为 %s，写入时将重投影到 WGS 84（该格式按规范只收经纬度）。"
+        out.append("输入文件的坐标系是 %s，写入时将重投影到 WGS 84（该格式按规范只收经纬度）。"
                    % (_srs_label(src_lyr.GetSpatialRef()) or "未记录"))
     return out
 
@@ -367,7 +367,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                                        "hint": "请从列表中选择一种格式。"}}
     src = str(src or "").strip()
     if not src:
-        return {"ok": False, "error": {"title": "未填写源文件",
+        return {"ok": False, "error": {"title": "未填写输入文件",
                                        "hint": "请先选择要转换的文件。"}}
 
     # 源文件是压缩包：包里的每个数据成员就是"图层"下拉里的那一项，
@@ -390,10 +390,13 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
         src = "/vsizip/%s/%s" % (src, member)
 
     with vector._READ_LOCK:
-        ds = vector._open_vector(src)
+        try:
+            ds = vector._open_vector(src)
+        except Exception as exc:
+            return _not_vector(src, exc)
         if ds is None:
-            return {"ok": False, "error": {"title": "无法读取矢量图层",
-                                           "hint": "格式互转仅支持矢量数据，例如 Shapefile、GeoJSON、GeoPackage。"}}
+            return {"ok": False, "error": {"title": "无法读取这个文件",
+                                           "hint": "矢量格式互转只处理点线面这类矢量数据。"}}
         try:
             total = ds.GetLayerCount()
             if layer_index < 0 or layer_index >= total:
@@ -408,6 +411,9 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             suffix = _clean_suffix(suffix)
             base = stem + suffix
             out_dir = str(out_dir or "").strip() or os.path.join(folder, base)
+            # 输入可能是 D:/data/x.shp 这种正斜杠写法，拼出来的目录会一半斜杠一半反斜杠，
+            # 预检里要原样显示完整路径，先归一成系统分隔符
+            out_dir = os.path.normpath(out_dir)
             out_path = os.path.join(out_dir, base + fmt["ext"])
             # 混合几何 + 一个图层只放一种几何的格式：按类型各写一份文件，一条不丢
             out_geom = src_lyr.GetGeomType()
@@ -581,6 +587,27 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             }
         finally:
             ds = None
+
+
+def _not_vector(src, exc):
+    """打开失败时先分清"这份数据是栅格"还是"矢量这边出了问题"。
+
+    用户拿一张 tif 点进来，最该说的是"这里只换矢量格式"，而不是把
+    GDAL 那句 not recognized 原样端上去。"""
+    raster = False
+    try:
+        ds = gdal.Open(src, gdal.GA_ReadOnly)
+        if ds is not None:
+            raster = ds.RasterCount > 0
+    except Exception:
+        raster = False
+    if raster:
+        return {"ok": False, "error": {
+            "title": "这是栅格数据，不能互转",
+            "hint": "矢量格式互转只处理 Shapefile、GeoJSON、GeoPackage 这类点线面数据；"
+                    "影像、DEM 这类栅格不在其中，直接查看或体检即可。"}}
+    return {"ok": False, "error": {"title": "无法读取这个文件",
+                                   "hint": labels.friendly_error(exc)[:200]}}
 
 
 def _clean_suffix(text):
