@@ -3273,9 +3273,16 @@ let metaCommitTimer = 0;
 
 function saveRecentMeta(map) {
   config.recent_meta = map;
-  // 补历史记录时一次会连着写好几条：攒 400 毫秒一起落盘，别一条一发请求
+  /* 只提这一项，不发整份 config：整份发的话，页面上任何临时改动（比如调试时把密钥
+     置空）都会被顺手写进配置文件。攒 400 毫秒，补历史记录时不会一条一发 */
   clearTimeout(metaCommitTimer);
-  metaCommitTimer = setTimeout(commitConfig, 400);
+  metaCommitTimer = setTimeout(() => {
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recent_meta: config.recent_meta }),
+    }).catch(() => { /* 记不上不影响打开文件 */ });
+  }, 400);
 }
 
 /* 打开成功后顺手记一条：形态、格式、大小。只记还在"最近打开"清单里的那些，
@@ -4347,6 +4354,9 @@ function hideConvPop() {
   const pop = $('convPop');
   if (pop) pop.hidden = true;
   markBtn('convBtn', false);
+  /* 关掉浮层就把"手填过"的标记清掉：不然用户在浮层里改过一次路径，
+     之后开任何文件它都不再跟着地图走了，直到重启 */
+  convPathDirty = false;
 }
 
 function toggleConvPop() {
@@ -5579,6 +5589,9 @@ function init() {
   });
   $('cfgClose').addEventListener('click', () => {
     settleHotkey();
+    // 关面板前先落一次盘：密钥这类输入靠 change（失焦）保存，关得太快会丢
+    clearTimeout(keySaveTimer);
+    applySettings();
     $('settings').hidden = true;
     resetSetPos();   // 下次打开还是居中，不会停在上一回拖到的角落
     markBtn('settingsBtn', false);
@@ -5697,6 +5710,13 @@ function init() {
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
     if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
     node.addEventListener('change', applySettings);
+  });
+  /* 密钥这类长文本只靠 change（失焦）会丢：打完直接按 Esc 或点右上角关闭，
+     焦点还没离开输入框，值就没落盘。改成边打边存，离开输入框再补一次 */
+  let keySaveTimer = 0;
+  $('cfgKey').addEventListener('input', () => {
+    clearTimeout(keySaveTimer);
+    keySaveTimer = setTimeout(applySettings, 500);
   });
   /* 关闭按钮行为是两态开关，不是下拉：点哪边就是哪边，点完立刻生效 */
   $('cfgCloseAct').addEventListener('click', (e) => {

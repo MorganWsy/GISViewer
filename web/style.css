@@ -252,7 +252,8 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 
 .path-form .btn { height: 30px; padding: 0 13px; font-size: 13px; border-radius: 5px; }
-/* "查看"并入输入框：绝对定位到右侧内缘，底色透明、只有图标，悬停才出现浅底 */
+/* "查看"并入输入框：绝对定位到右侧内缘。底色常驻——透明图标看着像装饰，
+   用户不知道该点；又不做悬停变化，避免悬停时整块闪一下 */
 .path-form .btn.ico-btn-only {
   position: absolute;
   right: 2px;
@@ -264,12 +265,12 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
-  background: transparent;
+  color: var(--text);
+  background: var(--line-soft);
   border: 0;
   border-radius: 4px;
 }
-.path-form .btn.ico-btn-only:hover { color: var(--text); background: var(--line-soft); }
+.path-form .btn.ico-btn-only:hover { filter: none; }
 .path-form .btn.ico-btn-only:active { background: var(--line); }
 .path-form .btn.ico-btn-only svg { width: 17px; height: 17px; display: block; }
 
