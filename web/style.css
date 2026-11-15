@@ -2388,7 +2388,18 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .recent-pop .rp-item:hover .rp-ico { color: var(--accent); }
 /* 名称一行：左边文件名（放不下中段省略），右边格式与大小，两侧不留多余空隙 */
 .recent-pop .rp-name-row { display: flex; align-items: baseline; gap: 8px; }
-.recent-pop .rp-meta { flex: none; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+/* 格式与大小做成右侧胶囊：跟文件名分开，长名字截断时它不会跟着挤 */
+.recent-pop .rp-meta {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-dim);
+  background: var(--panel-alt);
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.recent-pop .rp-item:hover .rp-meta { background: var(--panel); }
 .recent-pop .rp-item:hover { background: var(--accent-soft); }
 .recent-pop .rp-name {
   min-width: 0;
@@ -3207,6 +3218,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   color: var(--text-dim);
   white-space: nowrap;
 }
+/* 必填项的星标：跟在标签后面，红一点但不抢眼 */
+.cv-req { margin-left: 2px; font-style: normal; color: #cf3b30; }
+:root[data-tone="dark"] .cv-req { color: #ef8b80; }
 .cv-sel {
   width: 100%;
   min-width: 0;
@@ -3252,6 +3266,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-sub:empty { display: none; }
 /* 落点路径那一行先占住位置：预检回来才填路径，空着会顶得浮层往上长一截 */
 #convOutHint, #convOutHint:empty { display: flex; min-height: 19px; }
+/* 状态区通栏：从标签列一直排到右边，块与输入框之间不再空出左侧那 62px */
+#convStatus { grid-column: 1 / -1; margin-top: 1px; }
 /* 警告与错误：一条一块。浅底 + 左侧 3px 竖条把这段从正文里拎出来，
    错误与提示靠竖条和底色区分；图标 15px，与标题首行垂直居中（行高 19 → 上边 2px） */
 .cv-msg {
@@ -3280,7 +3296,25 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-msg-t { font-weight: 600; line-height: 19px; }
 .cv-msg-d { margin-top: 2px; line-height: 19px; color: var(--text-dim); overflow-wrap: anywhere; }
 /* 开始转换靠右，不占满一行：左边留给"转换前概况"那类说明 */
-.cv-foot { display: flex; justify-content: flex-end; padding-right: 9px; }
+.cv-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 9px 0 2px;
+}
+/* 允许覆盖：小字加一枚原生勾选框，靠左放，别和主按钮抢位置 */
+.cv-over {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.cv-over input { width: 14px; height: 14px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.cv-over:hover { color: var(--text); }
 .cv-run {
   height: 26px;
   padding: 0 14px;

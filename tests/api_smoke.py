@@ -513,6 +513,31 @@ def main(argv=None):
         need("/vsizip" not in (data.get("out_path") or ""), "输出落进了包内的虚拟路径")
         need(data["after"]["feature_count"] == 2, "要素数不对：%s" % data["after"])
 
+    @check("convert 同名文件默认拒绝，勾了覆盖才重写")
+    def _(cli):
+        src = Path(tmp, "over-src.geojson")
+        src.write_text(json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"name": "甲"},
+             "geometry": {"type": "Point", "coordinates": [116.0, 39.0]}}]},
+            ensure_ascii=False), encoding="utf-8")
+        out = Path(tmp, "over-out")
+        body = {"path": str(src), "layer": 0, "fmt": "shp", "out_dir": str(out)}
+        status, data, _ = cli.post("/api/convert", dict(body))
+        need(status == 200 and data.get("ok"), "第一次转换失败：%s" % data.get("error"))
+        target = Path(data["out_path"])
+        keep = target.read_bytes()
+        status, data, _ = cli.post("/api/convert", dict(body))
+        need(not data.get("ok"), "同名文件没被拦住")
+        need("同名" in (data.get("error") or {}).get("title", ""), "没说清是同名：%s" % data.get("error"))
+        need(target.read_bytes() == keep, "拒绝之后文件反而被改了")
+        # 预检也要能看出"这次会覆盖"
+        status, data, _ = cli.post("/api/convert", dict(body, dry=True, overwrite=True))
+        need(data.get("ok"), "勾了覆盖预检还失败：%s" % data.get("error"))
+        need(any("覆盖" in w for w in data.get("warnings") or []), "没说会覆盖：%s" % data.get("warnings"))
+        status, data, _ = cli.post("/api/convert", dict(body, overwrite=True))
+        need(status == 200 and data.get("ok"), "勾了覆盖仍然失败：%s" % data.get("error"))
+        need(target.is_file(), "覆盖之后文件不见了")
+
     @check("convert 栅格文件要明说不能互转")
     def _(cli):
         status, data, _ = cli.post("/api/convert", {

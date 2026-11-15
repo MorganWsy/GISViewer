@@ -3187,31 +3187,85 @@ function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 /* 最近打开每条前面那枚小图标：按数据形态分。16px、单色描边，
    与顶栏那排图标同一套画法；形态看不清时退回"文件" */
 const RECENT_ICO = {
+  // 几何三类：直接用形状说话
   point: '<circle cx="6.4" cy="6.6" r="2.4"/><circle cx="17.4" cy="11.2" r="2.4"/><circle cx="8.2" cy="17.6" r="2.4"/>',
   line: '<path d="M3.6 17.4 9.2 7.6l4.4 5.4 6.4-9"/>',
   polygon: '<path d="M12 3.8 20 8.2v7.6L12 20.2 4 15.8V8.2z"/>',
-  // 点线面混在一起：三个形状挤进 16px 会糊成一点，改用"两层"表示一份数据里有多层
+  // 点线面混在一起：三个形状挤进 16px 会糊成一点，用"两层"表示一份数据里有多层
   mixed: '<path d="M12 3.4 21 8l-9 4.6L3 8z"/><path d="M3 13.4 12 18l9-4.6"/>',
-  raster: '<rect x="3.6" y="4.8" width="16.8" height="14.4" rx="1.6"/><path d="M4.4 16.2l4.4-4.2 3.6 3.2 3.2-2.6 4.4 3.8"/><circle cx="8.6" cy="9" r="1.3"/>',
-  archive: '<path d="M4.4 7.4h15.2v12.4H4.4z"/><path d="M4.4 7.4V4.2h15.2v3.2"/><path d="M10.2 11.4h3.6"/>',
-  table: '<rect x="3.6" y="4.8" width="16.8" height="14.4" rx="1.6"/><path d="M3.6 9.6h16.8M3.6 14.4h16.8M9.6 4.8v14.4"/>',
+  // 栅格：画框里一段山脊
+  raster: '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="1.6"/><path d="M4.2 16.4l4.6-4.4 3.6 3.2 3.2-2.6 4.6 3.8"/>',
+  // 数据库（GeoPackage / FileGDB / SQLite）：圆柱
+  db: '<ellipse cx="12" cy="6.6" rx="6.8" ry="2.6"/><path d="M5.2 6.6v10.8c0 1.44 3.04 2.6 6.8 2.6s6.8-1.16 6.8-2.6V6.6"/><path d="M5.2 12c0 1.44 3.04 2.6 6.8 2.6s6.8-1.16 6.8-2.6"/>',
+  // 压缩包：箱子 + 提手 + 中缝拉链
+  archive: '<path d="M4.4 7.6h15.2v12.4H4.4z"/><path d="M9.2 7.6V4.4h5.6v3.2"/><path d="M12 10.4v7.2"/>',
+  // 表格（CSV / XLSX）
+  table: '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="1.6"/><path d="M3.4 9.6h17.2M3.4 14.4h17.2M9.6 4.6v14.8"/>',
+  // KML / GPX：地球（这两个格式都是地球坐标系的东西）
+  globe: '<circle cx="12" cy="12" r="8.4"/><path d="M3.6 12h16.8"/><path d="M12 3.6c2.4 2.6 3.6 5.4 3.6 8.4S14.4 18 12 20.4C9.6 18 8.4 15.4 8.4 12S9.6 6.2 12 3.6z"/>',
+  // GeoJSON / GML / TopoJSON：尖括号，表示文本结构化数据
+  code: '<path d="M9 7.4 4.6 12 9 16.6"/><path d="M15 7.4 19.4 12 15 16.6"/>',
+  // DXF / DWG：三角板
+  cad: '<path d="M3.8 20.2 12 3.8l8.2 16.4z"/><path d="M8 13.4h8"/>',
+  // 兜底
   file: '<path d="M6.4 3.8h7l4.6 4.6v11.8H6.4z"/><path d="M13.4 3.8v4.6h4.6"/>',
 };
 
-const RECENT_META_KEY = 'gisviewer.recent_meta';
-
+/* 先按格式认（数据库、表格、地球、结构化文本、CAD），认不出来的再按几何认 */
 function recentIconKey(m) {
-  const kind = (m && m.kind) || '';
-  const fmt = (m && m.fmt) || '';
-  if (/表格|CSV|XLSX/i.test(fmt)) return 'table';
-  if (kind === 'raster') return 'raster';
+  if (!m) return 'file';
+  const kind = m.kind || '';
+  const fmt = m.fmt || '';
   if (kind === 'archive') return 'archive';
-  const g = (m && m.geom) || '';
+  // 驱动名有中文（文件地理数据库）也有英文，两套都得认
+  if (/Geodatabase|GeoPackage|SQLite|SpatiaLite|地理数据库|空间数据库/i.test(fmt)) return 'db';
+  if (/表格|CSV|XLSX/i.test(fmt)) return 'table';
+  if (/^KML|^GPX/i.test(fmt)) return 'globe';
+  if (/GeoJSON|GML|TopoJSON|JSON/i.test(fmt)) return 'code';
+  if (/^DXF|^DWG/i.test(fmt)) return 'cad';
+  if (kind === 'raster') return 'raster';
+  const g = (m.geom || '').toLowerCase();
   if (g.indexOf('point') === 0) return 'point';
   if (g.indexOf('line') === 0) return 'line';
   if (g.indexOf('polygon') === 0) return 'polygon';
   if (g === 'mixed' || g === 'geometrycollection') return 'mixed';
   return 'file';
+}
+
+const RECENT_META_KEY = 'gisviewer.recent_meta';
+
+let recentFilling = null;
+
+/* 加图标之前留下的老记录没有形态信息，图标会全变成"文件"：补问一次引擎，
+   问到的存进同一个表。只补看得见的几条，问过的记在 recentFilling 里不重复问 */
+function fillRecentMeta(paths) {
+  const map = recentMetaMap();
+  const missing = paths.filter((p) => !map[p]);
+  if (!missing.length) return;
+  if (!recentFilling) recentFilling = new Set();
+  missing.slice(0, 6).forEach((p) => {
+    if (recentFilling.has(p)) return;
+    recentFilling.add(p);
+    fetch('/api/path', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: p, fast: true }),
+    }).then((r) => r.json()).then((d) => {
+      if (!d || !d.ok) return;
+      const layer = (d.layers || [])[0] || {};
+      const m = recentMetaMap();
+      m[p] = {
+        kind: d.kind || '',
+        geom: String(layer.geometry_type || '').toLowerCase(),
+        fmt: d.driver_label || '',
+        size: (d.file && d.file.size_label) || '',
+      };
+      saveRecentMeta(m);
+      const pop = $('recentPop');
+      if (pop && !pop.hidden) renderRecent();
+    }).catch(() => { /* 补不上就退回默认图标 */ })
+      .finally(() => { recentFilling.delete(p); });
+  });
 }
 
 function recentMetaMap() {
@@ -3301,15 +3355,13 @@ function renderRecent() {
     ico.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + RECENT_ICO[recentIconKey(meta)] + '</svg>';
     item.appendChild(ico);
     const text = el('div', 'rp-text');
-    const nameRow = el('div', 'rp-name-row');
-    nameRow.appendChild(el('div', 'rp-name', baseName(p)));
+    text.appendChild(el('div', 'rp-name', baseName(p)));
+    text.appendChild(el('div', 'rp-path', p));
+    item.appendChild(text);
     // 压缩包没有驱动名，给个"压缩包"，不然只剩一个体积看不出是什么
     const fmtLabel = meta ? (meta.fmt || (meta.kind === 'archive' ? '压缩包' : '')) : '';
     const bits = meta ? [fmtLabel, meta.size].filter(Boolean) : [];
-    if (bits.length) nameRow.appendChild(el('div', 'rp-meta', bits.join(' · ')));
-    text.appendChild(nameRow);
-    text.appendChild(el('div', 'rp-path', p));
-    item.appendChild(text);
+    if (bits.length) item.appendChild(el('div', 'rp-meta', bits.join(' · ')));
     const del = el('button', 'rp-del');
     del.type = 'button';
     del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
@@ -3334,6 +3386,8 @@ function renderRecent() {
     });
     pop.appendChild(item);
   });
+  // 老记录没有形态信息时顺手补一次，图标才不会一片相同
+  fillRecentMeta(list);
 }
 
 function showRecent() {
@@ -4128,6 +4182,12 @@ function convSuffixValue() {
   return (box && box.value.trim()) || '';
 }
 
+/* 允许覆盖：勾上之后引擎先删旧的连伴生文件一起，再写新的 */
+function convOverwrite() {
+  const box = $('convOver');
+  return !!(box && box.checked);
+}
+
 function convLayerIndex() {
   const sel = $('convLayer');
   const v = sel && sel.value ? parseInt(sel.value, 10) : 0;
@@ -4214,6 +4274,7 @@ function showConvPop() {
   // 立刻预检（不等防抖）：概况行先用"正在读取数据…"占住位置，
   // 浮层不会先矮后高抖一下——它只在打开那一帧画一次
   convLoadLayers(true);
+  updateConvRun();
 }
 
 function hideConvPop() {
@@ -4316,9 +4377,10 @@ function convScheduleDry() {
   convDryTimer = setTimeout(runConvDry, 250);
 }
 
-/* 换了输入文件、图层、格式、后缀或输出目录，上一次的结果就对不上当前设置，先收起来 */
+/* 换了输入文件、图层、格式、后缀、覆盖开关或输出目录，上一次的结果就对不上当前设置 */
 function clearConvResult() {
   clearConvStatus();
+  updateConvRun();
 }
 
 /* 预检：数据概况跟着输入文件，格式说明跟着输出格式，落点路径与警告跟着输出目录 */
@@ -4340,7 +4402,7 @@ function runConvDry() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       path, layer: convLayerIndex(), fmt: fmtKey, dry: true,
-      suffix: convSuffixValue(),
+      suffix: convSuffixValue(), overwrite: convOverwrite(),
     }),
   }).then((r) => r.json()).then((d) => {
     if ($('convPop') && $('convPop').hidden) return;
@@ -4372,12 +4434,21 @@ function runConvDry() {
   });
 }
 
+/* 主按钮只有"输入文件填了"才亮：空着点它没有任何意义，置灰比点完弹一句提示好 */
+function updateConvRun() {
+  const btn = $('convRun');
+  if (!btn) return;
+  const ready = !!convTargetPath();
+  btn.disabled = convBusy || !ready;
+  if (ready) btn.removeAttribute('title');
+  else btn.setAttribute('title', '先选一个输入文件');
+}
+
 function setConvBusy(on) {
   convBusy = !!on;
   const mask = $('convBusy');
   if (mask) mask.hidden = !on;
-  const btn = $('convRun');
-  if (btn) btn.disabled = !!on;
+  updateConvRun();
 }
 
 function runConv() {
@@ -4394,6 +4465,7 @@ function runConv() {
       fmt: convFmtKey(),
       out_dir: (out && out.value.trim()) || null,
       suffix: convSuffixValue(),
+      overwrite: convOverwrite(),
     }),
   }).then((r) => r.json()).then((d) => {
     setConvBusy(false);
@@ -5464,6 +5536,7 @@ function init() {
   // 手改输入文件就不再跟地图走；清空后重新跟随
   $('convPath').addEventListener('input', () => {
     convPathDirty = !!$('convPath').value.trim();
+    updateConvRun();
   });
   $('convPath').addEventListener('change', () => { clearConvResult(); convLoadLayers(); });
   $('convLayer').addEventListener('change', () => {
@@ -5478,6 +5551,7 @@ function init() {
     convScheduleDry();
   });
   $('convSuffix').addEventListener('input', () => { clearConvResult(); convScheduleDry(); });
+  $('convOver').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convOut').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convRun').addEventListener('click', runConv);
   /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */

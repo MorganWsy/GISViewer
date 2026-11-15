@@ -355,7 +355,8 @@ def _gpx_target(geom):
     return None
 
 
-def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suffix=None):
+def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suffix=None,
+            overwrite=False):
     """把 src 的第 layer_index 个图层转成 fmt_key 指定的格式，写到 out_dir。
 
     dry=True 只做预检：给出现阶段算得出的代价与转换前的概况，不写任何文件。
@@ -434,11 +435,15 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             else:
                 targets = [(None, out_path)]
             for _code, tpath in targets:
-                if os.path.exists(tpath):
+                if not os.path.exists(tpath):
+                    continue
+                if not overwrite:
                     return {"ok": False, "error": {
                         "title": "输出位置已存在同名文件",
-                        "hint": "不会覆盖已有文件。请换一个「文件后缀」，或先移动 %s。"
-                                % os.path.basename(tpath)}}
+                        "hint": "不会覆盖已有文件。请换一个「文件后缀」，或先移动 %s，"
+                                "也可以勾上「允许覆盖同名文件」。" % os.path.basename(tpath)}}
+                warnings.append("同名文件已存在，按「允许覆盖」重写：%s"
+                                % os.path.basename(tpath))
 
             before = _layer_summary(src_lyr, src, dbfenc.detect(src))
             # 只收经纬度的格式：源数据是投影坐标就换算过去；没有坐标系记录的没法换
@@ -469,6 +474,10 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                 return {"ok": True, "warnings": warnings, "before": before,
                         "out_path": out_path, "format_note": fmt["note"], "dry": True}
             os.makedirs(out_dir, exist_ok=True)
+            if overwrite:
+                # 先把旧的连伴生文件一起清掉：shp 留着一个旧 .dbf，属性会和新几何对不上
+                for _c, tpath in targets:
+                    _cleanup(tpath)
 
             if fmt["key"] == "topojson":
                 # GDAL 的 TopoJSON 驱动只读，这一份自己写（见 topojson 模块）
