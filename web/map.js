@@ -101,6 +101,9 @@
   function fail(where, err) {
     const msg = err && err.message ? err.message : String(err);
     toast('地图显示失败', where + '：' + msg.slice(0, 180));
+    /* 界面上那层"正在画图层…"是等 gis:drawn 才收的；这里抛出异常就永远等不到，
+       让人对着转圈等到 30 秒超时。通知界面立刻收掉 */
+    if (typeof window.gisMapFail === 'function') window.gisMapFail();
   }
 
   function guard(where, fn) {
@@ -521,7 +524,29 @@
       : ' · 2%~98% 拉伸'));
   }
 
+  /* 范围自检：底图与地图都只认经纬度。数据标着 WGS 84、数值却是几百万米的投影坐标，
+     一路送到绘制层只会抛 "Invalid LngLat latitude value"，遮罩还挂着不收。
+     这里先看一眼范围，超出去就明确说清，不画。 */
+  function badLonLat(box) {
+    if (!box) return false;
+    const w = box[0], s = box[1], e = box[2], n = box[3];
+    return [w, s, e, n].some((v) => !isFinite(v)) ||
+      Math.abs(w) > 180.5 || Math.abs(e) > 180.5 ||
+      Math.abs(s) > 90.5 || Math.abs(n) > 90.5;
+  }
+
   function drawVector(t, keepView) {
+    if (badLonLat(t.wgs)) {
+      const b = t.wgs;
+      const worst = Math.max(Math.abs(b[1]), Math.abs(b[3]));
+      note('坐标超出经纬度范围，无法画到地图上；信息栏与属性表照常可用', 'warn');
+      toast('坐标超出经纬度范围，地图上画不出来',
+        '这份数据的纬度到了 ' + Math.round(worst) + '（正常在 ±90 以内），多半是投影坐标被写进了只收经纬度的格式。'
+        + '请先确认坐标系标注，或在其他软件里转换到 WGS 84 再打开。', 'warn');
+      setBaseHidden(true);
+      emit('gis:drawn', { kind: 'skip' });
+      return;
+    }
     /* 没有坐标系的图层（多为 CAD 图纸）也能看效果：引擎把原始坐标当作米
        临时摆到地图上，这里正常取数绘制；有经纬度范围就先框到范围
        （keepView：换底图后的补画不动视野，用户看哪儿就还在哪儿） */
@@ -862,7 +887,7 @@
     if (group) {
       /* 顺序有讲究：缩放、指北、复位这三个是固定控件，永远在；直方图和属性表跟着图层走，
          放在最下面。这样切换图层时上面的控件不会跟着上下跳 */
-      ['homeBtn', 'histBtn', 'attrBtn'].forEach((id) => {
+      ['homeBtn', 'baseBtn', 'histBtn', 'attrBtn'].forEach((id) => {
         const btn = document.getElementById(id);
         if (!btn) return;
         btn.className = 'maplibregl-ctrl-icon';
@@ -881,6 +906,9 @@
     tipOf(group && group.querySelector('.maplibregl-ctrl-zoom-in'), '放大：拉近一档');
     tipOf(group && group.querySelector('.maplibregl-ctrl-zoom-out'), '缩小：拉远一档');
     tipOf(document.getElementById('homeBtn'), '复位：回到初始视野');
+    tipOf(document.getElementById('baseBtn'), '底图：显示或隐藏在线底图');
+    // 上面那行 className 赋值会把按钮原有的 on 类冲掉，重新按 config 标一次
+    if (typeof window.updateBaseBtn === 'function') window.updateBaseBtn();
     tipOf(document.getElementById('histBtn'), '波段值分布');
     tipOf(document.getElementById('attrBtn'), '属性表');
     // 复位：回到"当前打开图层"的范围，不是全国视野。

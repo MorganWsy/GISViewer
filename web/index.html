@@ -115,16 +115,20 @@
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
       </div>
-      <!-- 预检出来的落点：完整路径一行写完，跟输出目录放在一处，不再另起一句"这次会写成…" -->
-      <div class="cv-sub" id="convOutHint"></div>
       <!-- 转换结果、警告与错误都落这一格，与地图底栏同一套图标加文字的写法 -->
       <div class="cv-sub" id="convStatus"></div>
     </div>
     <div class="cv-foot">
-      <label class="cv-over" data-tip="勾上之后，同名文件先删旧的再写；不勾就一律拒绝，不会动已有文件">
-        <input type="checkbox" id="convOver"><span>允许覆盖同名文件</span>
-      </label>
-      <button id="convRun" class="cv-run" type="button" disabled>开始转换</button>
+      <div class="cv-foot-row">
+        <label class="cv-over" data-tip="勾上之后，同名文件先删旧的再写；不勾就一律拒绝，不会动已有文件">
+          <input type="checkbox" id="convOver"><span>允许覆盖同名文件</span>
+        </label>
+        <span class="cv-run-wrap" id="convRunWrap" data-tip="先选一个输入文件再开始">
+          <button id="convRun" class="cv-run" type="button" disabled>开始转换</button>
+        </span>
+      </div>
+      <!-- 落点写成按钮下面的一行小字：输入框与按钮之间因此只隔一行行距 -->
+      <div class="cv-sub" id="convOutHint"></div>
     </div>
     <div class="cp-busy" id="convBusy" hidden>
       <span class="cp-spin"></span>
@@ -234,6 +238,7 @@
       <div class="map-tools">
         <button id="histBtn" class="map-fab" hidden data-tip="波段值分布" aria-label="波段值分布"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 19.2h16"/><rect x="5.4" y="11" width="3.1" height="6.2" rx="1"/><rect x="10.5" y="6.4" width="3.1" height="10.8" rx="1"/><rect x="15.6" y="13.6" width="3.1" height="3.6" rx="1"/></svg></button>
         <button id="attrBtn" class="map-fab" hidden data-tip="属性表" aria-label="属性表"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg></button>
+        <button id="baseBtn" class="map-fab" data-tip="底图：显示或隐藏在线底图" aria-label="底图：显示或隐藏在线底图" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4.6 3.4 6.9v12.5L9 17.1l6 2.3 5.6-2.3V4.6L15 6.9z"/><path d="M9 4.6v12.5M15 6.9v12.5"/></svg></button>
         <button id="homeBtn" class="map-fab" data-tip="复位：回到初始视野" aria-label="复位：回到初始视野"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.4 12 3.8l8 6.6"/><path d="M5.9 9.2V19a1.2 1.2 0 0 0 1.2 1.2h9.8a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M10 20.2v-4.8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.8"/></svg></button>
       </div>
       <div id="histPop" class="map-pop" hidden>

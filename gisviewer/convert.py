@@ -74,7 +74,9 @@ _GPX_LAYERS = (
 
 def formats():
     """给界面的格式清单（不带驱动名这种内部细节）。按字母顺序，下拉里好找。"""
-    rows = [{"key": f["key"], "label": f["label"], "note": f["note"]} for f in FORMATS]
+    # ext 给界面用：预检前先把"这次会写成什么"算出来，不必等引擎回话
+    rows = [{"key": f["key"], "label": f["label"], "note": f["note"], "ext": f["ext"]}
+            for f in FORMATS]
     return sorted(rows, key=lambda r: r["label"].lower())
 
 

@@ -3187,28 +3187,20 @@ function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 /* 最近打开每条前面那枚小图标：按数据形态分。16px、单色描边，
    与顶栏那排图标同一套画法；形态看不清时退回"文件" */
 const RECENT_ICO = {
-  // 几何三类：直接用形状说话
-  point: '<circle cx="6.4" cy="6.6" r="2.4"/><circle cx="17.4" cy="11.2" r="2.4"/><circle cx="8.2" cy="17.6" r="2.4"/>',
-  line: '<path d="M3.6 17.4 9.2 7.6l4.4 5.4 6.4-9"/>',
-  polygon: '<path d="M12 3.8 20 8.2v7.6L12 20.2 4 15.8V8.2z"/>',
-  // 点线面混在一起：三个形状挤进 16px 会糊成一点，用"两层"表示一份数据里有多层
-  mixed: '<path d="M12 3.4 21 8l-9 4.6L3 8z"/><path d="M3 13.4 12 18l9-4.6"/>',
-  // 栅格：画框里一段山脊
-  raster: '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="1.6"/><path d="M4.2 16.4l4.6-4.4 3.6 3.2 3.2-2.6 4.6 3.8"/>',
-  // 数据库（GeoPackage / FileGDB / SQLite）：圆柱
-  db: '<ellipse cx="12" cy="6.6" rx="6.8" ry="2.6"/><path d="M5.2 6.6v10.8c0 1.44 3.04 2.6 6.8 2.6s6.8-1.16 6.8-2.6V6.6"/><path d="M5.2 12c0 1.44 3.04 2.6 6.8 2.6s6.8-1.16 6.8-2.6"/>',
-  // 压缩包：箱子 + 提手 + 中缝拉链
-  archive: '<path d="M4.4 7.6h15.2v12.4H4.4z"/><path d="M9.2 7.6V4.4h5.6v3.2"/><path d="M12 10.4v7.2"/>',
-  // 表格（CSV / XLSX）
-  table: '<rect x="3.4" y="4.6" width="17.2" height="14.8" rx="1.6"/><path d="M3.4 9.6h17.2M3.4 14.4h17.2M9.6 4.6v14.8"/>',
-  // KML / GPX：地球（这两个格式都是地球坐标系的东西）
-  globe: '<circle cx="12" cy="12" r="8.4"/><path d="M3.6 12h16.8"/><path d="M12 3.6c2.4 2.6 3.6 5.4 3.6 8.4S14.4 18 12 20.4C9.6 18 8.4 15.4 8.4 12S9.6 6.2 12 3.6z"/>',
-  // GeoJSON / GML / TopoJSON：尖括号，表示文本结构化数据
-  code: '<path d="M9 7.4 4.6 12 9 16.6"/><path d="M15 7.4 19.4 12 15 16.6"/>',
-  // DXF / DWG：三角板
-  cad: '<path d="M3.8 20.2 12 3.8l8.2 16.4z"/><path d="M8 13.4h8"/>',
-  // 兜底
-  file: '<path d="M6.4 3.8h7l4.6 4.6v11.8H6.4z"/><path d="M13.4 3.8v4.6h4.6"/>',
+  /* 形状取自 Lucide（ISC 许可，可随软件分发），统一 24 格、描边绘制；
+     点、线、面三个保持同一笔粗细，缩到 18px 也分得清 */
+  point: '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="1.9"/>',
+  line: '<path d="M3.2 17.6 9.4 7l4.4 6 6.8-9.4"/>',
+  polygon: '<path d="M10.9 2.9a2 2 0 0 1 2.2 0l7.4 5.4a2 2 0 0 1 .7 1.9l-2.3 8.6a2 2 0 0 1-1.9 1.5H7a2 2 0 0 1-1.9-1.5L2.8 10.2a2 2 0 0 1 .7-1.9z"/>',
+  mixed: '<path d="M12.8 2.2a2 2 0 0 0-1.7 0L2.6 6.1a1 1 0 0 0 0 1.8l8.5 3.9a2 2 0 0 0 1.7 0l8.6-3.9a1 1 0 0 0 0-1.8z"/><path d="m22 12.2-9.2 4.2a2 2 0 0 1-1.7 0L2 12.2"/><path d="m22 17.2-9.2 4.2a2 2 0 0 1-1.7 0L2 17.2"/>',
+  raster: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.8" cy="8.8" r="1.8"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+  db: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>',
+  archive: '<path d="m7.5 4.3 9 5.2"/><path d="M21 8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M12 3v18"/>',
+  globe: '<circle cx="12" cy="12" r="9.4"/><path d="M12 2.6a14.5 14.5 0 0 0 0 18.8 14.5 14.5 0 0 0 0-18.8"/><path d="M2.6 12h18.8"/>',
+  code: '<path d="M8 3.2H7a2 2 0 0 0-2 2v4.3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4.3a2 2 0 0 0 2 2h1"/><path d="M16 20.8h1a2 2 0 0 0 2-2v-4.3a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5.2a2 2 0 0 0-2-2h-1"/>',
+  cad: '<path d="M13.7 4a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/>',
+  file: '<path d="M15 2.6H6.6a2 2 0 0 0-2 2v14.8a2 2 0 0 0 2 2h10.8a2 2 0 0 0 2-2V7.4z"/><path d="M14.4 2.6v4.8h5"/>',
 };
 
 /* 先按格式认（数据库、表格、地球、结构化文本、CAD），认不出来的再按几何认 */
@@ -3699,6 +3691,47 @@ const BM_NOTES = {
   amap: '高德影像不需要密钥；瓦片是 GCJ-02 基准，叠天地图注记会整体偏移，所以没有注记开关',
 };
 
+const BASE_MEM_KEY = 'gisviewer.basemap_mem';
+
+/* 底图开关按钮与设置页的"底图"是同一份配置：按钮关掉时记下原来那一份，
+   再点回来恢复它；设置页换底图，按钮的亮灭也跟着变。 */
+function basemapOn() { return String(config.basemap || '') !== 'none'; }
+
+function rememberedBasemap() {
+  let v = '';
+  try { v = localStorage.getItem(BASE_MEM_KEY) || ''; } catch (e) { v = ''; }
+  return v && v !== 'none' ? v : 'tianditu_img';
+}
+
+function updateBaseBtn() {
+  const btn = $('baseBtn');
+  if (!btn) return;
+  const on = basemapOn();
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const tip = on ? '底图：已显示，点一下隐藏' : '底图：已隐藏，点一下显示';
+  btn.setAttribute('data-tip', tip);
+  btn.setAttribute('aria-label', tip);
+}
+
+window.updateBaseBtn = updateBaseBtn;
+
+function toggleBasemap() {
+  if (basemapOn()) {
+    const cur = String(config.basemap || '');
+    try { if (cur && cur !== 'none') localStorage.setItem(BASE_MEM_KEY, cur); } catch (e) { /* 存不了就本次生效 */ }
+    config.basemap = 'none';
+  } else {
+    config.basemap = rememberedBasemap();
+  }
+  const sel = $('cfgBasemap');
+  if (sel) sel.value = config.basemap;   // 设置页跟着一起变
+  paintBasemapFields();
+  if (window.GisMap) GisMap.refresh(config);
+  updateBaseBtn();
+  commitConfig();
+}
+
 function paintBasemapFields() {
   const sel = $('cfgBasemap');
   const bm = String((sel && sel.value) || config.basemap || 'none');
@@ -4182,6 +4215,25 @@ function convSuffixValue() {
   return (box && box.value.trim()) || '';
 }
 
+/* 打开浮层时先按同一套规则把落点算出来填上：等预检回来再换成引擎给的值，
+   两次高度一样，浮层不会先矮后高。算不准（没有格式清单、路径是压缩包成员）就留空，
+   让预检那次去填——那种情况下宁可闪一下也不写错 */
+function convPredictPath() {
+  const path = convTargetPath();
+  const fmt = (convFormats || []).find((f) => f.key === convFmtKey());
+  if (!path || !fmt || !fmt.ext) return '';
+  const norm = path.replace(/\\/g, '/');
+  const slash = norm.lastIndexOf('/');
+  const dir = slash > 0 ? norm.slice(0, slash) : '';
+  let base = norm.slice(slash + 1);
+  const dot = base.lastIndexOf('.');
+  if (dot > 0) base = base.slice(0, dot);
+  const suffix = convSuffixValue() || '_转出';
+  const outDir = (($('convOut') && $('convOut').value.trim()) || dir).replace(/\//g, '\\');
+  if (!outDir || !base) return '';
+  return outDir.replace(/\\+$/, '') + '\\' + base + suffix + fmt.ext;
+}
+
 /* 允许覆盖：勾上之后引擎先删旧的连伴生文件一起，再写新的 */
 function convOverwrite() {
   const box = $('convOver');
@@ -4262,9 +4314,10 @@ function showConvPop() {
   hidePickPop();
   hideCheckPop();
   placeConvPop();
+  // 格式说明先画好再露出来：不然浮层先按"没有说明"的高度出现，紧接着长高两行
+  loadConvFormats();
   pop.hidden = false;
   markBtn('convBtn', true);
-  loadConvFormats();
   // 输入文件默认跟地图走：手填过就尊重手填，没填过就同步成当前数据
   const input = $('convPath');
   if (input && !convPathDirty) {
@@ -4275,6 +4328,9 @@ function showConvPop() {
   // 浮层不会先矮后高抖一下——它只在打开那一帧画一次
   convLoadLayers(true);
   updateConvRun();
+  const hint = $('convOutHint');
+  const guess = convPredictPath();
+  if (hint && guess) hint.textContent = guess;
 }
 
 function hideConvPop() {
@@ -4440,8 +4496,12 @@ function updateConvRun() {
   if (!btn) return;
   const ready = !!convTargetPath();
   btn.disabled = convBusy || !ready;
-  if (ready) btn.removeAttribute('title');
-  else btn.setAttribute('title', '先选一个输入文件');
+  // 气泡挂在外面那层 span 上：禁用的按钮收不到 hover，自己带 data-tip 也弹不出来
+  const wrap = $('convRunWrap');
+  if (wrap) {
+    if (ready) wrap.removeAttribute('data-tip');
+    else wrap.setAttribute('data-tip', '先选一个输入文件：输入文件是唯一的必填项');
+  }
 }
 
 function setConvBusy(on) {
@@ -5168,6 +5228,7 @@ async function applySettings() {
   if (current && current.data && current.data.ok) renderRail(current.data);
   if (attrOpen() && window.GisMap) refreshAttr(true);
   if (window.GisMap) GisMap.refresh(config);
+  updateBaseBtn();
   commitConfig();
   // 分级和上色是引擎算的，改完要把当前波段重算一遍，不能等用户重新拖文件
   if (raster) await refreshRasterView(before);
@@ -5666,6 +5727,7 @@ function init() {
     $('keyPeek').setAttribute('aria-label', peekTip);
     if (show) box.focus();
   });
+  $('baseBtn').addEventListener('click', toggleBasemap);
   $('histBtn').addEventListener('click', toggleHist);
   $('attrBtn').addEventListener('click', () => { attrAuto = false; toggleAttr(); });
   $('chipClose').addEventListener('click', () => { hideLayerPop(); closeLayer(); });
@@ -5837,6 +5899,9 @@ function init() {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (config.theme === 'auto') applyTheme('auto');
   });
+  /* 地图那边画崩了（坐标超范围之类）会走这里：立刻把"正在画图层…"收掉，
+     错误提示由地图自己弹，别让遮罩一直转 */
+  window.gisMapFail = () => { releaseVeil(); loadTip(false); };
 
   loadConfig().then(() => {
     if (window.GisMap) GisMap.init(config);
@@ -5864,6 +5929,8 @@ function init() {
       if (stageEl) ro.observe(stageEl);
       if (chipEl) ro.observe(chipEl);
     }
+    // 底图按钮的亮灭按 config.basemap 定：设置里选过"无底图"，这里一启动就是灭的
+    updateBaseBtn();
     toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
     toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
     toShell('ready');

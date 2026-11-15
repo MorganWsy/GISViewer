@@ -2379,10 +2379,10 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .recent-pop .rp-clear:hover { color: #fff; background: #d64545; border-color: #d64545; }
 .recent-pop .rp-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
 /* 每条前面那枚形态图标：16px，与两行文字整块垂直居中 */
-.recent-pop .rp-ico { flex: none; width: 16px; height: 16px; color: var(--text-dim); }
+.recent-pop .rp-ico { flex: none; width: 18px; height: 18px; color: var(--text-dim); }
 .recent-pop .rp-ico svg {
-  display: block; width: 16px; height: 16px;
-  fill: none; stroke: currentColor; stroke-width: 1.6;
+  display: block; width: 18px; height: 18px;
+  fill: none; stroke: currentColor; stroke-width: 1.75;
   stroke-linecap: round; stroke-linejoin: round;
 }
 .recent-pop .rp-item:hover .rp-ico { color: var(--accent); }
@@ -3213,7 +3213,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overscroll-behavior: contain;
 }
 .cv-lab {
-  font-size: 12px;
+  font-size: 13px;      /* 与输入框里的字同号，一行读下来不出现两种字号 */
   line-height: 18px;
   color: var(--text-dim);
   white-space: nowrap;
@@ -3264,8 +3264,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   overflow-wrap: anywhere;
 }
 .cv-sub:empty { display: none; }
-/* 落点路径那一行先占住位置：预检回来才填路径，空着会顶得浮层往上长一截 */
-#convOutHint, #convOutHint:empty { display: flex; min-height: 19px; }
+/* 落点路径（挪进页脚，见 .cv-foot）：打开时由前端先按规则算一遍填上
+   （见 convPredictPath），预检回来再换成引擎给的权威值，两次高度一样 */
 /* 状态区通栏：从标签列一直排到右边，块与输入框之间不再空出左侧那 62px */
 #convStatus { grid-column: 1 / -1; margin-top: 1px; }
 /* 警告与错误：一条一块。浅底 + 左侧 3px 竖条把这段从正文里拎出来，
@@ -3296,13 +3296,11 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-msg-t { font-weight: 600; line-height: 19px; }
 .cv-msg-d { margin-top: 2px; line-height: 19px; color: var(--text-dim); overflow-wrap: anywhere; }
 /* 开始转换靠右，不占满一行：左边留给"转换前概况"那类说明 */
-.cv-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 9px 0 2px;
-}
+.cv-foot { display: flex; flex-direction: column; gap: 3px; padding: 0 9px 0 2px; }
+.cv-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* 落点写在按钮右下方：贴右对齐，读起来像这颗按钮的附注 */
+#convOutHint { font-size: 12px; line-height: 16px; text-align: right; }
+#convOutHint:empty { display: none; }
 /* 允许覆盖：小字加一枚原生勾选框，靠左放，别和主按钮抢位置 */
 .cv-over {
   display: flex;
@@ -3313,8 +3311,37 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   cursor: pointer;
   user-select: none;
 }
-.cv-over input { width: 14px; height: 14px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.cv-over input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: none;
+  background: var(--panel);
+  border: 1.4px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color .12s, border-color .12s;
+}
+.cv-over input:hover { border-color: var(--text-dim); }
+.cv-over input:checked { background: var(--accent); border-color: var(--accent); }
+/* 对勾用两条边画，不用图标文件：14px 下 4×7 的笔画最干净 */
+.cv-over input:checked::after {
+  content: "";
+  position: absolute;
+  left: 3.6px;
+  top: 1.2px;
+  width: 4px;
+  height: 6.6px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
+}
+.cv-over input:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
 .cv-over:hover { color: var(--text); }
+.cv-run-wrap { display: inline-flex; }
 .cv-run {
   height: 26px;
   padding: 0 14px;
