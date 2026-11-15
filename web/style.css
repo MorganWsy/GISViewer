@@ -265,8 +265,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text);
-  background: var(--line-soft);
+  /* 底色用主色的淡版：中性灰在浅灰输入框里始终不够显眼，
+     主色淡底配主色图标才一眼看出这是"查看"这颗按钮 */
+  color: var(--accent);
+  background: var(--accent-soft);
   border: 0;
   border-radius: 4px;
 }
@@ -2171,12 +2173,32 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 .key-eye:hover { color: var(--text); background: var(--panel-alt); }
 .key-eye svg { width: 17px; height: 17px; }
+/* 密钥下方的状态行：绿勾=已保存、黄三角=格式不对。图标与文字首行对齐 */
+.key-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-dim);
+}
+.key-status[hidden] { display: none; }
+.key-status .ks-ico { flex: none; width: 14px; height: 14px; margin-top: 2px; fill: var(--text-dim); }
+.key-status.ok .ks-warn { display: none; }
+.key-status.warn .ks-check { display: none; }
+.key-status.ok { color: #2b8a52; }
+.key-status.ok .ks-ico { fill: #2b8a52; }
+.key-status.warn { color: var(--warn-ico); }
+.key-status.warn .ks-ico { fill: var(--warn-ico); }
+:root[data-tone="dark"] .key-status.ok { color: #6cc48d; }
+:root[data-tone="dark"] .key-status.ok .ks-ico { fill: #6cc48d; }
 /* 默认睁眼（点了就显示）；正显示密钥时换成划掉的眼，示意"再点就藏回去" */
 /* 眼睛图标跟"密钥现在是否露出来"一致：藏着时闭眼，点开才睁眼 */
-.key-eye .eye-show { display: none; }
-.key-eye .eye-hide { display: block; }
-.key-eye.peeking .eye-show { display: block; }
-.key-eye.peeking .eye-hide { display: none; }
+.key-eye .eye-show { display: block; }
+.key-eye .eye-hide { display: none; }
+.key-eye.peeking .eye-show { display: none; }
+.key-eye.peeking .eye-hide { display: block; }
 
 .loading { color: var(--text-dim); padding: 12px 0; }
 .side-note { font-size: 12px; color: var(--text-dim); }

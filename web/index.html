@@ -366,10 +366,17 @@
         <div class="key-row">
           <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
           <button id="keyPeek" class="key-eye" type="button" data-tip="显示密钥" aria-label="显示密钥">
-            <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/></svg>
-            <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.6 12s3.4-6.2 9.4-6.2S21.4 12 21.4 12s-3.4 6.2-9.4 6.2S2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.7"/><path d="M4.4 19.6 19.6 4.4"/></svg>
+            <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/><path d="m2.6 2.6 18.8 18.8"/></svg>
           </button>
         </div>
+        <p class="key-status" id="keyStatus" hidden>
+          <svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/>
+            <path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/>
+          </svg>
+          <span id="keyStatusText"></span>
+        </p>
       </div>
       </section>
 
@@ -550,6 +557,13 @@
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
         </div>
+        <p class="key-status" id="keyStatus" hidden>
+          <svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/>
+            <path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/>
+          </svg>
+          <span id="keyStatusText"></span>
+        </p>
       </div>
       </section>
 

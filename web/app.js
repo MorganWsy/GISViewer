@@ -3748,6 +3748,34 @@ function toggleBasemap() {
   commitConfig();
 }
 
+/* 天地图密钥是 32 位字母数字：格式不对先提醒，格式对且落盘了给一枚绿勾 */
+const TDT_KEY_RE = /^[A-Za-z0-9]{32}$/;
+
+let keyTouched = false;   // 用户手动动过密钥栏：只有这时才允许把空值写进配置
+
+function paintKeyStatus(kind, text) {
+  const box = $('keyStatus');
+  const label = $('keyStatusText');
+  if (!box || !label) return;
+  if (!kind) { box.hidden = true; return; }
+  box.hidden = false;
+  box.classList.toggle('ok', kind === 'ok');
+  box.classList.toggle('warn', kind !== 'ok');
+  label.textContent = text || '';
+}
+
+/* 保存结果的确认：面板开着就一直留着，关面板时收起。
+   限时消失会让人以为自己看漏了，反而要再试一次 */
+function flashKeySaved() {
+  const v = ($('cfgKey').value || '').trim();
+  if (!v) { paintKeyStatus('', ''); return; }
+  if (!TDT_KEY_RE.test(v)) {
+    paintKeyStatus('warn', '这不是有效的天地图密钥：应为 32 位字母与数字，请到天地图开放平台复制"浏览器端"密钥。');
+    return;
+  }
+  paintKeyStatus('ok', '密钥已保存，底图会用这一份密钥加载。');
+}
+
 function paintBasemapFields() {
   const sel = $('cfgBasemap');
   const bm = String((sel && sel.value) || config.basemap || 'none');
@@ -3780,6 +3808,7 @@ function fillSettings() {
   $('cfgBasemap').value = config.basemap || 'tianditu_img';
   $('cfgAnnotation').checked = config.annotation === true;
   $('cfgKey').value = config.tianditu_key || '';
+  keyTouched = false;
   paintBasemapFields();
   $('cfgRamp').value = config.ramp || 'viridis';
   $('cfgClassCount').value = String(config.class_count || 5);
@@ -4239,6 +4268,11 @@ function convPredictPath() {
   const path = convTargetPath();
   const fmt = (convFormats || []).find((f) => f.key === convFmtKey());
   if (!path || !fmt || !fmt.ext) return '';
+  /* 只给"当前这份数据本身就能转"的情况预估：栅格根本没有输出可言，
+     预估出来的 xxx_转出.csv 会误导人。手填了别的路径也不猜——预检回来再说 */
+  const cur = current && current.data;
+  const same = cur && samePath(path, convDefaultTarget());
+  if (!same || cur.kind === 'raster') return '';
   const norm = path.replace(/\\/g, '/');
   const slash = norm.lastIndexOf('/');
   const dir = slash > 0 ? norm.slice(0, slash) : '';
@@ -4496,6 +4530,8 @@ function runConvDry() {
       sum2.textContent = '';
       convReady = false;
       updateConvRun();
+      const hintBox = $('convOutHint');
+      if (hintBox) hintBox.textContent = '';
       convError(err.title || '预检未通过。', err.hint);
       return;
     }
@@ -5227,7 +5263,10 @@ async function applySettings() {
   };
   config.basemap = $('cfgBasemap').value;
   config.annotation = $('cfgAnnotation').checked;
-  config.tianditu_key = $('cfgKey').value.trim();
+  /* 只写"确实有值"或"用户动过这一栏"的情况：别的控件触发 applySettings 时，
+     万一这一栏没被 fillSettings 填上，空值也不会把已保存的密钥抹掉 */
+  const keyVal = ($('cfgKey').value || '').trim();
+  if (keyVal || keyTouched) config.tianditu_key = keyVal;
   // 换了底图要立刻换掉下面那几项：密钥留空不删，切回天地图还用得上
   paintBasemapFields();
   config.ramp = $('cfgRamp').value;
@@ -5586,12 +5625,18 @@ function init() {
     fillSettings();
     $('settings').hidden = false;
     markBtn('settingsBtn', true);
+    // 面板一开就告诉用户"这份密钥在"，不用他再去点一下才知道
+    if (($('cfgKey').value || '').trim()) {
+      if (TDT_KEY_RE.test($('cfgKey').value.trim())) paintKeyStatus('ok', '密钥已保存，底图会用这一份密钥加载。');
+      else flashKeySaved();
+    } else paintKeyStatus('', '');
   });
   $('cfgClose').addEventListener('click', () => {
     settleHotkey();
     // 关面板前先落一次盘：密钥这类输入靠 change（失焦）保存，关得太快会丢
     clearTimeout(keySaveTimer);
     applySettings();
+    paintKeyStatus('', '');
     $('settings').hidden = true;
     resetSetPos();   // 下次打开还是居中，不会停在上一回拖到的角落
     markBtn('settingsBtn', false);
@@ -5715,8 +5760,19 @@ function init() {
      焦点还没离开输入框，值就没落盘。改成边打边存，离开输入框再补一次 */
   let keySaveTimer = 0;
   $('cfgKey').addEventListener('input', () => {
+    keyTouched = true;   // 只有用户真动过这一栏，才允许把空值写进配置
+    const v = ($('cfgKey').value || '').trim();
+    if (!v) { paintKeyStatus('', ''); }
+    else if (!TDT_KEY_RE.test(v)) {
+      paintKeyStatus('warn', '这不是有效的天地图密钥：应为 32 位字母与数字，请到天地图开放平台复制"浏览器端"密钥。');
+    } else {
+      paintKeyStatus('', '');
+    }
     clearTimeout(keySaveTimer);
-    keySaveTimer = setTimeout(applySettings, 500);
+    keySaveTimer = setTimeout(async () => {
+      await applySettings();
+      flashKeySaved();
+    }, 500);
   });
   /* 关闭按钮行为是两态开关，不是下拉：点哪边就是哪边，点完立刻生效 */
   $('cfgCloseAct').addEventListener('click', (e) => {
