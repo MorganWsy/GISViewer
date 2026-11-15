@@ -121,7 +121,7 @@
     <div class="cv-foot">
       <div class="cv-foot-row">
         <label class="cv-over" data-tip="勾上之后，同名文件先删旧的再写；不勾就一律拒绝，不会动已有文件">
-          <input type="checkbox" id="convOver"><span>允许覆盖同名文件</span>
+          <input type="checkbox" id="convOver"><i class="cv-box" aria-hidden="true"></i><span>允许覆盖同名文件</span>
         </label>
         <span class="cv-run-wrap" id="convRunWrap" data-tip="先选一个输入文件再开始">
           <button id="convRun" class="cv-run" type="button" disabled>开始转换</button>
@@ -301,6 +301,7 @@
      不占版面、不打断已经打开的图层。没有关闭按钮：点卡片任意处马上关，
      不点的话过一阵自己消失（Esc 也能关） -->
 <div id="errToast" class="err-toast" hidden>
+  <svg class="et-ico-info" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="var(--info-ico)"/><path d="M11 6.2h2v7.4h-2z" fill="#fff"/><circle cx="12" cy="17.4" r="1.35" fill="#fff"/></svg>
   <svg class="et-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23l-9.2-15.94zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg>
   <div class="et-main">
     <div class="et-title" id="errTitle"></div>
@@ -671,6 +672,7 @@
             <tr><td>rasterio</td><td>BSD-3-Clause</td><td><a href="https://rasterio.readthedocs.io/" target="_blank" rel="noreferrer">rasterio.readthedocs.io</a></td></tr>
             <tr><td>MapLibre GL JS</td><td>BSD-3-Clause</td><td><a href="https://maplibre.org/" target="_blank" rel="noreferrer">maplibre.org</a></td></tr>
             <tr><td>Chart.js</td><td>MIT</td><td><a href="https://www.chartjs.org/" target="_blank" rel="noreferrer">chartjs.org</a></td></tr>
+            <tr><td>Lucide（界面图标）</td><td>ISC</td><td><a href="https://lucide.dev/" target="_blank" rel="noreferrer">lucide.dev</a></td></tr>
             <tr><td>.NET Framework</td><td>微软组件（随 Windows 提供）</td><td><a href="https://dotnet.microsoft.com/" target="_blank" rel="noreferrer">dotnet.microsoft.com</a></td></tr>
             <tr><td>Microsoft Edge WebView2</td><td>微软组件</td><td><a href="https://developer.microsoft.com/microsoft-edge/webview2/" target="_blank" rel="noreferrer">developer.microsoft.com/webview2</a></td></tr>
           </tbody>

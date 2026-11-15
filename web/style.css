@@ -11,6 +11,7 @@
   --warn-bg: #fdf3e4;
   --warn-line: #e6c58a;
   --warn-ico: #c98a2e;
+  --info-ico: #1f74c0;
   --err-bg: #fbeceb;
   --err-line: #e3a9a3;
   --bar: #4b8ec4;
@@ -51,6 +52,7 @@
   --warn-bg: #3a3226;
   --warn-line: #6b5636;
   --warn-ico: #e6b45f;
+  --info-ico: #6fb2ea;
   --err-bg: #3a2929;
   --err-line: #6d4441;
   --bar: #64a9e0;
@@ -75,6 +77,7 @@
   --warn-bg: #fbeed2;
   --warn-line: #dcc08a;
   --warn-ico: #a97c22;
+  --info-ico: #1f6fa8;
   --err-bg: #f7e2dd;
   --err-line: #d9a79d;
   --bar: #b07a3a;
@@ -99,6 +102,7 @@
   --warn-bg: #2f2a1c;
   --warn-line: #574a2c;
   --warn-ico: #d8ad5a;
+  --info-ico: #5ea9d8;
   --err-bg: #33211f;
   --err-line: #5d3a36;
   --bar: #3f9fc4;
@@ -123,6 +127,7 @@
   --warn-bg: #f9f0de;
   --warn-line: #dcc195;
   --warn-ico: #a3782a;
+  --info-ico: #20699c;
   --err-bg: #f6e7e4;
   --err-line: #d7aba5;
   --bar: #35866a;
@@ -998,6 +1003,9 @@ table.chip-table td {
   background: var(--accent);
   border-color: var(--accent);
 }
+/* 组里的分隔线是"下一颗的 border-top"：两颗都亮时这行线若跟着变主色，
+   看起来就连成一整块了。组内高亮只换底色，边框仍用分隔线色 */
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on { border-color: var(--line); }
 
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on:hover { background: var(--accent); }
 
@@ -2513,8 +2521,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   transform: translateX(-50%);
   z-index: 80;
   display: flex;
-  /* 图标和整块文字垂直居中：标题、说明、建议三段高矮不一也不会偏 */
-  align-items: center;
+  /* 图标和标题首行垂直居中：下面还有一两行小字，整块居中的话图标会掉到段落中间 */
+  align-items: flex-start;
   gap: 9px;
   width: max-content;
   max-width: min(520px, calc(100vw - 32px));
@@ -2534,14 +2542,15 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   from { opacity: 0.35; transform: translateX(-50%) translateY(-6px); }
 }
 
-/* 纯提示（不是报错）：不挂警告图标，卡片留白收一点 */
+/* 纯提示：蓝色圆底感叹号，与黄色三角的警告一眼分得开 */
+.err-toast .et-ico-info { display: none; flex: none; width: 20px; height: 20px; }
 .err-toast.info .et-ico { display: none; }
-.err-toast.info { padding-left: 13px; }
+.err-toast.info .et-ico-info { display: block; }
 
 /* 填充的感叹号三角：比原来大一号，颜色单独给，浅色深色两套都看得清 */
 .err-toast .et-ico { flex: none; width: 20px; height: 20px; color: var(--warn-ico); }
 .err-toast .et-main { min-width: 0; }
-.err-toast .et-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.err-toast .et-title { font-size: 13px; line-height: 20px; font-weight: 700; color: var(--text); }
 .err-toast .et-detail {
   margin-top: 1px;
   font-size: 13px;
@@ -3311,35 +3320,41 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   cursor: pointer;
   user-select: none;
 }
+/* 原生 checkbox 在很多 WebView 里会自己画一枚内嵌指示器（appearance:none 也压不住），
+   干脆把 input 整个藏起来只留焦点语义，方框与对勾都用旁边的 <i> 画 */
 .cv-over input {
-  appearance: none;
-  -webkit-appearance: none;
-  position: relative;
+  position: absolute;
   width: 14px;
   height: 14px;
   margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.cv-box {
   flex: none;
+  position: relative;
+  width: 14px;
+  height: 14px;
   background: var(--panel);
   border: 1.4px solid var(--line);
   border-radius: 3px;
-  cursor: pointer;
   transition: background-color .12s, border-color .12s;
 }
-.cv-over input:hover { border-color: var(--text-dim); }
-.cv-over input:checked { background: var(--accent); border-color: var(--accent); }
+.cv-over:hover .cv-box { border-color: var(--text-dim); }
+.cv-over input:checked + .cv-box { background: var(--accent); border-color: var(--accent); }
 /* 对勾用两条边画，不用图标文件：14px 下 4×7 的笔画最干净 */
-.cv-over input:checked::after {
+.cv-over input:checked + .cv-box::after {
   content: "";
   position: absolute;
-  left: 3.6px;
-  top: 1.2px;
+  left: 3.4px;
+  top: 1px;
   width: 4px;
   height: 6.6px;
   border: solid #fff;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(42deg);
 }
-.cv-over input:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+.cv-over input:focus-visible + .cv-box { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
 .cv-over:hover { color: var(--text); }
 .cv-run-wrap { display: inline-flex; }
 .cv-run {

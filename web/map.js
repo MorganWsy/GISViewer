@@ -539,10 +539,10 @@
     if (badLonLat(t.wgs)) {
       const b = t.wgs;
       const worst = Math.max(Math.abs(b[1]), Math.abs(b[3]));
-      note('坐标超出经纬度范围，无法画到地图上；信息栏与属性表照常可用', 'warn');
-      toast('坐标超出经纬度范围，地图上画不出来',
-        '这份数据的纬度到了 ' + Math.round(worst) + '（正常在 ±90 以内），多半是投影坐标被写进了只收经纬度的格式。'
-        + '请先确认坐标系标注，或在其他软件里转换到 WGS 84 再打开。', 'warn');
+      note('坐标超出经纬度范围，无法绘制；信息栏与属性表照常可用', 'warn');
+      toast('坐标超出经纬度范围，无法绘制',
+        '该数据的纬度值达 ' + Math.round(worst) + '（正常范围为 ±90），请确认坐标系标注，'
+        + '或先转换到 WGS 84 再打开。', 'warn');
       setBaseHidden(true);
       emit('gis:drawn', { kind: 'skip' });
       return;

@@ -298,7 +298,7 @@ def _write_config(data):
     global _cache_note
     path = config_dir() / "config.json"
     allowed = {"theme", "basemap", "tianditu_key", "annotation", "max_features", "last_paths",
-               "recent", "recent_max",
+               "recent", "recent_max", "recent_meta",
                "ramp", "class_count", "nodata_view", "raster_default", "vector_color",
                "restore_last", "cache_dir", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",

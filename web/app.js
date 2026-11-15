@@ -1357,9 +1357,9 @@ function renderRail(data, notes) {
       });
     }
     /* 提示、警告一律走全局浮层：信息栏只放数据本身，不留说明性文字 */
-    if (data.warning) showErrToast('提示', data.warning);
+    if (data.warning) showErrToast(data.warning, '', '', 'info');
     if (data.kind === 'vector' && (data.layers || [])[0] && data.layers[0].warning) {
-      showErrToast('提示', data.layers[0].warning);
+      showErrToast(data.layers[0].warning, '', '', 'info');
     }
     if (data.kind === 'tileset') {
       showErrToast('这是切片缓存不是单一数据文件',
@@ -2760,8 +2760,10 @@ function showErrToast(title, detail, hint, kind, sticky) {
   if (!box) return;
   box.classList.toggle('info', kind === 'info');
   $('errTitle').textContent = title || '出了点问题';
-  fillToastText($('errDetail'), detail);
-  fillToastText($('errHint'), hint);
+  /* 固定两行：第一行结论，第二行建议。同时给了 detail 与 hint 时，第二行取 hint——
+     用户要的是"接下来怎么办"，技术细节留在信息栏里 */
+  fillToastText($('errDetail'), '');
+  fillToastText($('errHint'), hint || detail || '');
   box.hidden = false;
   placeErrToast();
   // 连着弹同一条时也要有"又来了"的动静：去掉类、强制重排、再加回去
@@ -3224,8 +3226,6 @@ function recentIconKey(m) {
   return 'file';
 }
 
-const RECENT_META_KEY = 'gisviewer.recent_meta';
-
 let recentFilling = null;
 
 /* 加图标之前留下的老记录没有形态信息，图标会全变成"文件"：补问一次引擎，
@@ -3260,15 +3260,20 @@ function fillRecentMeta(paths) {
   });
 }
 
+/* 形态信息存在 config 里，不能放 localStorage：引擎每次启动换一个端口，
+   而 localStorage 按 origin 隔离，一重启就全丢（最近打开的图标全变回默认就是这个原因） */
 function recentMetaMap() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(RECENT_META_KEY) || '{}');
-    return raw && typeof raw === 'object' ? raw : {};
-  } catch (e) { return {}; }
+  const raw = config.recent_meta;
+  return raw && typeof raw === 'object' ? raw : {};
 }
 
+let metaCommitTimer = 0;
+
 function saveRecentMeta(map) {
-  try { localStorage.setItem(RECENT_META_KEY, JSON.stringify(map)); } catch (e) { /* 存不了就只本次生效 */ }
+  config.recent_meta = map;
+  // 补历史记录时一次会连着写好几条：攒 400 毫秒一起落盘，别一条一发请求
+  clearTimeout(metaCommitTimer);
+  metaCommitTimer = setTimeout(commitConfig, 400);
 }
 
 /* 打开成功后顺手记一条：形态、格式、大小。只记还在"最近打开"清单里的那些，
@@ -4176,6 +4181,7 @@ let convFormats = null;   // [{key,label,note}]，问一次引擎就缓存
 let convDryTimer = 0;
 let convBusy = false;
 let convPathDirty = false;   // 用户在浮层里手填过输入文件：这时不再跟着地图走
+let convReady = false;       // 预检通过才允许点"开始转换"（栅格、路径不存在都算没通过）
 
 function convDefaultTarget() {
   const d = current && current.data;
@@ -4451,6 +4457,8 @@ function runConvDry() {
   if (note) note.textContent = (fmt && fmt.note) || '';
   sum.textContent = '';
   clearConvStatus();
+  convReady = false;
+  updateConvRun();
   if (!path) { sum.textContent = '尚未选择输入文件。'; return; }
   sum.textContent = '正在读取数据…';
   fetch('/api/convert', {
@@ -4469,10 +4477,14 @@ function runConvDry() {
     if (!d || !d.ok) {
       const err = (d && d.error) || {};
       sum2.textContent = '';
+      convReady = false;
+      updateConvRun();
       convError(err.title || '预检未通过。', err.hint);
       return;
     }
     const b = d.before || {};
+    convReady = true;
+    updateConvRun();
     sum2.textContent = [
       b.feature_count + ' 个要素',
       b.field_count + ' 个字段',
@@ -4486,6 +4498,8 @@ function runConvDry() {
   }).catch(() => {
     const sum2 = $('convSrcSum');
     if (sum2) sum2.textContent = '';
+    convReady = false;
+    updateConvRun();
     convError('预检没能完成。', '请确认引擎在运行，然后重试。');
   });
 }
@@ -4494,13 +4508,17 @@ function runConvDry() {
 function updateConvRun() {
   const btn = $('convRun');
   if (!btn) return;
-  const ready = !!convTargetPath();
+  // 有路径还不够：预检得真的通过。自动填进来的栅格文件就不会亮起来
+  const hasPath = !!convTargetPath();
+  const ready = hasPath && convReady;
   btn.disabled = convBusy || !ready;
   // 气泡挂在外面那层 span 上：禁用的按钮收不到 hover，自己带 data-tip 也弹不出来
   const wrap = $('convRunWrap');
   if (wrap) {
     if (ready) wrap.removeAttribute('data-tip');
-    else wrap.setAttribute('data-tip', '先选一个输入文件：输入文件是唯一的必填项');
+    else wrap.setAttribute('data-tip', hasPath
+      ? '预检未通过：先按上面的提示处理，才能开始转换'
+      : '先选一个输入文件：输入文件是唯一的必填项');
   }
 }
 
@@ -4710,7 +4728,7 @@ window.GisHost = function (name, value) {
     return;
   }
   if (name === 'update') { onUpdateMessage(value); return; }
-  if (name === 'notice') { showErrToast((value && value.title) || '提示', (value && value.detail) || ''); return; }
+  if (name === 'notice') { showErrToast((value && value.title) || '提示', (value && value.detail) || '', '', 'info'); return; }
   if (name === 'askClose') { showCloseAsk(); return; }
   if (name === 'drag') { showDropVeil(value === 'true'); return; }
   if (name === 'maximized') { document.body.classList.toggle('maxed', value === 'on'); return; }
@@ -5612,7 +5630,9 @@ function init() {
     convScheduleDry();
   });
   $('convSuffix').addEventListener('input', () => { clearConvResult(); convScheduleDry(); });
-  $('convOver').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
+  /* 勾选只影响"同名怎么办"，状态区不必先清空：清了会缩一下、结果回来再长回去，
+     看着就是抖两下。直接重跑，内容原地替换 */
+  $('convOver').addEventListener('change', () => { convScheduleDry(); });
   $('convOut').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convRun').addEventListener('click', runConv);
   /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */
@@ -5876,13 +5896,15 @@ function init() {
   $('map').addEventListener('gis:drawn', (e) => {
     const kind = (e.detail && e.detail.kind) || 'none';
     /* 别人拿到软件第一件事常常是"地图怎么是白的"：画出图层但没底图时提醒一次 */
+    /* 只提醒"选了要密钥的底图却没填密钥"这一种。用户自己把底图关掉，
+       那是他的选择，不该每次重绘都弹一句"没有底图" */
     if (!baseHintShown && (kind === 'vector' || kind === 'raster')) {
       const bm = String(config.basemap || '');
       const noKey = bm.indexOf('tianditu') === 0 && !(config.tianditu_key || '').trim();
-      if (bm === 'none' || noKey) {
+      if (noKey) {
         baseHintShown = true;
-        showErrToast('提示', '还没有可用的底图',
-          '在 设置 → 底图 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。');
+        showErrToast('当前无可用底图',
+          '在 设置 → 底图 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。', '', 'info');
       }
     }
     /* 清空（none）不算画完：切文件时先清一次旧图层，那一下收遮罩就收早了。
