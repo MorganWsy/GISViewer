@@ -447,7 +447,7 @@
         if (!localNoteShown) {
           localNoteShown = true;
           toast('这个图层没有坐标系',
-            '按原始坐标当作米临时摆放，只用于看清图形；底图与注记已暂时收起。');
+            '按原始坐标当作米临时摆放，只用于看清图形；**底图**与**注记**已暂时收起。');
         }
       } else if (m.reprojected) parts.push('显示坐标已转到经纬度');
       note(baseNote() + parts.join(' · '));
@@ -457,7 +457,8 @@
         const now = Date.now();
         if (now - lastLimitToast > 6000) {
           lastLimitToast = now;
-          toast('视野内超过单次上限', '已绘制 ' + feats.length + ' 个，移动、缩放后继续加载。', 'info');
+          toast('超出「视野内单次绘制」上限',
+            '已绘制 ' + feats.length + ' 个，移动或缩放后会继续加载。', 'info');
         }
       }
       const src = map.getSource('gis-data');

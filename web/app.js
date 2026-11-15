@@ -2749,7 +2749,9 @@ function placeErrToast() {
 function fillToastText(box, value) {
   if (!box) return;
   const one = value == null ? '' : String(value);
-  box.textContent = one;
+  box.textContent = '';
+  // 与气泡同一套标记：**重点** 画成强调色加粗，设置项名字就靠它区分
+  fillTipText(box, one);
   box.hidden = !one;
 }
 
@@ -3627,6 +3629,8 @@ function paintRampSwatches(ramps) {
   if (window.syncSelect) window.syncSelect(sel);
 }
 
+let configReady = false;   // 配置读回来之前，凡是要看配置的提示都先不弹
+
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
@@ -4330,8 +4334,7 @@ function showConvPop() {
     const cur = convDisplayPath(convDefaultTarget());
     if (cur) input.value = cur;
   }
-  // 立刻预检（不等防抖）：概况行先用"正在读取数据…"占住位置，
-  // 浮层不会先矮后高抖一下——它只在打开那一帧画一次
+  // 立刻预检（不等防抖）：浮层打开的那一帧就开始算，结果到了原地填进去
   convLoadLayers(true);
   updateConvRun();
   const hint = $('convOutHint');
@@ -4455,12 +4458,16 @@ function runConvDry() {
   const fmt = (convFormats || []).find((f) => f.key === fmtKey);
   const note = $('convFmtNote');
   if (note) note.textContent = (fmt && fmt.note) || '';
-  sum.textContent = '';
-  clearConvStatus();
+  /* 不清空上一次的概况与状态：清空会让浮层先缩一下、结果回来再长回去，看着就是抖两下。
+     新结果到了原地替换即可；这里只把按钮先按下去，防止趁预检间隙点下去 */
   convReady = false;
   updateConvRun();
-  if (!path) { sum.textContent = '尚未选择输入文件。'; return; }
-  sum.textContent = '正在读取数据…';
+  if (!path) {
+    if (sum.textContent) sum.textContent = '';
+    clearConvStatus();
+    sum.textContent = '尚未选择输入文件。';
+    return;
+  }
   fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -5898,13 +5905,15 @@ function init() {
     /* 别人拿到软件第一件事常常是"地图怎么是白的"：画出图层但没底图时提醒一次 */
     /* 只提醒"选了要密钥的底图却没填密钥"这一种。用户自己把底图关掉，
        那是他的选择，不该每次重绘都弹一句"没有底图" */
-    if (!baseHintShown && (kind === 'vector' || kind === 'raster')) {
+    /* 配置还没读回来时 config.tianditu_key 一定是空的，这时候弹"没有底图"是误报——
+       启动就恢复上次文件的那条路径正好会撞上。等配置就绪再判 */
+    if (!baseHintShown && configReady && (kind === 'vector' || kind === 'raster')) {
       const bm = String(config.basemap || '');
       const noKey = bm.indexOf('tianditu') === 0 && !(config.tianditu_key || '').trim();
       if (noKey) {
         baseHintShown = true;
         showErrToast('当前无可用底图',
-          '在 设置 → 底图 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。', '', 'info');
+          '在 **设置 → 底图** 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。', '', 'info');
       }
     }
     /* 清空（none）不算画完：切文件时先清一次旧图层，那一下收遮罩就收早了。
@@ -5926,6 +5935,7 @@ function init() {
   window.gisMapFail = () => { releaseVeil(); loadTip(false); };
 
   loadConfig().then(() => {
+    configReady = true;
     if (window.GisMap) GisMap.init(config);
     pageReady = true;
     // 快捷键在界面就绪前按下的那一批：补跑一次，别让用户以为没反应
