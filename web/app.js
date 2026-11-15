@@ -3035,6 +3035,9 @@ function rememberLast(path, data) {
   const p = String(path || '');
   if (!p || (data && (data.temp_copy || data.file && data.file.temp_copy))) return;
   toShell('lastdir:' + p);   // 告诉壳"最近一次打开的是这里"，文件框下次从这儿起步
+  // 先记形态、格式、大小，再重排清单：renderRecent 在 rememberRecent 里跑，
+  // 反过来的话这一条第一次画出来还没有图标与附注
+  rememberRecentMeta(p, data);
   rememberRecent(p);
   if ((config.last_paths || [])[0] === p) return;
   config.last_paths = [p];
@@ -3181,6 +3184,67 @@ function rememberRecent(p) {
 
 function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 
+/* 最近打开每条前面那枚小图标：按数据形态分。16px、单色描边，
+   与顶栏那排图标同一套画法；形态看不清时退回"文件" */
+const RECENT_ICO = {
+  point: '<circle cx="6.4" cy="6.6" r="2.4"/><circle cx="17.4" cy="11.2" r="2.4"/><circle cx="8.2" cy="17.6" r="2.4"/>',
+  line: '<path d="M3.6 17.4 9.2 7.6l4.4 5.4 6.4-9"/>',
+  polygon: '<path d="M12 3.8 20 8.2v7.6L12 20.2 4 15.8V8.2z"/>',
+  // 点线面混在一起：三个形状挤进 16px 会糊成一点，改用"两层"表示一份数据里有多层
+  mixed: '<path d="M12 3.4 21 8l-9 4.6L3 8z"/><path d="M3 13.4 12 18l9-4.6"/>',
+  raster: '<rect x="3.6" y="4.8" width="16.8" height="14.4" rx="1.6"/><path d="M4.4 16.2l4.4-4.2 3.6 3.2 3.2-2.6 4.4 3.8"/><circle cx="8.6" cy="9" r="1.3"/>',
+  archive: '<path d="M4.4 7.4h15.2v12.4H4.4z"/><path d="M4.4 7.4V4.2h15.2v3.2"/><path d="M10.2 11.4h3.6"/>',
+  table: '<rect x="3.6" y="4.8" width="16.8" height="14.4" rx="1.6"/><path d="M3.6 9.6h16.8M3.6 14.4h16.8M9.6 4.8v14.4"/>',
+  file: '<path d="M6.4 3.8h7l4.6 4.6v11.8H6.4z"/><path d="M13.4 3.8v4.6h4.6"/>',
+};
+
+const RECENT_META_KEY = 'gisviewer.recent_meta';
+
+function recentIconKey(m) {
+  const kind = (m && m.kind) || '';
+  const fmt = (m && m.fmt) || '';
+  if (/表格|CSV|XLSX/i.test(fmt)) return 'table';
+  if (kind === 'raster') return 'raster';
+  if (kind === 'archive') return 'archive';
+  const g = (m && m.geom) || '';
+  if (g.indexOf('point') === 0) return 'point';
+  if (g.indexOf('line') === 0) return 'line';
+  if (g.indexOf('polygon') === 0) return 'polygon';
+  if (g === 'mixed' || g === 'geometrycollection') return 'mixed';
+  return 'file';
+}
+
+function recentMetaMap() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_META_KEY) || '{}');
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch (e) { return {}; }
+}
+
+function saveRecentMeta(map) {
+  try { localStorage.setItem(RECENT_META_KEY, JSON.stringify(map)); } catch (e) { /* 存不了就只本次生效 */ }
+}
+
+/* 打开成功后顺手记一条：形态、格式、大小。只记还在"最近打开"清单里的那些，
+   这个表不会越攒越长；丢了也只是图标退回默认，不影响打开文件 */
+function rememberRecentMeta(path, data) {
+  if (!path || !data || !data.ok) return;
+  const layer = (data.layers || [])[0] || {};
+  const map = recentMetaMap();
+  map[tidyPath(path)] = {
+    kind: data.kind || '',
+    geom: String(layer.geometry_type || '').toLowerCase(),
+    fmt: data.driver_label || '',
+    size: (data.file && data.file.size_label) || '',
+  };
+  const keep = {};
+  // 刚打开的这一条还没进 config.recent，先一起算进去，否则记完立刻被清掉
+  (config.recent || []).concat([tidyPath(path)]).forEach((p) => {
+    if (map[p]) keep[p] = map[p];
+  });
+  saveRecentMeta(keep);
+}
+
 /* 一条路径在界面上只该有一种写法：斜杠统一成反斜杠、连续分隔符压成一个、
    从 Git Bash 粘来的 /d/xxx 折回 D:\。拖放、粘贴、命令行传参的写法各不相同，
    不收敛的话同一个文件会以 D:////a////b.tif 这种样子留在路径框和最近打开里。
@@ -3204,6 +3268,7 @@ function renderRecent() {
   if (!pop) return;
   const all = (config.recent || []).filter(Boolean);
   const list = all.slice(0, recentMax());
+  const metas = recentMetaMap();
   pop.textContent = '';
   if (!list.length) { pop.hidden = true; return; }
   const head = el('div', 'rp-head');
@@ -3223,15 +3288,26 @@ function renderRecent() {
   clear.addEventListener('click', (e) => {
     e.stopPropagation();
     config.recent = [];
+    saveRecentMeta({});
     renderRecent();
     commitConfig();
   });
   head.appendChild(clear);
   pop.appendChild(head);
   list.forEach((p) => {
+    const meta = metas[p] || null;
     const item = el('div', 'rp-item');
+    const ico = el('span', 'rp-ico');
+    ico.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + RECENT_ICO[recentIconKey(meta)] + '</svg>';
+    item.appendChild(ico);
     const text = el('div', 'rp-text');
-    text.appendChild(el('div', 'rp-name', baseName(p)));
+    const nameRow = el('div', 'rp-name-row');
+    nameRow.appendChild(el('div', 'rp-name', baseName(p)));
+    // 压缩包没有驱动名，给个"压缩包"，不然只剩一个体积看不出是什么
+    const fmtLabel = meta ? (meta.fmt || (meta.kind === 'archive' ? '压缩包' : '')) : '';
+    const bits = meta ? [fmtLabel, meta.size].filter(Boolean) : [];
+    if (bits.length) nameRow.appendChild(el('div', 'rp-meta', bits.join(' · ')));
+    text.appendChild(nameRow);
     text.appendChild(el('div', 'rp-path', p));
     item.appendChild(text);
     const del = el('button', 'rp-del');
@@ -3241,6 +3317,9 @@ function renderRecent() {
     del.addEventListener('click', (e) => {
       e.stopPropagation();
       config.recent = (config.recent || []).filter((x) => x !== p);
+      const keepMeta = recentMetaMap();
+      delete keepMeta[p];
+      saveRecentMeta(keepMeta);
       renderRecent();
       commitConfig();
     });
@@ -4064,8 +4143,9 @@ const CONV_WARN_ICO = 'M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24
 const CONV_ERR_ICO = 'M12 2a10 10 0 100 20 10 10 0 000-20zm-1.1 4.6h2.2v7.2h-2.2V6.6zm0 9h2.2v2.2h-2.2v-2.2z';
 
 /* 一条说明：与地图底栏同一套写法——一枚 13px 图标加一行字，不套底色、不单靠颜色分辨 */
-function convMsg(kind, text) {
-  // 类名别再叫 err：全局 .err 带底色与描边，会把这一行画成一块红框
+/* 一条提示/错误：图标 + 标题，可选第二行说明。类名别叫 err —— 全局 .err
+   带底色与描边，套上去会画成一整块红框（第一版就是这么翻的） */
+function convMsg(kind, text, detail) {
   const row = el('div', 'cv-msg' + (kind === 'err' ? ' cv-bad' : ''));
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
@@ -4077,7 +4157,10 @@ function convMsg(kind, text) {
   p.setAttribute('d', kind === 'err' ? CONV_ERR_ICO : CONV_WARN_ICO);
   svg.appendChild(p);
   row.appendChild(svg);
-  row.appendChild(el('span', null, text));
+  const body = el('div', 'cv-msg-body');
+  body.appendChild(el('div', 'cv-msg-t', text));
+  if (detail) body.appendChild(el('div', 'cv-msg-d', detail));
+  row.appendChild(body);
   return row;
 }
 
@@ -4095,8 +4178,8 @@ function convError(title, hint) {
   const box = convStatusBox();
   if (!box) return;
   box.textContent = '';
-  if (title) box.appendChild(convMsg('err', title));
-  if (hint) box.appendChild(el('div', 'cv-line cv-indent', hint));
+  // 标题与说明同在一张块里：以前说明另起一行灰字，跟标题隔着半屏，读着是两件事
+  if (title) box.appendChild(convMsg('err', title, hint || ''));
 }
 
 /* 与体检浮层同一套定位：贴着"格式互转"按钮下方，左右夹回窗口内 */

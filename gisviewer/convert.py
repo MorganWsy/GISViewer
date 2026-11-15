@@ -437,7 +437,8 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                 if os.path.exists(tpath):
                     return {"ok": False, "error": {
                         "title": "输出位置已存在同名文件",
-                        "hint": "请更换输出目录，或先移动 %s。" % os.path.basename(tpath)}}
+                        "hint": "不会覆盖已有文件。请换一个「文件后缀」，或先移动 %s。"
+                                % os.path.basename(tpath)}}
 
             before = _layer_summary(src_lyr, src, dbfenc.detect(src))
             # 只收经纬度的格式：源数据是投影坐标就换算过去；没有坐标系记录的没法换
