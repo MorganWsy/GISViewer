@@ -407,10 +407,11 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             warnings = _precheck(src_lyr, fmt)
 
             folder, stem = _source_base(src)
-            # 输出名 = 源文件名 + 后缀（留空按 _转出），默认输出目录与输出文件同名
+            # 输出名 = 输入文件名 + 后缀（留空按 _转出）。默认就落在输入文件所在目录，
+            # 不再另建一个文件夹——同一个目录里靠文件名区分就够了
             suffix = _clean_suffix(suffix)
             base = stem + suffix
-            out_dir = str(out_dir or "").strip() or os.path.join(folder, base)
+            out_dir = str(out_dir or "").strip() or folder
             # 输入可能是 D:/data/x.shp 这种正斜杠写法，拼出来的目录会一半斜杠一半反斜杠，
             # 预检里要原样显示完整路径，先归一成系统分隔符
             out_dir = os.path.normpath(out_dir)

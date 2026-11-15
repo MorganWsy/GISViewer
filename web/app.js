@@ -246,6 +246,19 @@ function tipBubble() {
   return tipState.box;
 }
 
+/* 气泡文案里的 **重点** 画成强调色加粗：用节点拼，不走 innerHTML —— data-tip 是
+   写死在标签上的文本，拼 HTML 迟早出事。半角星号在正文里几乎不出现，不会误伤 */
+function fillTipText(node, text) {
+  String(text).split(/(\*\*[^*]+\*\*)/g).forEach((part) => {
+    if (!part) return;
+    if (part.length > 4 && part.slice(0, 2) === '**' && part.slice(-2) === '**') {
+      node.appendChild(el('b', 'tip-strong', part.slice(2, -2)));
+    } else {
+      node.appendChild(document.createTextNode(part));
+    }
+  });
+}
+
 function showTipBox(anchor, text) {
   const box = tipBubble();
   clearTimeout(tipState.timer);
@@ -261,12 +274,14 @@ function showTipBox(anchor, text) {
       const bullet = marked ? line.indexOf('· ') === 0 : true;
       const row = el('div', 'tip-li' + (bullet ? '' : ' tip-plain'));
       if (bullet) row.appendChild(el('i', 'tip-dot'));
-      row.appendChild(el('span', 'tip-txt', bullet && marked ? line.slice(2) : line));
+      const span = el('span', 'tip-txt');
+      fillTipText(span, bullet && marked ? line.slice(2) : line);
+      row.appendChild(span);
       box.appendChild(row);
     });
   } else {
     box.classList.remove('tip-multi');
-    box.textContent = raw[0] || '';
+    fillTipText(box, raw[0] || '');
   }
   // 提示气泡里可以带一条外链：锚点给 data-tip-href，链接文案给 data-tip-link。
   // target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走
@@ -5387,11 +5402,11 @@ function init() {
   if (cvTip) {
     cvTip.setAttribute('data-tip', [
       '矢量格式互转把点线面这类数据换成另一种文件格式存放，不做裁剪、合并或简化。',
-      '· 只处理矢量数据；影像、DEM 这类栅格不在其中。',
+      '· **只处理矢量数据**，影像、DEM 这类栅格不在其中。',
       '· 输入文件可以直接填压缩包（.zip），包里有几份数据，「待转图层」就列出几份。',
-      '· 坐标系、几何与属性按原样保留；只有 KML、GPX、TopoJSON 按规范只收 WGS 84 经纬度，输入文件是投影坐标时会换算成经纬度，并在结果里注明。',
-      '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，遇到点线面混在一起的数据，会按几何类型分开写成多个文件，要素一条不丢。',
-      '· 输出目录留空时，在输入文件旁建一个与输出文件同名的文件夹；同名文件一律不覆盖。',
+      '· 坐标系、几何与属性按原样保留；只有 **KML、GPX、TopoJSON** 按规范只收 WGS 84 经纬度，输入文件是投影坐标时会换算成经纬度，并在结果里注明。',
+      '· Shapefile、MapInfo TAB、DXF 一个图层只放一种几何，遇到点线面混在一起的数据，会 **按几何类型分开写成多个文件**，要素一条不丢。',
+      '· 输出目录留空时，**与输入文件同目录**，靠文件名里的后缀区分；同名文件 **一律不覆盖**。',
       '· 转换前先给出该格式的已知代价与实测警告，转换后逐项对比要素数、字段数、几何类型与坐标系。',
     ].join('\n'));
     cvTip.innerHTML = HINT_ICO;
@@ -5552,7 +5567,8 @@ function init() {
     const pop = $('pickPop');
     if (!pop || pop.hidden) return;
     const onBtn = e.target && e.target.closest ? e.target.closest('#filePickBtn') : null;
-    if (pop.contains(e.target) || onBtn) return;
+    // 提示气泡挂在 body 上、不在浮层里：点气泡（选字、复制）不算"点在外面"
+    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hidePickPop();
   });
   // 体检浮层同理：点外面收掉，点自己的按钮不算（否则按下去就没了）
@@ -5560,7 +5576,7 @@ function init() {
     const pop = $('checkPop');
     if (!pop || pop.hidden) return;
     const onBtn = e.target && e.target.closest ? e.target.closest('#checkBtn') : null;
-    if (pop.contains(e.target) || onBtn) return;
+    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hideCheckPop();
   });
   // 互转浮层同理
@@ -5568,7 +5584,8 @@ function init() {
     const pop = $('convPop');
     if (!pop || pop.hidden) return;
     const onBtn = e.target && e.target.closest ? e.target.closest('#convBtn') : null;
-    if (pop.contains(e.target) || onBtn) return;
+    // 松手时浏览器补发的 click 会落到气泡上：这一下不能当成"点外面"把浮层关掉
+    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hideConvPop();
   });
   let findTimer = 0;
