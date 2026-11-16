@@ -692,6 +692,9 @@ class Handler(BaseHTTPRequestHandler):
             payload.setdefault("key_fit", "F")
             payload.setdefault("key_find", "Ctrl+F")
             payload["cache_note"] = _cache_note
+            # 系统临时目录：界面上"副本存放位置"留空时实际用的就是这里，
+            # 让它直接显示出来，不必让用户去猜
+            payload["temp_dir"] = tempfile.gettempdir()
             return self._send(200, {
                 "ok": True, "config": payload, "version": __version__,
                 # 色带的端点颜色只在这里给一份，设置页照着画预览条，不再抄第二遍。

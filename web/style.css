@@ -318,7 +318,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 /* 体检那颗图标用的是 1024 视图框，内容只占中间 640 高，按 19px 摆会比旁边的图标小一圈。
    放大到 23px，视觉高度才跟文件夹、设置那几颗对得上 */
 #checkBtn svg { width: 23px; height: 23px; }
-.ibtn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+.ibtn:hover { color: var(--text); background: transparent; border-color: var(--line); }
 .ibtn:active { filter: brightness(.96); }
 /* 激活态：按钮把面板开着的时候一直亮着，关掉自动落回去。
    跟"设置"页签里的 .on 同一套配色，用户不用猜现在是谁打开的 */
@@ -375,7 +375,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   border-radius: 4px;
   cursor: pointer;
 }
-.sb-close:hover { color: var(--text); background: var(--panel-alt); }
+.sb-close:hover { color: var(--text); background: transparent; }
 
 /* 窗口三键：无边框之后由界面自己画，只在原生壳里出现 */
 .winbtns { display: flex; align-items: center; gap: 2px; }
@@ -548,7 +548,7 @@ body.native-drop .empty { border-color: transparent; background: transparent; }
 }
 
 .modal-x svg { width: 15px; height: 15px; }
-.modal-x:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+.modal-x:hover { color: var(--text); background: transparent; border-color: var(--line); }
 
 .card-note {
   margin-top: 8px;
@@ -875,7 +875,7 @@ table.chip-table td {
 }
 
 .fold-btn svg { width: 14px; height: 14px; }
-.fold-btn:hover { color: var(--text); background: var(--panel-alt); border-color: var(--line); }
+.fold-btn:hover { color: var(--text); background: transparent; border-color: var(--line); }
 
 .map-legend {
   display: flex;
@@ -1443,7 +1443,7 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
-.idp-tbtn:hover:not(:disabled) { background: var(--panel-alt); border-color: var(--line); }
+.idp-tbtn:hover:not(:disabled) { background: transparent; border-color: var(--line); }
 .idp-tbtn:disabled { color: var(--text-dim); opacity: 0.4; cursor: default; }
 /* 量算结果：钉在主体与工具行之间——不跟着主体滚动，
    点完尺子就在眼前，翻页时新要素的数原地替换（JS 把块插在工具行前面） */
@@ -1843,7 +1843,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-icon svg { width: 17px; height: 17px; }
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-icon[hidden] { display: none; }
-#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon:hover { background: var(--accent-soft); }
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon:hover { background: transparent; color: var(--accent); }
 
 /* 弹窗必须盖住地图上那些带 z-index 的浮层（它们最高到 8），
    不给层级的定位元素会排在带层级的前面，这就是之前盖不住的原因 */
@@ -1942,7 +1942,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   color: var(--text-dim);
   cursor: pointer;
 }
-.icon-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.icon-btn:hover { background: transparent; color: var(--accent); }
 .icon-btn svg { width: 17px; height: 17px; }
 
 /* 键盘操作：常规软件的快捷键表。左列是动作，中列可以点开改键 */
@@ -2171,10 +2171,10 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   border-radius: 5px;
   cursor: pointer;
 }
-.key-eye:hover { color: var(--text); background: var(--panel-alt); }
+.key-eye:hover { color: var(--text); background: transparent; }
 .key-eye svg { width: 17px; height: 17px; }
-/* 密钥下方的状态行：绿勾=已保存、黄三角=格式不对。图标与文字首行对齐 */
-.key-status {
+/* 输入类控件下方的状态行：绿勾=已生效、黄三角=有问题。图标与文字首行对齐 */
+.field-status {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -2183,22 +2183,24 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   line-height: 18px;
   color: var(--text-dim);
 }
-.key-status[hidden] { display: none; }
-.key-status .ks-ico { flex: none; width: 14px; height: 14px; margin-top: 2px; fill: var(--text-dim); }
-.key-status.ok .ks-warn { display: none; }
-.key-status.warn .ks-check { display: none; }
-.key-status.ok { color: #2b8a52; }
-.key-status.ok .ks-ico { fill: #2b8a52; }
-.key-status.warn { color: var(--warn-ico); }
-.key-status.warn .ks-ico { fill: var(--warn-ico); }
-:root[data-tone="dark"] .key-status.ok { color: #6cc48d; }
-:root[data-tone="dark"] .key-status.ok .ks-ico { fill: #6cc48d; }
+.field-status[hidden] { display: none; }
+.field-status .ks-ico { flex: none; width: 14px; height: 14px; margin-top: 2px; fill: var(--text-dim); }
+.field-status:empty { display: none; }
+.field-status.ok .ks-warn { display: none; }
+.field-status.warn .ks-check { display: none; }
+/* 只要图标是绿的：整句都刷绿，两行并排时像两条警告 */
+.field-status.ok { color: var(--text-dim); }
+.field-status.ok .ks-ico { fill: #2b8a52; }
+.field-status.warn { color: var(--warn-ico); }
+.field-status.warn .ks-ico { fill: var(--warn-ico); }
+:root[data-tone="dark"] .field-status.ok .ks-ico { fill: #6cc48d; }
 /* 默认睁眼（点了就显示）；正显示密钥时换成划掉的眼，示意"再点就藏回去" */
 /* 眼睛图标跟"密钥现在是否露出来"一致：藏着时闭眼，点开才睁眼 */
-.key-eye .eye-show { display: block; }
-.key-eye .eye-hide { display: none; }
-.key-eye.peeking .eye-show { display: none; }
-.key-eye.peeking .eye-hide { display: block; }
+/* 图标跟"密钥现在露没露"一致：藏着（密码态）画划掉的眼，点开成明文才是睁眼 */
+.key-eye .eye-show { display: none; }
+.key-eye .eye-hide { display: block; }
+.key-eye.peeking .eye-show { display: block; }
+.key-eye.peeking .eye-hide { display: none; }
 
 .loading { color: var(--text-dim); padding: 12px 0; }
 .side-note { font-size: 12px; color: var(--text-dim); }
@@ -2880,7 +2882,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   cursor: pointer;
 }
 .cp-head-btn[hidden] { display: none; }
-.cp-head-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.cp-head-btn:hover { color: var(--accent); background: transparent; }
 .cp-head-btn svg { width: 15px; height: 15px; display: block; }
 .cp-row { display: flex; align-items: center; gap: 6px; padding-right: 9px; }
 /* 输入框里嵌两颗按钮（文件、文件夹）：跟设置页 .icon-row 同一套做法 */
@@ -2921,7 +2923,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 #checkFilePick { right: 31px; }
 #checkPathPick { right: 3px; }
-.cp-in:hover { color: var(--accent); background: var(--accent-soft); }
+.cp-in:hover { color: var(--accent); background: transparent; }
 /* 顶栏"选择文件"那颗是同款图标：视图框 1251×1024，按宽度给尺寸，高度自然收起，
    和内嵌的 24 格线性图标差不多高 */
 .cp-in svg { width: 16px; height: 16px; }

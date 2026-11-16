@@ -3057,12 +3057,12 @@ function rememberLast(path, data) {
 /* 按控件 id 挂提示；一两句话把"这是什么、调了会怎样"说清楚。
    这些内容原来是各设置项下面的小字说明，统一改挂在气泡里，措辞从简、从正式 */
 const SETTING_TIPS = {
-  cfgBasemap: '地图底层使用的地图服务\n天地图影像、天地图矢量需要密钥\nEsri 影像、OpenStreetMap、高德影像都不要密钥\n选"无底图"时背景为纯色',
-  cfgAnnotation: '在底图上叠地名、路名等注记\n天地图两种底图自带注记层，可单独开关\nEsri 影像本身没有注记，勾选后叠天地图的，要密钥\nOpenStreetMap 瓦片自带注记、高德是 GCJ-02 基准，这两项不显示本条',
-  cfgKey: '天地图密钥，只保存在本机配置里\n到天地图开放平台申请"浏览器端"类型\n软件以本机网页方式运行，与授权域名无关',
+  cfgBasemap: '地图底层使用的地图服务\n**天地图影像**、**天地图矢量**需要密钥\n**Esri 影像**、**OpenStreetMap**、**高德影像**都不要密钥\n选"**无底图**"时背景为纯色',
+  cfgAnnotation: '在**底图**上叠地名、路名等**注记**\n**天地图**两种底图自带注记层，可单独开关\n**Esri 影像**本身没有注记，勾选后叠天地图的，要密钥\n**OpenStreetMap** 瓦片自带注记、**高德**是 GCJ-02 基准，这两项不显示本条',
+  cfgKey: '**天地图密钥**只保存在本机配置里\n到天地图开放平台申请"浏览器端"类型\n软件以本机网页方式运行，与授权域名无关',
   cfgRamp: '单色分级显示影像时用的颜色系列\n由低值到高值依次取色\n下拉选项就是实际配色',
   cfgClassCount: '分级上色把数值范围分成几档\n档数越多层次越细\n过密时画面容易显得破碎',
-  cfgNodata: '数值等于 NoData 的像元怎么画\n透出底图、涂黑或涂白\n只影响显示，不动源文件',
+  cfgNodata: '数值等于 NoData 的像元怎么画\n透出**底图**、涂黑或涂白\n只影响显示，不动源文件',
   cfgRasterDefault: '打开多波段文件的默认显示方式\n取前三个波段合成彩色画面\n或取第一个波段做单色分级',
   cfgVectorColor: '矢量要素的填充、描边与数据范围框用的颜色\n只影响显示',
   cfgDrawLimit: '视野里一次最多画多少个要素\n调大能看到更多细节\n移动、缩放后每次重画会更慢\n超过上限会弹提示，动一下地图继续加载',
@@ -3073,8 +3073,8 @@ const SETTING_TIPS = {
   cfgZoom: '只缩放界面文字与面板\n地图画布不参与缩放\n所以不影响坐标取点的精度',
   cfgAlpha: '浮在地图上的面板的不透明度\n顶栏与右侧信息栏始终不透明',
   cfgToastSec: '错误与提示浮层停留多久自动收起\n定位、整列复制这类进行中的提示不会中途消失\n点一下浮层可以立即关掉',
-  cfgOpenDir: '点"打开文件""打开文件夹"时从哪个目录起步\n留空就用上次打开文件所在的位置\n也可以点"选择…"固定一个目录',
-  cachePath: '打开过的文件的元数据、直方图、缩略图与矢量索引都放在这里\n清空只会让下次读取变慢，不动源文件',
+  cfgOpenDir: '点"**打开文件**""**打开文件夹**"时从哪个目录起步\n留空就用上次打开文件所在的位置\n也可以点"**选择…**"固定一个目录',
+  cachePath: '打开过的文件的元数据、直方图、缩略图与矢量索引都放在这里\n清空只会让下次读取变慢，不动源文件\n这一栏由软件管理，不能手动改',
   cfgCloseAct: '点窗口右上角关闭按钮时的行为\n驻留托盘：任务栏不再保留按钮，可从托盘或快捷键唤回\n直接退出：进程结束',
   cfgCloseAsk: '勾选后每次点关闭都先问一句：驻留托盘还是直接退出\n不勾选就按上面选的行为直接执行',
   cfgAutoStart: '开机后自动启动并驻留托盘\n不弹窗口，任务栏也不显示按钮\n通过托盘图标或快捷键唤出',
@@ -3082,7 +3082,7 @@ const SETTING_TIPS = {
   cfgUpdFreq: '检查新版本的频率\n检查时只访问发布页一次\n其余时间不联网',
   cfgRestore: '启动时自动打开上次查看的文件',
   cfgRecentMax: '顶栏路径框点开时"最近打开"最多显示几条\n记录池最多留 20 条，调小不用重新攒',
-  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取\n软件退出后自动删除\n读取结果的缓存在"缓存位置"那一栏，不是这个目录',
+  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取\n软件退出后自动删除\n读取结果的缓存在"**缓存位置**"那一栏，不是这个目录',
   cfgKeepHours: '软件异常退出时临时副本保留多久\n超过后自动清理',
 };
 
@@ -3753,15 +3753,40 @@ const TDT_KEY_RE = /^[A-Za-z0-9]{32}$/;
 
 let keyTouched = false;   // 用户手动动过密钥栏：只有这时才允许把空值写进配置
 
-function paintKeyStatus(kind, text) {
-  const box = $('keyStatus');
-  const label = $('keyStatusText');
-  if (!box || !label) return;
+/* 输入控件下方那行状态：ok=绿勾，warn=黄三角，空=整行收起 */
+function paintFieldStatus(id, kind, text) {
+  const box = $(id);
+  if (!box) return;
+  const label = box.querySelector('span');
   if (!kind) { box.hidden = true; return; }
   box.hidden = false;
   box.classList.toggle('ok', kind === 'ok');
   box.classList.toggle('warn', kind !== 'ok');
-  label.textContent = text || '';
+  if (label) label.textContent = text || '';
+}
+
+function paintKeyStatus(kind, text) { paintFieldStatus('keyStatus', kind, text); }
+
+/* 起始目录：填了就报出来，空着就说清楚会跟随哪儿 */
+function paintOpenDirStatus() {
+  const v = ($('cfgOpenDir').value || '').trim();
+  paintFieldStatus('cfgOpenDirStatus', 'ok',
+    v ? '已设置：' + v : '未设置：文件框默认停在上次打开文件所在的文件夹。');
+}
+
+/* 副本目录：空着时用系统临时目录，这里直接把实际用的路径写出来 */
+function paintCacheDirStatus() {
+  const v = ($('cfgCache').value || '').trim();
+  const tmp = config.temp_dir || '';
+  const note = config.cache_note || '';
+  if (note) { paintFieldStatus('cfgCacheStatus', 'warn', note); return; }
+  if (!v) {
+    paintFieldStatus('cfgCacheStatus', 'ok',
+      tmp ? '当前使用系统临时目录：' + tmp : '当前使用系统临时目录。');
+    return;
+  }
+  paintFieldStatus('cfgCacheStatus', 'ok',
+    tmp && samePath(v, tmp) ? '当前使用系统临时目录：' + v : '已设置：' + v);
 }
 
 /* 保存结果的确认：面板开着就一直留着，关面板时收起。
@@ -3770,10 +3795,10 @@ function flashKeySaved() {
   const v = ($('cfgKey').value || '').trim();
   if (!v) { paintKeyStatus('', ''); return; }
   if (!TDT_KEY_RE.test(v)) {
-    paintKeyStatus('warn', '这不是有效的天地图密钥：应为 32 位字母与数字，请到天地图开放平台复制"浏览器端"密钥。');
+    paintKeyStatus('warn', '天地图密钥无效，请到天地图开放平台复制"浏览器端"密钥。');
     return;
   }
-  paintKeyStatus('ok', '密钥已保存，底图会用这一份密钥加载。');
+  paintKeyStatus('ok', '密钥已生效，底图会用这一份密钥加载。');
 }
 
 function paintBasemapFields() {
@@ -3821,7 +3846,9 @@ function fillSettings() {
   $('cfgRestore').checked = !!config.restore_last;
   $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
-  $('cfgCache').value = config.cache_dir || '';
+  /* 副本存放位置留空时直接填上系统临时目录：让用户看见实际用的是哪，
+     而不是对着一个"留空则用临时目录"的占位符去猜 */
+  $('cfgCache').value = config.cache_dir || config.temp_dir || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
@@ -3849,18 +3876,16 @@ function fillSettings() {
   $('hk3Hint').textContent = '';
   sysNote('');
   paintCacheHint();
+  paintOpenDirStatus();
+  paintCacheDirStatus();
   refreshCacheSize();
   document.querySelectorAll('#settings select').forEach((s) => window.syncSelect(s));
 }
 
-/* 副本目录用不了的时候引擎会退回系统临时目录，原因得自己说出来；
-   平时这一行是空的（说明文字已移进"副本存放位置"的提示气泡） */
+/* 副本目录用不了的时候引擎会退回系统临时目录，原因得自己说出来。
+   这段说明现在并进"副本存放位置"下方的状态行，不再单独占一行 */
 function paintCacheHint() {
-  const note = config.cache_note || '';
-  const hint = $('cfgCacheHint');
-  hint.textContent = note;
-  hint.hidden = !note;
-  hint.classList.toggle('bad', !!note);
+  paintCacheDirStatus();
 }
 
 /* ---------- 数据缓存：显示占用 + 一键清空 ---------- */
@@ -4261,30 +4286,6 @@ function convSuffixValue() {
   return (box && box.value.trim()) || '';
 }
 
-/* 打开浮层时先按同一套规则把落点算出来填上：等预检回来再换成引擎给的值，
-   两次高度一样，浮层不会先矮后高。算不准（没有格式清单、路径是压缩包成员）就留空，
-   让预检那次去填——那种情况下宁可闪一下也不写错 */
-function convPredictPath() {
-  const path = convTargetPath();
-  const fmt = (convFormats || []).find((f) => f.key === convFmtKey());
-  if (!path || !fmt || !fmt.ext) return '';
-  /* 只给"当前这份数据本身就能转"的情况预估：栅格根本没有输出可言，
-     预估出来的 xxx_转出.csv 会误导人。手填了别的路径也不猜——预检回来再说 */
-  const cur = current && current.data;
-  const same = cur && samePath(path, convDefaultTarget());
-  if (!same || cur.kind === 'raster') return '';
-  const norm = path.replace(/\\/g, '/');
-  const slash = norm.lastIndexOf('/');
-  const dir = slash > 0 ? norm.slice(0, slash) : '';
-  let base = norm.slice(slash + 1);
-  const dot = base.lastIndexOf('.');
-  if (dot > 0) base = base.slice(0, dot);
-  const suffix = convSuffixValue() || '_转出';
-  const outDir = (($('convOut') && $('convOut').value.trim()) || dir).replace(/\//g, '\\');
-  if (!outDir || !base) return '';
-  return outDir.replace(/\\+$/, '') + '\\' + base + suffix + fmt.ext;
-}
-
 /* 允许覆盖：勾上之后引擎先删旧的连伴生文件一起，再写新的 */
 function convOverwrite() {
   const box = $('convOver');
@@ -4378,9 +4379,9 @@ function showConvPop() {
   // 立刻预检（不等防抖）：浮层打开的那一帧就开始算，结果到了原地填进去
   convLoadLayers(true);
   updateConvRun();
+  // 落点只认预检结果：没通过就没有落点可言（栅格、路径不存在都算没通过）
   const hint = $('convOutHint');
-  const guess = convPredictPath();
-  if (hint && guess) hint.textContent = guess;
+  if (hint) hint.textContent = '';
 }
 
 function hideConvPop() {
@@ -4489,6 +4490,8 @@ function convScheduleDry() {
 /* 换了输入文件、图层、格式、后缀、覆盖开关或输出目录，上一次的结果就对不上当前设置 */
 function clearConvResult() {
   clearConvStatus();
+  const hint = $('convOutHint');
+  if (hint) hint.textContent = '';
   updateConvRun();
 }
 
@@ -4717,10 +4720,17 @@ window.GisHost = function (name, value) {
   if (name === 'dir') {
     // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
     const where = dirPickTarget === 'check' ? $('checkPath')
-      : dirPickTarget === 'conv' ? $('convOut') : $('cfgOpenDir');
+      : dirPickTarget === 'conv' ? $('convOut')
+      : dirPickTarget === 'cache' ? $('cfgCache') : $('cfgOpenDir');
     const fromCheck = dirPickTarget === 'check';
     dirPickTarget = '';
-    if (where) { where.value = String(value || ''); if (where.id === 'cfgOpenDir') applySettings(); }
+    if (where) {
+      where.value = String(value || '');
+      if (where.id === 'cfgOpenDir' || where.id === 'cfgCache') {
+        applySettings();
+        if (where.id === 'cfgOpenDir') paintOpenDirStatus(); else paintCacheDirStatus();
+      }
+    }
     if (fromCheck && where && where.value.trim()) runCheck();
     return;
   }
@@ -5627,7 +5637,7 @@ function init() {
     markBtn('settingsBtn', true);
     // 面板一开就告诉用户"这份密钥在"，不用他再去点一下才知道
     if (($('cfgKey').value || '').trim()) {
-      if (TDT_KEY_RE.test($('cfgKey').value.trim())) paintKeyStatus('ok', '密钥已保存，底图会用这一份密钥加载。');
+      if (TDT_KEY_RE.test($('cfgKey').value.trim())) paintKeyStatus('ok', '密钥已生效，底图会用这一份密钥加载。');
       else flashKeySaved();
     } else paintKeyStatus('', '');
   });
@@ -5661,6 +5671,9 @@ function init() {
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
+  $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; toShell('pickdir'); });
+  $('cfgOpenDir').addEventListener('input', paintOpenDirStatus);
+  $('cfgCache').addEventListener('input', paintCacheDirStatus);
   // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、看结论都在这一块里
   $('checkBtn').addEventListener('click', toggleCheckPop);
   // 选完就查：没有"开始体检"按钮之后，选择动作本身就是触发条件
@@ -5764,7 +5777,7 @@ function init() {
     const v = ($('cfgKey').value || '').trim();
     if (!v) { paintKeyStatus('', ''); }
     else if (!TDT_KEY_RE.test(v)) {
-      paintKeyStatus('warn', '这不是有效的天地图密钥：应为 32 位字母与数字，请到天地图开放平台复制"浏览器端"密钥。');
+      paintKeyStatus('warn', '天地图密钥无效，请到天地图开放平台复制"浏览器端"密钥。');
     } else {
       paintKeyStatus('', '');
     }
