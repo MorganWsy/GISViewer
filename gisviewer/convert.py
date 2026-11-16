@@ -30,7 +30,7 @@ FORMATS = [
     {"key": "shp", "label": "ESRI Shapefile", "ext": ".shp", "driver": "ESRI Shapefile",
      "note": "字段名最长 10 个字符，超出部分会被截断；属性编码写为 UTF-8，并附带 .cpg 文件。"},
     {"key": "geojson", "label": "GeoJSON", "ext": ".geojson", "driver": "GeoJSON",
-     "note": "文本格式，字段名不限长；按规范只收 WGS 84 经纬度，输入文件是投影坐标时会自动换算成经纬度。"},
+     "note": "文本格式，字段名不限长；按规范只收 WGS 84 经纬度，输入文件是投影坐标时会自动换算；坐标保留 7 位小数（约 1 厘米）。"},
     {"key": "gpkg", "label": "GeoPackage", "ext": ".gpkg", "driver": "GPKG",
      "note": "单文件可容纳多个图层，字段名不限长。"},
     {"key": "kml", "label": "KML", "ext": ".kml", "driver": "KML",
@@ -387,9 +387,6 @@ def _precheck(src_lyr, fmt):
     if fmt["key"] in _SINGLE_GEOM and ogr.GT_Flatten(src_lyr.GetGeomType()) == ogr.wkbUnknown:
         out.append("%s 每个图层只能存一种几何，这份数据含多种几何，"
                    "将按几何类型分开写出成多个文件。" % fmt["label"])
-    if fmt["key"] in _WGS84_ONLY and not _srs_is_wgs84(src_lyr.GetSpatialRef()):
-        out.append("输入文件的坐标系是 %s，写入时将重投影到 WGS 84（该格式按规范只收经纬度）。"
-                   % (_srs_label(src_lyr.GetSpatialRef()) or "未记录"))
     return out
 
 
@@ -499,10 +496,8 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                 if not overwrite:
                     return {"ok": False, "error": {
                         "title": "输出位置已存在同名文件",
-                        "hint": "不会覆盖已有文件。请换一个「文件后缀」，或先移动 %s，"
-                                "也可以勾上「允许覆盖同名文件」。" % os.path.basename(tpath)}}
-                warnings.append("同名文件已存在，按「允许覆盖」重写：%s"
-                                % os.path.basename(tpath))
+                        "hint": "请更换输出后缀，或先移动 %s，也可以勾选「允许覆盖同名文件」。"
+                                % os.path.basename(tpath)}}
 
             before = _layer_summary(src_lyr, src, dbfenc.detect(src))
             # 只收经纬度的格式：源数据是投影坐标就换算过去；没有坐标系记录的没法换
@@ -616,8 +611,6 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                 warnings.append("已跳过 %d 个无几何要素（%s 要求要素带几何）。" % (no_geom, fmt["label"]))
             if dropped_fields:
                 warnings.append("%d 个属性字段无法保存（%s 不支持）。" % (dropped_fields, fmt["label"]))
-            if xf is not None:
-                warnings.append("坐标已从 %s 重投影到 WGS 84。" % (before.get("crs") or "源坐标系"))
             if fmt["key"] == "csv":
                 for _c, tpath in targets:
                     _write_prj(tpath, src_lyr.GetSpatialRef())
@@ -626,8 +619,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                 "UTF-8" if fmt["key"] in ("geojson", "gpkg", "gml", "kml", "fgb", "gpx",
                                           "topojson", "geoparquet") else None)
             # 预检里"将要…"那几句，转换完已经有带数字的实际结果，留着就是同一件事说两遍
-            done = ("每个图层只能存一种几何", "写入时将重投影到",
-                    "DXF 仅保存几何", "GPX 不支持面与无几何要素")
+            done = ("每个图层只能存一种几何", "DXF 仅保存几何", "GPX 不支持面与无几何要素")
             warnings = [w for w in warnings if not any(k in w for k in done)]
             paths = [p for _c, p in targets]
             after = _after_summary_many(paths, enc, fmt["key"])
@@ -859,6 +851,10 @@ def _write_one(path, fmt, src_lyr, src_defn, out_srs, out_geom, xf=None,
     layer_opts = []
     if fmt["key"] == "shp":
         layer_opts.append("ENCODING=UTF-8")
+    if fmt["key"] == "geojson":
+        # 经纬度保留 7 位小数：约 1.1 厘米。驱动默认给 15 位（1e-14 度），
+        # 多出来的位数没人用得上，只让文件变大。KML 驱动不认这个选项，不传
+        layer_opts.append("COORDINATE_PRECISION=7")
     if fmt["key"] == "csv":
         layer_opts.append("GEOMETRY=AS_WKT")
     if fmt["key"] == "tab":

@@ -3382,10 +3382,11 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .cv-over, .cv-run-wrap { flex: none; }
 /* 落点后面的两枚小图标：打开文件、在资源管理器中显示。只在转换成功后出现 */
+.cv-out-acts { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; vertical-align: -4px; }
 .cv-out-btn {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -3394,6 +3395,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   background: none;
   border: 0;
   border-radius: 4px;
+  cursor: pointer;   /* 图标按钮也要给出可点的指针 */
 }
 .cv-out-btn[hidden] { display: none; }
 .cv-out-btn:hover { color: var(--accent); background: transparent; }

@@ -72,12 +72,7 @@ def _vector(layer, result, items):
                            "要素数为 0，加载后不显示任何内容",
                            "确认导出时是否漏选数据，或过滤条件是否排除了全部要素",
                            cat="count"))
-    if not layer.get("crs"):
-        items.append(_item("warn", "缺少坐标系定义",
-                           "坐标只能按原始数值临时定位，位置不可信，且无法与其他图层对齐",
-                           "在数据源中补充坐标系（.prj 或图层定义）后重新导出",
-                           cat="crs"))
-    elif layer.get("geometry_type_is_mixed") or layer.get("geometry_is_mixed"):
+    if layer.get("crs") and (layer.get("geometry_type_is_mixed") or layer.get("geometry_is_mixed")):
         items.append(_item("warn", "同一图层包含多种几何类型",
                            "点、线、面混在同一图层，绘制与统计需按各自类型分别处理",
                            "一般不影响浏览；如需按类型统计，建议拆分图层后导出",
@@ -109,6 +104,53 @@ def _vector(layer, result, items):
                            "坐标系定义可能不完整，地图上无法正确定位",
                            "检查坐标系定义是否完整",
                            cat="extent"))
+
+
+def _crs_check(result, items):
+    """坐标系诊断：一份文件只出一条结论。
+
+    查四件事：有没有坐标系、标注与坐标数值是否相符、各图层是否同一套、
+    这套坐标系叫什么（写进说明，省得用户再点开看）。
+    """
+    layers = result.get("layers") or []
+    if not layers:
+        return
+    missing = [l for l in layers if not l.get("crs")]
+    if missing:
+        items.append(_item("warn", "缺少坐标系定义",
+                           "坐标只能按原始数值临时定位，位置不可信，且无法与其他图层对齐",
+                           "在数据源中补充坐标系（.prj 或图层定义）后重新导出",
+                           cat="crs"))
+        return
+    # 标注与数值矛盾：这是最要紧的一条，比"缺坐标系"更危险——文件看着有坐标系
+    warns = [(l.get("name") or "", l.get("warning")) for l in layers if l.get("warning")]
+    if warns:
+        detail = warns[0][1]
+        if len(warns) > 1:
+            detail = "%s（共 %d 个图层）" % (detail, len(warns))
+        items.append(_item("bad", "坐标系标注与坐标数值不符", detail,
+                           "这是文件本身的问题，图览不会替你猜坐标系："
+                           "先在其他软件中改正坐标系定义，再重新导出",
+                           cat="crs"))
+        return
+    labels = []
+    for l in layers:
+        lbl = (l.get("crs") or {}).get("label") or ""
+        if lbl and lbl not in labels:
+            labels.append(lbl)
+    if len(labels) > 1:
+        items.append(_item("warn", "各图层坐标系不一致",
+                           "同一文件里出现 %d 套坐标系：%s" % (len(labels), "、".join(labels[:3])),
+                           "叠图时会错位，建议统一坐标系后重新导出",
+                           cat="crs"))
+        return
+    # 一切正常时也把坐标系写出来：体检表里"坐标系"这一行直接是它的名字，
+    # 用户不必再点开别处确认这份数据到底是什么坐标系
+    first = layers[0].get("crs") or {}
+    detail = None
+    if first.get("kind") == "projected":
+        detail = "投影坐标系，坐标单位为%s" % (first.get("unit_label") or "未知")
+    items.append(_item("ok", labels[0], detail, cat="crs"))
 
 
 def _raster(result, items):
@@ -144,7 +186,9 @@ def _collapse(rows):
     """同一句结论落在多个图层上时合成一条：六十个图层的文件不该刷六十行。"""
     order, groups = [], {}
     for it in rows:
-        key = (it["level"], it["title"])
+        # "没问题"的条目按类别合并：坐标系这类信息写的是同一套定义，
+        # 按标题合并会把图层名一路缀在后面，读着像在列清单
+        key = (it["level"], it["cat"] if it["level"] == "ok" else it["title"])
         if key not in groups:
             groups[key] = []
             order.append(key)
@@ -154,7 +198,7 @@ def _collapse(rows):
         got = groups[key]
         base = {k: v for k, v in got[0].items() if k != "layer"}
         names = [it.get("layer") or "" for it in got if it.get("layer")]
-        if len(got) > 1 and names:
+        if len(got) > 1 and names and base.get("level") != "ok":
             tail = "、".join(names[:4]) + ("…" if len(names) > 4 else "")
             base["detail"] = "%s（共 %d 个图层：%s）" % (
                 base.get("detail") or "", len(got), tail)
@@ -248,6 +292,7 @@ def judge(result):
                 it["layer"] = layer.get("name") or ""
             rows.extend(got)
         items.extend(_collapse(rows))
+        _crs_check(result, items)
     elif kind == "raster":
         _raster(result, items)
     elif not kind:

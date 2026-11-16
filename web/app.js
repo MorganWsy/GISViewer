@@ -4279,7 +4279,9 @@ let convDryTimer = 0;
 let convBusy = false;
 let convPathDirty = false;   // 用户在浮层里手填过输入文件：这时不再跟着地图走
 let convOutPicked = false;   // 用户自己选过输出目录：之后不再跟着输入文件走
-let lastOutPath = '';        // 最近一次预检给出的落点：两枚"打开"按钮用它
+let convDrySig = '';         // 上一次预检的参数指纹
+let convDryDone = false;     // 指纹对应的结果已经拿到
+let convDrySeq = 0;          // 请求序号：晚到的旧响应直接丢弃
 let convReady = false;       // 预检通过才允许点"开始转换"（栅格、路径不存在都算没通过）
 
 function convDefaultTarget() {
@@ -4324,10 +4326,6 @@ function paintConvOutHint(text) {
   // 悬停用软件自己的气泡（data-tip 是全局代理的，动态改也立刻生效）
   if (one) box.setAttribute('data-tip', one);
   else box.removeAttribute('data-tip');
-  // 两个"打开"按钮跟着落点一起出现、一起收起
-  const have = !!one;
-  lastOutPath = one;
-  ['convOpenFile', 'convReveal'].forEach((id) => { const b = $(id); if (b) b.hidden = !have; });
 }
 
 /* 输出目录默认就是输入文件所在目录：直接填进框里，比留一句"默认与输入文件相同"清楚 */
@@ -4447,11 +4445,12 @@ function showConvPop() {
     if (cur) input.value = cur;
   }
   syncConvOutDir();
-  // 立刻预检（不等防抖）：浮层打开的那一帧就开始算，结果到了原地填进去
-  convLoadLayers(true);
   updateConvRun();
-  // 落点只认预检结果：没通过就没有落点可言（栅格、路径不存在都算没通过）
-  paintConvOutHint('');
+  /* 格式清单就绪后再预检：清单没到之前只能猜一个默认格式，猜错会先闪一张错误卡片 */
+  loadConvFormats().then((ready) => {
+    if (!ready || !pop || pop.hidden) return;
+    convLoadLayers(true);
+  });
 }
 
 function hideConvPop() {
@@ -4472,13 +4471,17 @@ function toggleConvPop() {
 
 function loadConvFormats() {
   const sel = $('convFmt');
-  if (!sel) return;
-  if (convFormats) { paintConvFmt(); return; }
-  fetch('/api/convert_formats').then((r) => r.json()).then((d) => {
+  if (!sel) return Promise.resolve(false);
+  if (convFormats) { paintConvFmt(); return Promise.resolve(true); }
+  return fetch('/api/convert_formats').then((r) => r.json()).then((d) => {
     convFormats = (d && d.ok && d.formats) || [];
     paintConvFmt();
     convScheduleDry();
-  }).catch(() => { convError('无法读取格式清单。', '请关闭浮层后重试。'); });
+    return true;
+  }).catch(() => {
+    convError('无法读取格式清单。', '请关闭浮层后重试。');
+    return false;
+  });
 }
 
 function paintConvFmt() {
@@ -4557,8 +4560,16 @@ function convScheduleDry() {
   convDryTimer = setTimeout(runConvDry, 250);
 }
 
+/* 预检的参数指纹：一模一样的输入不重算——每次开浮层都重跑一遍，
+   界面就会先清空再填回来，看着就是闪 */
+function convSignature() {
+  return [convTargetPath(), convLayerIndex(), convFmtKey(), convSuffixValue(),
+    ($('convOut') || {}).value || '', convOverwrite() ? '1' : '0'].join('\u0001');
+}
+
 /* 换了输入文件、图层、格式、后缀、覆盖开关或输出目录，上一次的结果就对不上当前设置 */
 function clearConvResult() {
+  convDryDone = false;
   clearConvStatus();
   paintConvOutHint('');
   updateConvRun();
@@ -4569,6 +4580,10 @@ function runConvDry() {
   const sum = $('convSrcSum');
   const box = convStatusBox();
   if (!sum || !box) return;
+  // 格式清单还没到：此时无从判断"能不能转"，先不算，免得先弹一张错误的卡片
+  if (!convFormats) return;
+  const sig = convSignature();
+  if (sig === convDrySig && convDryDone) return;
   const path = convTargetPath();
   const fmtKey = convFmtKey();
   const fmt = (convFormats || []).find((f) => f.key === fmtKey);
@@ -4591,6 +4606,7 @@ function runConvDry() {
     convError('文件后缀不合法', '只能包含字母、数字、汉字、下划线、连字符与点，不能带路径分隔符或通配符。');
     return;
   }
+  const seq = ++convDrySeq;
   fetch('/api/convert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -4599,7 +4615,11 @@ function runConvDry() {
       suffix: convSuffixValue(), overwrite: convOverwrite(),
     }),
   }).then((r) => r.json()).then((d) => {
+    if (seq !== convDrySeq) return;                 // 已经有更新的一次预检在跑，这次作废
+    if (sig !== convSignature()) return;            // 参数在等待期间变了，结果对不上
     if ($('convPop') && $('convPop').hidden) return;
+    convDrySig = sig;
+    convDryDone = true;
     const box2 = convStatusBox();
     const sum2 = $('convSrcSum');
     if (!box2 || !sum2) return;
@@ -4693,10 +4713,35 @@ function renderConvError(err) {
   convError((err && err.title) || '转换未完成。', err && err.hint);
 }
 
+/* 输出文件后面那两枚按钮：用默认程序打开、在资源管理器中显示。
+   只在转换成功、拿到真实路径之后才建，失败时压根没有 */
+function convOpenBtns(path) {
+  const wrap = el('span', 'cv-out-acts');
+  if (!path) return wrap;
+  const mk = (cls, tip, svg, msg) => {
+    const b = el('button', 'cv-out-btn ' + cls);
+    b.type = 'button';
+    b.setAttribute('data-tip', tip);
+    b.setAttribute('aria-label', tip);
+    b.innerHTML = svg;
+    b.addEventListener('click', () => toShell(msg + path));
+    return b;
+  };
+  wrap.appendChild(mk('open', '用默认程序打开',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18.5 14.5V19a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
+    'openfile:'));
+  wrap.appendChild(mk('reveal', '在资源管理器中显示',
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l1.8 2h9A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5z"/></svg>',
+    'revealfile:'));
+  return wrap;
+}
+
 function renderConvResult(d) {
   const box = convStatusBox();
   if (!box) return;
   box.textContent = '';
+  // 结果行里已经给了完整路径，底栏那行再写一遍就是重复
+  paintConvOutHint('');
   const table = el('table', 'cv-cmp');
   const head = el('tr');
   ['项目', '转换前', '转换后'].forEach((t) => head.appendChild(el('th', null, t)));
@@ -4716,10 +4761,12 @@ function renderConvResult(d) {
   const out = el('div', 'cv-line');
   out.appendChild(el('b', null, outs.length > 1 ? '输出文件（按几何类型分开）：' : '输出文件：'));
   out.appendChild(document.createTextNode(outs[0] || ''));
+  out.appendChild(convOpenBtns(outs[0]));
   box.appendChild(out);
-  outs.slice(1).forEach((p) => {
+  outs.slice(1).forEach((pth) => {
     const row = el('div', 'cv-line cv-indent');
-    row.textContent = p;
+    row.appendChild(document.createTextNode(pth));
+    row.appendChild(convOpenBtns(pth));
     box.appendChild(row);
   });
   (d.warnings || []).forEach((w) => box.appendChild(convMsg('warn', w)));
@@ -5811,8 +5858,6 @@ function init() {
   $('convBtn').addEventListener('click', toggleConvPop);
   $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
   $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; pickFrom('convOut'); });
-  $('convOpenFile').addEventListener('click', () => { if (lastOutPath) toShell('openfile:' + lastOutPath); });
-  $('convReveal').addEventListener('click', () => { if (lastOutPath) toShell('revealfile:' + lastOutPath); });
   // 只读框：没有手输这回事，选中就算用户定了这个目录
   $('convOut').addEventListener('change', () => { convOutPicked = !!$('convOut').value.trim(); });
   $('convPath').addEventListener('keydown', (e) => {

@@ -418,7 +418,9 @@ def main(argv=None):
         status, data, _ = cli.post("/api/convert",
                                    {"path": str(src), "layer": 0, "fmt": "kml", "out_dir": str(out)})
         need(status == 200 and data.get("ok"), "投影坐标转 KML 失败：%s" % data.get("error"))
-        need(any("重投影" in w for w in data.get("warnings") or []), "没说明做了重投影")
+        # 提示里不再重复"将重投影"（格式说明已有），这里直接核对输出坐标本身
+        need(not [w for w in (data.get("warnings") or []) if "重投影" in w],
+             "不该再重复重投影提示：%s" % data.get("warnings"))
         text = Path(data.get("out_path") or "").read_text(encoding="utf-8", errors="replace")
         import re
         pairs = re.findall(r"<coordinates>\s*([-\d.eE+]+),([-\d.eE+]+)", text)
@@ -566,10 +568,11 @@ def main(argv=None):
         need(not data.get("ok"), "同名文件没被拦住")
         need("同名" in (data.get("error") or {}).get("title", ""), "没说清是同名：%s" % data.get("error"))
         need(target.read_bytes() == keep, "拒绝之后文件反而被改了")
-        # 预检也要能看出"这次会覆盖"
+        # 勾了覆盖就是用户自己的决定，不该再弹一句"会覆盖"
         status, data, _ = cli.post("/api/convert", dict(body, dry=True, overwrite=True))
         need(data.get("ok"), "勾了覆盖预检还失败：%s" % data.get("error"))
-        need(any("覆盖" in w for w in data.get("warnings") or []), "没说会覆盖：%s" % data.get("warnings"))
+        need(not [w for w in (data.get("warnings") or []) if "覆盖" in w],
+             "勾了覆盖还在提示覆盖：%s" % data.get("warnings"))
         status, data, _ = cli.post("/api/convert", dict(body, overwrite=True))
         need(status == 200 and data.get("ok"), "勾了覆盖仍然失败：%s" % data.get("error"))
         need(target.is_file(), "覆盖之后文件不见了")
