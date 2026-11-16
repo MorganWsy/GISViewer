@@ -216,7 +216,7 @@ def apply_cache_root():
         reason = exc.strerror or exc.__class__.__name__
         target = config_dir() / "cache"
         cache.init(config_dir())
-        note = "缓存位置用不了（" + reason + "），仍用默认位置"
+        note = "缓存目录不可用（" + reason + "），仍使用默认位置。"
     else:
         cache.repoint(target)
     try:
@@ -228,8 +228,8 @@ def apply_cache_root():
     if old and Path(old) != target:
         freed = _clear_cache_dir(old)
         if freed >= 0:
-            note = (note + "；" if note else "") + (
-                "旧缓存已清理（释放 " + _human_bytes(freed) + "）" if freed else "旧缓存已清理")
+            note = (note + " " if note else "") + (
+                "旧缓存已清除（释放 " + _human_bytes(freed) + "）。" if freed else "旧缓存已清除。")
     _cache_root_note = note
     return target, note
 
@@ -249,7 +249,7 @@ def cache_base():
     except OSError as exc:
         reason = exc.strerror or exc.__class__.__name__
         return (Path(tempfile.gettempdir()),
-                "设置里的副本目录用不了（" + reason + "），这一轮先放在系统临时目录")
+                "副本目录不可用（" + reason + "），本次改用系统临时目录。")
 
 
 def upload_root():
@@ -423,7 +423,7 @@ def _write_config(data):
     _write_text_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2))
     # 本轮的副本目录已经建好，中途换会把已复制的文件丢在原处，所以只能下次启动生效
     if _upload_root and str(payload.get("cache_dir") or "").strip() != _cache_dir_used:
-        _cache_note = "本轮仍用 " + str(_upload_root) + "，副本目录下次启动才换"
+        _cache_note = "本次仍使用 " + str(_upload_root) + "，副本目录的改动下次启动生效。"
     # 缓存位置改了立刻生效：缓存的读写都走 cache 模块，指过去就行，不用重启
     if "cache_root" in data:
         apply_cache_root()

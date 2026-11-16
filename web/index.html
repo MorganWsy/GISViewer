@@ -121,6 +121,12 @@
     <div class="cv-foot">
       <div class="cv-foot-row">
         <span class="cv-out" id="convOutHint"></span>
+        <button id="convOpenFile" class="cv-out-btn" type="button" data-tip="用默认程序打开转换结果" aria-label="用默认程序打开转换结果" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18.5 14.5V19a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10"/></svg>
+        </button>
+        <button id="convReveal" class="cv-out-btn" type="button" data-tip="在资源管理器中显示" aria-label="在资源管理器中显示" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5V6.8A1.8 1.8 0 0 1 4.8 5h4.1l1.6 2h8.2A1.8 1.8 0 0 1 20.5 8.8v8.4a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 17.2"/><path d="M3 9.5h17.5"/></svg>
+        </button>
         <label class="cv-over" data-tip="勾上之后，同名文件先删旧的再写；不勾就一律拒绝，不会动已有文件">
           <input type="checkbox" id="convOver"><i class="cv-box" aria-hidden="true"></i><span>允许覆盖同名文件</span>
         </label>

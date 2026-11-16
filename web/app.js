@@ -3782,7 +3782,7 @@ function syncDirClearBtns() {
 function paintOpenDirStatus() {
   const v = ($('cfgOpenDir').value || '').trim();
   paintFieldStatus('cfgOpenDirStatus', 'ok',
-    v ? '已设置：' + v : '未设置：文件框默认停在上次打开文件所在的文件夹。');
+    v ? '起始目录：' + v : '起始目录未指定，打开文件框时停在上次打开文件所在的文件夹。');
 }
 
 /* 缓存位置：设置里没指就跟随数据目录，指了但用不了要说清 */
@@ -3795,7 +3795,7 @@ function paintCachePathStatus() {
   // 只有"想用的位置"与"实际生效的位置"不一致时才算没生效，说明由引擎给
   const fellBack = !!(intent && eff && !samePath(intent, eff));
   if (fellBack && note) { paintFieldStatus('cachePathStatus', 'warn', note); return; }
-  paintFieldStatus('cachePathStatus', 'ok', eff ? '当前使用：' + eff : '');
+  paintFieldStatus('cachePathStatus', 'ok', eff ? '缓存目录：' + eff : '');
 }
 
 /* 副本目录：空着时用系统临时目录，这里直接把实际用的路径写出来 */
@@ -3806,11 +3806,11 @@ function paintCacheDirStatus() {
   if (note) { paintFieldStatus('cfgCacheStatus', 'warn', note); return; }
   if (!v) {
     paintFieldStatus('cfgCacheStatus', 'ok',
-      tmp ? '当前使用系统临时目录：' + tmp : '当前使用系统临时目录。');
+      tmp ? '副本目录：' + tmp + '（系统临时目录）' : '副本目录：系统临时目录');
     return;
   }
   paintFieldStatus('cfgCacheStatus', 'ok',
-    tmp && samePath(v, tmp) ? '当前使用系统临时目录：' + v : '已设置：' + v);
+    tmp && samePath(v, tmp) ? '副本目录：' + v + '（系统临时目录）' : '副本目录：' + v);
 }
 
 /* 保存结果的确认：面板开着就一直留着，关面板时收起。
@@ -3819,10 +3819,10 @@ function flashKeySaved() {
   const v = ($('cfgKey').value || '').trim();
   if (!v) { paintKeyStatus('', ''); return; }
   if (!TDT_KEY_RE.test(v)) {
-    paintKeyStatus('warn', '天地图密钥无效，请到天地图开放平台复制"浏览器端"密钥。');
+    paintKeyStatus('warn', '天地图密钥无效。请到天地图开放平台申请"浏览器端"密钥后重新填写。');
     return;
   }
-  paintKeyStatus('ok', '密钥已生效，底图会用这一份密钥加载。');
+  paintKeyStatus('ok', '天地图密钥有效。');
 }
 
 function paintBasemapFields() {
@@ -4279,6 +4279,7 @@ let convDryTimer = 0;
 let convBusy = false;
 let convPathDirty = false;   // 用户在浮层里手填过输入文件：这时不再跟着地图走
 let convOutPicked = false;   // 用户自己选过输出目录：之后不再跟着输入文件走
+let lastOutPath = '';        // 最近一次预检给出的落点：两枚"打开"按钮用它
 let convReady = false;       // 预检通过才允许点"开始转换"（栅格、路径不存在都算没通过）
 
 function convDefaultTarget() {
@@ -4320,8 +4321,13 @@ function paintConvOutHint(text) {
   if (!box) return;
   const one = text || '';
   box.textContent = one;
-  if (one) box.title = one;
-  else box.removeAttribute('title');
+  // 悬停用软件自己的气泡（data-tip 是全局代理的，动态改也立刻生效）
+  if (one) box.setAttribute('data-tip', one);
+  else box.removeAttribute('data-tip');
+  // 两个"打开"按钮跟着落点一起出现、一起收起
+  const have = !!one;
+  lastOutPath = one;
+  ['convOpenFile', 'convReveal'].forEach((id) => { const b = $(id); if (b) b.hidden = !have; });
 }
 
 /* 输出目录默认就是输入文件所在目录：直接填进框里，比留一句"默认与输入文件相同"清楚 */
@@ -5727,7 +5733,7 @@ function init() {
     markBtn('settingsBtn', true);
     // 面板一开就告诉用户"这份密钥在"，不用他再去点一下才知道
     if (($('cfgKey').value || '').trim()) {
-      if (TDT_KEY_RE.test($('cfgKey').value.trim())) paintKeyStatus('ok', '密钥已生效，底图会用这一份密钥加载。');
+      if (TDT_KEY_RE.test($('cfgKey').value.trim())) paintKeyStatus('ok', '天地图密钥有效。');
       else flashKeySaved();
     } else paintKeyStatus('', '');
   });
@@ -5760,9 +5766,12 @@ function init() {
     if (cacheDirShown) toShell('openpath:' + cacheDirShown);
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
-  $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
-  $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; toShell('pickdir'); });
-  $('cachePathPick').addEventListener('click', () => { dirPickTarget = 'cachedir'; toShell('pickdir'); });
+  /* 选目录时从这一栏当前的路径起步：全从"起始目录"起步的话，
+     选副本目录、缓存目录都得自己再翻一遍 */
+  const pickFrom = (inputId) => toShell('pickdir:' + (($(inputId) || {}).value || '').trim());
+  $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; pickFrom('cfgOpenDir'); });
+  $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; pickFrom('cfgCache'); });
+  $('cachePathPick').addEventListener('click', () => { dirPickTarget = 'cachedir'; pickFrom('cachePath'); });
   /* 只读框本身不收焦点，点它等于点旁边那颗"选择"按钮 */
   [['cfgOpenDir', 'cfgOpenDirPick'], ['cfgCache', 'cfgCachePick'], ['cachePath', 'cachePathPick'], ['convOut', 'convDirPick']]
     .forEach(([inputId, pickId]) => {
@@ -5793,7 +5802,7 @@ function init() {
   $('checkBtn').addEventListener('click', toggleCheckPop);
   // 选完就查：没有"开始体检"按钮之后，选择动作本身就是触发条件
   $('checkFilePick').addEventListener('click', () => toShell('pickcheck'));
-  $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; toShell('pickdir'); });
+  $('checkPathPick').addEventListener('click', () => { dirPickTarget = 'check'; pickFrom('checkPath'); });
   // 路径框里回车等同确认，省得手离开键盘
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
@@ -5801,7 +5810,9 @@ function init() {
   // 格式互转：顶栏那颗按钮开浮层，四个输入加预检、转换都在这一块里
   $('convBtn').addEventListener('click', toggleConvPop);
   $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
-  $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; toShell('pickdir'); });
+  $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; pickFrom('convOut'); });
+  $('convOpenFile').addEventListener('click', () => { if (lastOutPath) toShell('openfile:' + lastOutPath); });
+  $('convReveal').addEventListener('click', () => { if (lastOutPath) toShell('revealfile:' + lastOutPath); });
   // 只读框：没有手输这回事，选中就算用户定了这个目录
   $('convOut').addEventListener('change', () => { convOutPicked = !!$('convOut').value.trim(); });
   $('convPath').addEventListener('keydown', (e) => {
@@ -5894,7 +5905,7 @@ function init() {
     const v = ($('cfgKey').value || '').trim();
     if (!v) { paintKeyStatus('', ''); }
     else if (!TDT_KEY_RE.test(v)) {
-      paintKeyStatus('warn', '天地图密钥无效，请到天地图开放平台复制"浏览器端"密钥。');
+      paintKeyStatus('warn', '天地图密钥无效。请到天地图开放平台申请"浏览器端"密钥后重新填写。');
     } else {
       paintKeyStatus('', '');
     }

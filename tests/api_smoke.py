@@ -307,15 +307,31 @@ def main(argv=None):
         labels = [f.get("label") for f in fmts]
         need(labels == sorted(labels, key=str.lower), "格式没按字母顺序：%s" % labels)
 
+    def _lonlat_geojson(name, count=3):
+        """在临时目录写一份合法的 WGS 84 经纬度 GeoJSON。"""
+        feats = []
+        for i in range(count):
+            feats.append({
+                "type": "Feature", "properties": {"name": "P%d" % i, "v": i},
+                "geometry": {"type": "Polygon", "coordinates": [[
+                    [110.0 + i * 0.1, 30.0], [110.05 + i * 0.1, 30.0],
+                    [110.05 + i * 0.1, 30.05], [110.0 + i * 0.1, 30.0]]]},
+            })
+        p = Path(tmp, name)
+        p.write_text(json.dumps({"type": "FeatureCollection", "features": feats},
+                                ensure_ascii=False), encoding="utf-8")
+        return p
+
     @check("convert 预检不落文件、转换有前后对比")
     def _(cli):
         out = Path(tmp, "conv-out")
-        body = {"path": str(china), "layer": 0, "fmt": "geojson",
+        src = _lonlat_geojson("conv-src.geojson")
+        body = {"path": str(src), "layer": 0, "fmt": "geojson",
                 "out_dir": str(out), "dry": True}
         status, data, _ = cli.post("/api/convert", body)
         need(status == 200 and data.get("ok"), "预检失败：%s" % data.get("error"))
         need(not out.exists(), "预检不该建输出目录")
-        need(data.get("before", {}).get("feature_count") == 35, "转换前要素数不对")
+        need(data.get("before", {}).get("feature_count") == 3, "转换前要素数不对")
         body["dry"] = False
         status, data, _ = cli.post("/api/convert", body)
         need(status == 200 and data.get("ok"), "转换失败：%s" % data.get("error"))
@@ -350,11 +366,25 @@ def main(argv=None):
         doc = json.loads(out_path.read_text(encoding="utf-8"))
         need(doc.get("type") == "Topology" and doc.get("arcs"), "不是 TopoJSON 结构")
 
+    @check("convert 源坐标与坐标系不符时，只收经纬度的格式明确拒绝")
+    def _(cli):
+        # china_small.geojson 是米制数值却没有坐标系记录（GeoJSON 按规范默认 WGS 84）。
+        # 这种文件转成只收经纬度的格式会把"米"当成"度"写进去，必须拒绝而不是照抄
+        out = Path(tmp, "bad-crs-out")
+        for fmt in ("geojson", "kml", "geoparquet"):
+            status, data, _ = cli.post("/api/convert",
+                                       {"path": str(china), "layer": 0, "fmt": fmt,
+                                        "out_dir": str(out), "dry": True})
+            need(status == 200 and not data.get("ok"),
+                 "%s 居然接受了坐标与坐标系不符的数据" % fmt)
+            need("无法" in (data.get("error") or {}).get("title", ""),
+                 "%s 的拒绝理由不对：%s" % (fmt, data.get("error")))
+
     @check("convert 支持 GeoParquet 输出，且能当矢量再打开")
     def _(cli):
         out = Path(tmp, "parquet-out")
         status, data, _ = cli.post("/api/convert",
-                                   {"path": str(china), "layer": 0, "fmt": "geoparquet",
+                                   {"path": str(_lonlat_geojson("pq-src.geojson")), "layer": 0, "fmt": "geoparquet",
                                     "out_dir": str(out)})
         need(status == 200 and data.get("ok"), "GeoParquet 转换失败：%s" % data.get("error"))
         cmp = {r["name"]: r for r in data.get("compare") or []}
@@ -369,7 +399,7 @@ def main(argv=None):
         need(status == 200 and info.get("ok"), "GeoParquet 打不开：%s" % info.get("error"))
         need(info.get("driver") == "Parquet", "驱动报错了：%s" % info.get("driver"))
         need(info.get("driver_label") == "GeoParquet", "格式名报错了：%s" % info.get("driver_label"))
-        need(info.get("feature_count_total") == 35, "读回要素数不对：%s" % info.get("feature_count_total"))
+        need(info.get("feature_count_total") == 3, "读回要素数不对：%s" % info.get("feature_count_total"))
         need(info["layers"][0].get("attr_encoding") == "UTF-8", "属性编码没给出来")
 
     @check("convert 投影坐标转 KML 会重投影到 WGS 84")

@@ -30,18 +30,18 @@ FORMATS = [
     {"key": "shp", "label": "ESRI Shapefile", "ext": ".shp", "driver": "ESRI Shapefile",
      "note": "字段名最长 10 个字符，超出部分会被截断；属性编码写为 UTF-8，并附带 .cpg 文件。"},
     {"key": "geojson", "label": "GeoJSON", "ext": ".geojson", "driver": "GeoJSON",
-     "note": "文本格式，字段名不限长，坐标为原始数值。"},
+     "note": "文本格式，字段名不限长；按规范只收 WGS 84 经纬度，输入文件是投影坐标时会自动换算成经纬度。"},
     {"key": "gpkg", "label": "GeoPackage", "ext": ".gpkg", "driver": "GPKG",
      "note": "单文件可容纳多个图层，字段名不限长。"},
     {"key": "kml", "label": "KML", "ext": ".kml", "driver": "KML",
      "note": "Google Earth 通用格式；按规范只收 WGS 84 经纬度，输入文件是投影坐标时会自动换算成经纬度。"},
     {"key": "gml", "label": "GML", "ext": ".gml", "driver": "GML",
-     "note": "OGC 通用交换格式，同目录另存 .xsd 结构文件。"},
+     "note": "OGC 通用交换格式，同目录另存 .xsd 结构文件；源坐标系有 EPSG 编号时写入 srsName，自定义坐标系无法写入。"},
     {"key": "csv", "label": "CSV", "ext": ".csv", "driver": "CSV", "note": ""},
     {"key": "fgb", "label": "FlatGeobuf", "ext": ".fgb", "driver": "FlatGeobuf",
      "note": "单文件二进制格式，适合大数据量分发。"},
     {"key": "tab", "label": "MapInfo TAB", "ext": ".tab", "driver": "MapInfo File",
-     "note": "MapInfo 旧版格式，同目录包含 tab、dat、id、map 四个文件。"},
+     "note": "MapInfo 旧版格式，同目录包含 tab、dat、id、map 四个文件；不保存坐标系，打开后需手动指定投影。"},
     {"key": "sqlite", "label": "SQLite", "ext": ".sqlite", "driver": "SQLite",
      "note": "通用数据库容器，字段名不限长。"},
     {"key": "gpx", "label": "GPX", "ext": ".gpx", "driver": "GPX",
@@ -60,8 +60,9 @@ _FMT = {f["key"]: f for f in FORMATS}
 _SKIP_GEOM = ("gpx",)
 # 字段名被硬性截断的目标
 _NAME_LIMIT = {"shp": 10}
-# 按规范只认 WGS 84 经纬度、坐标数值不做转换的目标
-_WGS84_ONLY = ("kml", "gpx", "topojson")
+# 按规范只认 WGS 84 经纬度的目标：源数据是投影坐标时先换算，否则文件里写着 WGS 84、
+# 数值却是米，谁读都是错的。GeoJSON（RFC 7946）属于这一类——它连 crs 成员都不许写
+_WGS84_ONLY = ("geojson", "kml", "gpx", "topojson")
 # 一个图层只放得下一种几何的目标：混合几何的数据按几何类型分开写出成多个文件
 _SINGLE_GEOM = ("shp", "tab", "dxf")
 
@@ -86,14 +87,50 @@ def _srs_name(lyr):
     return _srs_label(srs)
 
 
+# 这两个驱动对"图层单一几何类型"最严格：声明 Polygon 却写入 MultiPolygon 会直接报错
+_STRICT_GEOM = ("GPKG", "FlatGeobuf")
+_MULTI_OF = {}
+
+
+def _widen_geom(geom, driver_name):
+    """源图层写的是 Polygon、实际要素是 MultiPolygon 时，严格驱动会拒收。
+    按多部件建图层，单部件的要素照写不误（驱动会自动收进去）。"""
+    if driver_name not in _STRICT_GEOM:
+        return geom
+    if not _MULTI_OF:
+        _MULTI_OF.update({
+            ogr.wkbPoint: ogr.wkbMultiPoint,
+            ogr.wkbLineString: ogr.wkbMultiLineString,
+            ogr.wkbPolygon: ogr.wkbMultiPolygon,
+        })
+    return _MULTI_OF.get(ogr.GT_Flatten(geom), geom)
+
+
+def _as_multi(geom):
+    """单部件几何包成多部件。GPKG / FlatGeobuf 要求要素类型与图层类型完全一致，
+    图层按多部件建，单部件的要素就得先包一层。"""
+    flat = ogr.GT_Flatten(geom.GetGeometryType())
+    wrap = {ogr.wkbPoint: ogr.wkbMultiPoint,
+            ogr.wkbLineString: ogr.wkbMultiLineString,
+            ogr.wkbPolygon: ogr.wkbMultiPolygon}.get(flat)
+    if wrap is None:
+        return geom
+    box = ogr.Geometry(wrap)
+    box.AddGeometry(geom)
+    return box
+
+
 def _srs_label(srs):
     if srs is None:
         return None
     name = srs.GetName() or srs.GetAttrValue("PROJCS") or srs.GetAttrValue("GEOGCS")
     if not name or name == "unnamed":
-        # MapInfo TAB 这类格式不记坐标系名字，但基准还在；照基准称呼它
-        name = (srs.GetAttrValue("DATUM") or "").replace("D_", "").replace("_", " ") or "未记名"
-        return name
+        # 投影坐标系却没有投影名：这是"格式没把坐标系写进去"，不是"某种基准的经纬度"。
+        # 照基准称呼它会把"米制坐标"说成"WGS 84"，读的人会当成经纬度
+        if srs.IsProjected():
+            return "未记录（格式不保存坐标系）"
+        # 地理坐标系没记名字时，基准还在，照基准称呼它
+        return (srs.GetAttrValue("DATUM") or "").replace("D_", "").replace("_", " ") or "未记录"
     auth = srs.GetAuthorityCode(None)
     return (name or "未命名") + ("（EPSG:%s）" % auth if auth else "")
 
@@ -218,8 +255,22 @@ def _after_summary(path, encoding_label, fmt_key=""):
                 crs_wkt = srs.ExportToWkt() if srs is not None else None
     finally:
         ds = None
-    if crs is None:
+    if crs is None and fmt_key == "shp":
+        # 只有 Shapefile 自带 .prj。别的格式旁边的 .prj 是同一份数据转出的另一份产物，
+        # 借来当自己的坐标系会说假话（GML 没写 srsName 也会被报成"有坐标系"）
         crs = _crs_from_prj(path)
+    if fmt_key == "geoparquet":
+        # Parquet 的坐标系写在文件元数据里；读回走的是"转成 GeoJSON 再开"这条路，
+        # 坐标系在中间就丢了，OGR 会按 GeoJSON 规范默认成 WGS 84——对比表会说假话
+        try:
+            meta = geoparquet.geo_meta(path) or {}
+            col = (meta.get("columns") or {}).get(meta.get("primary_column") or "geometry") or {}
+            srs = geoparquet._srs_from_meta(meta, col)
+            if srs is not None:
+                crs = _srs_label(srs)
+                crs_wkt = srs.ExportToWkt()
+        except Exception:
+            pass
     if crs is None and fmt_key == "topojson":
         # TopoJSON 文件里不记坐标系，按规范就是 WGS 84；写在这里是为了对比表能判"同一套"
         srs = bootstrap.osr.SpatialReference()
@@ -426,7 +477,7 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             out_dir = os.path.normpath(out_dir)
             out_path = os.path.join(out_dir, base + fmt["ext"])
             # 混合几何 + 一个图层只放一种几何的格式：按类型各写一份文件，一条不丢
-            out_geom = src_lyr.GetGeomType()
+            out_geom = _widen_geom(src_lyr.GetGeomType(), fmt["driver"])
             groups = []
             bare = 0
             if fmt["key"] in _SINGLE_GEOM and ogr.GT_Flatten(out_geom) == ogr.wkbUnknown:
@@ -470,6 +521,14 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
                         "title": "无法重投影到 WGS 84",
                         "hint": labels.friendly_error(exc)[:200]}}
                 out_srs = _wgs84_srs()
+            elif fmt["key"] == "geoparquet" and _extent_out_of_lonlat(src_lyr) \
+                    and _srs_is_wgs84(out_srs):
+                # GeoParquet 会把坐标系写进文件头。源数据写着 WGS 84、数值却是米，
+                # 照抄就是把错的坐标系固化进文件——别的软件读出来同样会当成经纬度
+                return {"ok": False, "error": {
+                    "title": "%s 无法记录这份数据的坐标系" % fmt["label"],
+                    "hint": "坐标数值超出经纬度范围（-180~180 / -90~90），而坐标系记录为 WGS 84 "
+                            "或没有记录。请先确认坐标系标注是否正确，再转换。"}}
             elif fmt["key"] in _WGS84_ONLY and _extent_out_of_lonlat(src_lyr):
                 # 坐标系写着 WGS 84（或压根没写，GeoJSON 按规范默认 WGS 84），
                 # 数值却是米制——这种文件只能先让人改正，猜一个坐标系去换更危险
@@ -841,6 +900,12 @@ def _write_one(path, fmt, src_lyr, src_defn, out_srs, out_geom, xf=None,
                     continue
                 out_feat = ogr.Feature(out_defn)
                 _copy_feature(feat, out_feat, kept, xf)
+                # 严格驱动：图层按多部件建时，单部件的要素要先包成多部件
+                if fmt["driver"] in _STRICT_GEOM:
+                    g = out_feat.GetGeometryRef()
+                    if g is not None and ogr.GT_Flatten(g.GetGeometryType()) in (
+                            ogr.wkbPoint, ogr.wkbLineString, ogr.wkbPolygon):
+                        out_feat.SetGeometry(_as_multi(g))
                 out_lyr.CreateFeature(out_feat)
                 written += 1
             out_lyr.SyncToDisk()
@@ -891,13 +956,28 @@ def _write_prj(out_path, srs):
         pass
 
 
+# 每个输出格式真正会产生的伴生文件。只清这些：早先按"文件名主干相同"一刀切，
+# 会把同一份数据转出的别的格式（vector_转出.geojson 与 vector_转出.shp）一起删掉
+_COMPANION_EXT = {
+    ".shp": (".shp", ".shx", ".dbf", ".prj", ".cpg", ".qix", ".sbn", ".sbx", ".shp.xml"),
+    ".tab": (".tab", ".dat", ".id", ".map", ".ind"),
+    ".gml": (".gml", ".xsd"),
+}
+
+
 def _side_files(path):
     folder = os.path.dirname(path) or "."
-    stem = os.path.splitext(os.path.basename(path))[0]
+    base = os.path.basename(path)
+    ext = os.path.splitext(base)[1].lower()
+    stem = base[:len(base) - len(ext)].lower()
+    allow = tuple(_COMPANION_EXT.get(ext, (ext,)))
     out = []
     try:
         for name in sorted(os.listdir(folder)):
-            if name.split(".")[0].lower() == stem.lower() and os.path.isfile(os.path.join(folder, name)):
+            low = name.lower()
+            if not low.startswith(stem + "."):
+                continue
+            if low.endswith(allow) and os.path.isfile(os.path.join(folder, name)):
                 out.append(os.path.join(folder, name))
     except OSError:
         pass

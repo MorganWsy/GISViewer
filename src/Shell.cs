@@ -648,7 +648,15 @@ namespace GISViewer
             }
             if (msg == "pickfile") { Log("界面点了选择文件"); PickFiles(); return; }
             if (msg == "pickfolder") { Log("界面点了选择文件夹"); PickFolder(); return; }
-            if (msg == "pickdir") { Log("界面点了选择起始目录"); PickDir(); return; }
+            if (msg == "pickdir") { Log("界面点了选择起始目录"); PickDir(null); return; }
+            if (msg.StartsWith("pickdir:"))
+            {
+                // 带起始目录的版本：从这一栏当前的路径起步，而不是统一从"起始目录"起步
+                string from = msg.Substring(8).Trim();
+                Log("界面点了选择目录，起始于 " + from);
+                PickDir(from);
+                return;
+            }
             if (msg == "pickcheck") { Log("界面点了体检的选择文件"); PickCheckFile(); return; }
             if (msg.StartsWith("opendir:"))
             {
@@ -667,6 +675,18 @@ namespace GISViewer
                     catch (Exception ex) { Log("打开目录失败 " + ex.Message); }
                 }
                 else Log("要打开的目录不存在：" + target);
+                return;
+            }
+            if (msg.StartsWith("openfile:"))
+            {
+                // 互转产出的文件：交给系统默认程序打开（文本格式会落到编辑器或浏览器）
+                string target = msg.Substring(9).Trim();
+                if (File.Exists(target))
+                {
+                    try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); }
+                    catch (Exception ex) { Log("打开文件失败 " + ex.Message); }
+                }
+                else Log("要打开的文件不存在：" + target);
                 return;
             }
             if (msg.StartsWith("revealfile:"))
@@ -775,16 +795,18 @@ namespace GISViewer
 
         /* 设置页"打开文件框从哪开始"旁边那颗"选择…"：只挑目录，不打开数据，
            选完把路径回传给页面 */
-        void PickDir()
+        void PickDir(string from)
         {
             try
             {
                 SuspendDragWatch();
                 try
                 {
-                    string picked = Native.PickFolder(Handle, Title + "：选择文件框的起始目录", StartDir());
-                    if (string.IsNullOrEmpty(picked)) { Log("选起始目录已取消"); return; }
-                    Log("文件框起始目录选了 " + picked);
+                    string start = from;
+                    if (string.IsNullOrEmpty(start) || !Directory.Exists(start)) start = StartDir();
+                    string picked = Native.PickFolder(Handle, Title + "：选择目录", start);
+                    if (string.IsNullOrEmpty(picked)) { Log("选目录已取消"); return; }
+                    Log("目录选了 " + picked);
                     Push("dir", Json(picked));
                 }
                 finally { ResumeDragWatch(); }
