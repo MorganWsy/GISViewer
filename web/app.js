@@ -3752,7 +3752,7 @@ function toggleBasemap() {
 const TDT_KEY_RE = /^[A-Za-z0-9]{32}$/;
 
 let keyTouched = false;   // 用户手动动过密钥栏：只有这时才允许把空值写进配置
-let cachePathPicked = false;   // 用户亲手选过缓存目录：没选过就跟着默认走
+let cachePickIntent = null;    // 用户想用的缓存目录；null＝跟随数据目录（框里显示的是实际生效的目录）
 
 /* 输入控件下方那行状态：ok=绿勾，warn=黄三角，空=整行收起 */
 function paintFieldStatus(id, kind, text) {
@@ -3786,17 +3786,16 @@ function paintOpenDirStatus() {
 }
 
 /* 缓存位置：设置里没指就跟随数据目录，指了但用不了要说清 */
+/* 缓存位置只有两种结论：服务端说行，就说"当前使用 …"；服务端说不行（回带说明），
+   就把说明原样给出来。界面不做任何"两条路径比对"的猜测——那正是之前误报的来源 */
 function paintCachePathStatus() {
-  const v = ($('cachePath').value || '').trim();
   const eff = config.cache_effective || cacheDirShown || '';
   const note = config.cache_root_note || '';
-  if (note) { paintFieldStatus('cachePathStatus', 'warn', note); return; }
-  if (v && eff && !samePath(v, eff)) {
-    paintFieldStatus('cachePathStatus', 'warn', '这个位置用不了，仍在使用：' + eff);
-    return;
-  }
-  paintFieldStatus('cachePathStatus', 'ok',
-    v ? '当前使用：' + (eff || v) : (eff ? '跟随数据目录，当前使用：' + eff : '跟随数据目录。'));
+  const intent = cachePickIntent || '';
+  // 只有"想用的位置"与"实际生效的位置"不一致时才算没生效，说明由引擎给
+  const fellBack = !!(intent && eff && !samePath(intent, eff));
+  if (fellBack && note) { paintFieldStatus('cachePathStatus', 'warn', note); return; }
+  paintFieldStatus('cachePathStatus', 'ok', eff ? '当前使用：' + eff : '');
 }
 
 /* 副本目录：空着时用系统临时目录，这里直接把实际用的路径写出来 */
@@ -3874,8 +3873,9 @@ function fillSettings() {
   /* 副本存放位置留空时直接填上系统临时目录：让用户看见实际用的是哪，
      而不是对着一个"留空则用临时目录"的占位符去猜 */
   $('cfgCache').value = config.cache_dir || config.temp_dir || '';
-  cachePathPicked = false;
-  $('cachePath').value = config.cache_root || config.cache_effective || '';
+  cachePickIntent = config.cache_root || null;
+  // 框里给"实际在用的目录"：选自建位置时它就是那个位置，回退时也能立刻看见回退到了哪
+  $('cachePath').value = config.cache_effective || cacheDirShown || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
@@ -4314,16 +4314,15 @@ function convTargetPath() {
 }
 
 /* 文件后缀：直接接在输入文件名后面，留空由引擎按 _转出 处理 */
-/* 落点那一行只有三种写法，高度恒定：换内容不换高度，浮层不会因为它伸缩 */
-function paintConvOutHint(kind, text) {
+/* 落点就是那一行路径本身：预检中、未通过都留空（状态行已经说明原因了） */
+function paintConvOutHint(text) {
   const box = $('convOutHint');
   if (!box) return;
-  box.classList.toggle('warn', kind === 'bad');
-  box.textContent = text || '';
+  const one = text || '';
+  box.textContent = one;
+  if (one) box.title = one;
+  else box.removeAttribute('title');
 }
-
-const CONV_HINT_WAIT = '正在预检…';
-const CONV_HINT_BAD = '预检未通过，落点暂不可用';
 
 /* 输出目录默认就是输入文件所在目录：直接填进框里，比留一句"默认与输入文件相同"清楚 */
 function convDefaultOutDir() {
@@ -4446,7 +4445,7 @@ function showConvPop() {
   convLoadLayers(true);
   updateConvRun();
   // 落点只认预检结果：没通过就没有落点可言（栅格、路径不存在都算没通过）
-  paintConvOutHint('wait', CONV_HINT_WAIT);
+  paintConvOutHint('');
 }
 
 function hideConvPop() {
@@ -4555,7 +4554,7 @@ function convScheduleDry() {
 /* 换了输入文件、图层、格式、后缀、覆盖开关或输出目录，上一次的结果就对不上当前设置 */
 function clearConvResult() {
   clearConvStatus();
-  paintConvOutHint('wait', CONV_HINT_WAIT);
+  paintConvOutHint('');
   updateConvRun();
 }
 
@@ -4569,8 +4568,6 @@ function runConvDry() {
   const fmt = (convFormats || []).find((f) => f.key === fmtKey);
   const note = $('convFmtNote');
   if (note) note.textContent = (fmt && fmt.note) || '';
-  const hintNow = $('convOutHint');
-  if (hintNow && !hintNow.textContent) paintConvOutHint('wait', CONV_HINT_WAIT);
   /* 不清空上一次的概况与状态：清空会让浮层先缩一下、结果回来再长回去，看着就是抖两下。
      新结果到了原地替换即可；这里只把按钮先按下去，防止趁预检间隙点下去 */
   convReady = false;
@@ -4578,13 +4575,13 @@ function runConvDry() {
   if (!path) {
     if (sum.textContent) sum.textContent = '';
     clearConvStatus();
-    paintConvOutHint('wait', '');
+    paintConvOutHint('');
     sum.textContent = '尚未选择输入文件。';
     return;
   }
   /* 后缀不合法就别问引擎了：文件名都拼不出来，落点自然也没有 */
   if (!convSuffixValid()) {
-    paintConvOutHint('bad', CONV_HINT_BAD);
+    paintConvOutHint('');
     convError('文件后缀不合法', '只能包含字母、数字、汉字、下划线、连字符与点，不能带路径分隔符或通配符。');
     return;
   }
@@ -4606,7 +4603,7 @@ function runConvDry() {
       sum2.textContent = '';
       convReady = false;
       updateConvRun();
-      paintConvOutHint('bad', CONV_HINT_BAD);
+      paintConvOutHint('');
       convError(err.title || '预检未通过。', err.hint);
       return;
     }
@@ -4619,8 +4616,8 @@ function runConvDry() {
       b.geometry || '几何未知',
       b.crs || '坐标系未记录',
     ].join(' · ');
-    // 落点直接给完整路径：就在按钮下方那一行，位置固定
-    paintConvOutHint('ok', d.out_path ? ('将写入 ' + d.out_path) : CONV_HINT_BAD);
+    // 落点直接给完整路径，就在页脚那一行的最左侧
+    paintConvOutHint(d.out_path || '');
     (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
   }).catch(() => {
     const sum2 = $('convSrcSum');
@@ -4799,7 +4796,7 @@ window.GisHost = function (name, value) {
     if (where) {
       where.value = String(value || '');
       if (where.id === 'cfgOpenDir' || where.id === 'cfgCache' || where.id === 'cachePath') {
-        if (where.id === 'cachePath') cachePathPicked = true;
+        if (where.id === 'cachePath') cachePickIntent = where.value.trim();
         applySettings();
         if (where.id === 'cfgOpenDir') paintOpenDirStatus();
         else if (where.id === 'cfgCache') paintCacheDirStatus();
@@ -5382,8 +5379,8 @@ async function applySettings() {
   config.toast_sec = Number($('cfgToastSec').value) || 5;
   config.cache_dir = $('cfgCache').value.trim();
   // 缓存位置：留空＝跟随数据目录；改了由引擎当场指过去（服务端处理）
-  /* 没亲手选过就别写：输入框里显示的是默认路径，写进去就把"跟随数据目录"变成死值了 */
-  if (cachePathPicked) config.cache_root = ($('cachePath').value || '').trim();
+  // 写"用户想用的位置"，不读输入框：框里显示的是生效目录，可能已经被服务端回退过
+  config.cache_root = cachePickIntent || '';
   config.keep_hours = Number($('cfgKeepHours').value);
   applyDataColor();
   applyLook();
@@ -5409,13 +5406,20 @@ async function commitConfig() {
     if (data.ok) {
       if (data.config) config = Object.assign(config, data.config);
       config.cache_note = data.cache_note || '';
+      /* 缓存位置的真相由服务端给：生效目录 + 切换说明。界面照抄，不自己判断 */
+      if ('cache_effective' in data) config.cache_effective = data.cache_effective;
       const note = data.cache_root_note || '';
-      if (note !== config.cache_root_note) {
+      const fellBack = !!(cachePickIntent && config.cache_effective
+        && !samePath(cachePickIntent, config.cache_effective));
+      if (note && note !== (config.cache_root_note || '')) {
         config.cache_root_note = note;
-        if (note) showErrToast('缓存位置已更改', note, '', 'info');
-        paintCachePathStatus();
-        syncDirClearBtns();
+        // 切换失败由状态行说明；切换成功时把"旧缓存已清理"作为一次性提示
+        if (!fellBack) showErrToast('缓存位置已更改', note, '', 'info');
       }
+      // 框里始终显示服务端确认的生效目录（可能因为不可用而回退）
+      $('cachePath').value = config.cache_effective || '';
+      paintCachePathStatus();
+      syncDirClearBtns();
       paintCacheHint();
     }
   } catch (err) { /* 界面已经生效 */ }
@@ -5759,7 +5763,6 @@ function init() {
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
   $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; toShell('pickdir'); });
   $('cachePathPick').addEventListener('click', () => { dirPickTarget = 'cachedir'; toShell('pickdir'); });
-  $('cachePath').addEventListener('change', () => { cachePathPicked = !!($('cachePath').value || '').trim(); });
   /* 只读框本身不收焦点，点它等于点旁边那颗"选择"按钮 */
   [['cfgOpenDir', 'cfgOpenDirPick'], ['cfgCache', 'cfgCachePick'], ['cachePath', 'cachePathPick'], ['convOut', 'convDirPick']]
     .forEach(([inputId, pickId]) => {
@@ -5778,7 +5781,7 @@ function init() {
    ['cachePathClear', 'cachePath', paintCachePathStatus]].forEach(([btnId, inputId, after]) => {
     $(btnId).addEventListener('click', () => {
       $(inputId).value = '';
-      if (inputId === 'cachePath') cachePathPicked = false;
+      if (inputId === 'cachePath') cachePickIntent = null;
       applySettings();
       after();
       syncDirClearBtns();

@@ -146,7 +146,10 @@ _cache_root_note = ""
 
 
 def cache_root_dir():
-    """数据缓存放哪：设置里指定就用那个目录，没指定就是数据目录下的 cache。"""
+    """缓存实际在用哪个目录。apply_cache_root 跑过就以它为准（可能已经回退过），
+    没跑过才按配置推算——界面拿到的永远是"真正在用"的那个，不是"设置里写的"那个。"""
+    if _cache_root_used is not None:
+        return Path(_cache_root_used)
     want = str(read_config().get("cache_root") or "").strip()
     return Path(want) if want else (config_dir() / "cache")
 
@@ -851,7 +854,12 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/config":
             body = self._json_body()
             payload = write_config(body)
-            return self._send(200, {"ok": True, "config": payload, "cache_note": _cache_note})
+            # 写完把"实际生效的缓存目录"和切换说明一起回给界面：
+            # 界面只管照抄，不再自己比对两条路径（那样会把正常切换报成"用不了"）
+            return self._send(200, {"ok": True, "config": payload,
+                                    "cache_note": _cache_note,
+                                    "cache_effective": str(cache_root_dir()),
+                                    "cache_root_note": _cache_root_note})
         if route == "/api/cache":
             # 设置页的"清空缓存"：清完把新一轮的占用直接带回去
             cache.clear()

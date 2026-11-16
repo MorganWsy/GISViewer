@@ -3366,12 +3366,21 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-msg-t { font-weight: 600; line-height: 19px; }
 .cv-msg-d { margin-top: 2px; line-height: 19px; color: var(--text-dim); overflow-wrap: anywhere; }
 /* 开始转换靠右，不占满一行：左边留给"转换前概况"那类说明 */
-.cv-foot { display: flex; flex-direction: column; gap: 3px; padding: 0 9px 0 2px; }
-.cv-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-/* 落点写在按钮右下方：贴右对齐，读起来像这颗按钮的附注 */
-/* 落点这一行恒占一行高：内容从"正在预检"换成路径，浮层高度不变，不会抖 */
-#convOutHint { min-height: 16px; font-size: 12px; line-height: 16px; text-align: right; color: var(--text-dim); }
-#convOutHint.warn { color: var(--warn-ico); }
+.cv-foot { padding: 0 9px 0 2px; }
+/* 一行三件：落点（左，可省略号）· 允许覆盖 · 开始转换。同一行垂直居中，
+   高度只由按钮决定，落点出现或消失都不会让浮层伸缩 */
+.cv-foot-row { display: flex; align-items: center; gap: 10px; }
+#convOutHint {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-over, .cv-run-wrap { flex: none; }
 /* 允许覆盖：小字加一枚原生勾选框，靠左放，别和主按钮抢位置 */
 .cv-over {
   display: flex;
