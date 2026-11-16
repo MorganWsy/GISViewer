@@ -1924,6 +1924,15 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .set-pane > * { min-width: 0; }
 
 /* 输入框里嵌一颗图标按钮（选目录、打开缓存文件夹）：跟密钥那只眼睛同一套做法 */
+/* 只读的目录框：不接收焦点、不出现光标，点它等于点右边那颗"选择"按钮 */
+.icon-row, .cp-field.is-ro { cursor: pointer; }
+/* 选择器要比 .field input[type=text] 更具体，否则字色被那一条盖回去 */
+.field .icon-row input[readonly], .cp-field input[readonly] {
+  pointer-events: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.icon-row input[readonly]::selection, .cp-field input[readonly]::selection { background: transparent; }
 .icon-row { position: relative; display: flex; }
 .icon-row input { flex: 1; min-width: 0; padding-right: 66px; }   /* 右侧两枚按钮：清除 + 选择 */
 .icon-row .clear-btn { right: 32px; }
@@ -3360,8 +3369,9 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-foot { display: flex; flex-direction: column; gap: 3px; padding: 0 9px 0 2px; }
 .cv-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 /* 落点写在按钮右下方：贴右对齐，读起来像这颗按钮的附注 */
-#convOutHint { font-size: 12px; line-height: 16px; text-align: right; }
-#convOutHint:empty { display: none; }
+/* 落点这一行恒占一行高：内容从"正在预检"换成路径，浮层高度不变，不会抖 */
+#convOutHint { min-height: 16px; font-size: 12px; line-height: 16px; text-align: right; color: var(--text-dim); }
+#convOutHint.warn { color: var(--warn-ico); }
 /* 允许覆盖：小字加一枚原生勾选框，靠左放，别和主按钮抢位置 */
 .cv-over {
   display: flex;

@@ -140,31 +140,95 @@ def config_dir():
     return path
 
 
+CACHE_MARK = ".tulan-cache"     # 目录里的标记：有它才认定这是本软件的缓存目录
+_cache_root_used = None
+_cache_root_note = ""
+
+
 def cache_root_dir():
     """数据缓存放哪：设置里指定就用那个目录，没指定就是数据目录下的 cache。"""
     want = str(read_config().get("cache_root") or "").strip()
     return Path(want) if want else (config_dir() / "cache")
 
 
+def _human_bytes(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024.0
+    return "%.1f GB" % n
+
+
+def _dir_size(path):
+    total = 0
+    for root, _dirs, files in os.walk(str(path)):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def _clear_cache_dir(path):
+    """清掉一个缓存目录里的内容。只认带标记的目录——用户可能随手选了 D:////Temp 这种
+    公用目录，没有标记就一概不动。返回释放的字节数；不是我们的目录返回 -1。"""
+    p = Path(path)
+    if not (p / CACHE_MARK).exists():
+        return -1
+    freed = 0
+    try:
+        children = list(p.iterdir())
+    except OSError:
+        return 0
+    for child in children:
+        if child.name == CACHE_MARK:
+            continue
+        try:
+            if child.is_dir():
+                freed += _dir_size(child)
+                shutil.rmtree(str(child), ignore_errors=True)
+            else:
+                freed += child.stat().st_size
+                child.unlink()
+        except OSError:
+            pass
+    return freed
+
+
 def apply_cache_root():
     """按当前配置把缓存目录指过去。返回 (实际用的目录, 说明)。
-    指定的目录建不出来就退回默认，并把原因带回去——不静默换地方。"""
+    换了目录就把旧目录里的缓存清掉——不清理的话旧盘会一直躺着一份谁也不认识的缓存，
+    用户既不知道也没法回收。清理只对带标记的目录动手。"""
+    global _cache_root_used, _cache_root_note
     want = str(read_config().get("cache_root") or "").strip()
-    if not want:
-        apply_cache_root()
-        return config_dir() / "cache", ""
-    target = Path(want)
+    target = Path(want) if want else (config_dir() / "cache")
+    note = ""
     try:
         target.mkdir(parents=True, exist_ok=True)
         probe = target / ".write"
         probe.write_text("1", encoding="utf-8")
         probe.unlink()
-        cache.repoint(target)
-        return target, ""
     except OSError as exc:
         reason = exc.strerror or exc.__class__.__name__
+        target = config_dir() / "cache"
         cache.init(config_dir())
-        return config_dir() / "cache", "缓存位置用不了（" + reason + "），仍用默认位置"
+        note = "缓存位置用不了（" + reason + "），仍用默认位置"
+    else:
+        cache.repoint(target)
+    try:
+        (target / CACHE_MARK).write_text("tulan", encoding="utf-8")
+    except OSError:
+        pass
+    old = _cache_root_used
+    _cache_root_used = target
+    if old and Path(old) != target:
+        freed = _clear_cache_dir(old)
+        if freed >= 0:
+            note = (note + "；" if note else "") + (
+                "旧缓存已清理（释放 " + _human_bytes(freed) + "）" if freed else "旧缓存已清理")
+    _cache_root_note = note
+    return target, note
 
 
 def cache_base():
@@ -1225,7 +1289,8 @@ def serve(port=0, open_browser=True, quiet=False):
     watch_parent()
     sweep_stale_uploads()
     atexit.register(cleanup_uploads)
-    cache.init(config_dir())
+    # 启动就按配置定缓存目录：自定义过的话直接指过去，不再先落到默认位置
+    apply_cache_root()
     chosen = pick_port(port)
     httpd = ThreadingHTTPServer(("127.0.0.1", chosen), Handler)
     _phase(t, "可以应答")
