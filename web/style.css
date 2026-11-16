@@ -1925,7 +1925,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 
 /* 输入框里嵌一颗图标按钮（选目录、打开缓存文件夹）：跟密钥那只眼睛同一套做法 */
 .icon-row { position: relative; display: flex; }
-.icon-row input { flex: 1; min-width: 0; padding-right: 38px; }
+.icon-row input { flex: 1; min-width: 0; padding-right: 66px; }   /* 右侧两枚按钮：清除 + 选择 */
+.icon-row .clear-btn { right: 32px; }
 .icon-btn {
   position: absolute;
   right: 4px;
@@ -1943,6 +1944,10 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   cursor: pointer;
 }
 .icon-btn:hover { background: transparent; color: var(--accent); }
+/* 目录行里"清除"这枚平时不出现：空着的框不需要一个清除按钮 */
+.icon-btn.clear-btn[hidden] { display: none; }
+.icon-btn.clear-btn { color: var(--text-dim); }
+.icon-btn.clear-btn:hover { color: #d64545; }
 .icon-btn svg { width: 17px; height: 17px; }
 
 /* 键盘操作：常规软件的快捷键表。左列是动作，中列可以点开改键 */
@@ -2177,7 +2182,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 .field-status {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 4px;
   margin: 5px 0 0;
   font-size: 12px;
   line-height: 18px;
@@ -2185,6 +2190,9 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
 }
 .field-status[hidden] { display: none; }
 .field-status .ks-ico { flex: none; width: 14px; height: 14px; margin-top: 2px; fill: var(--text-dim); }
+/* 设置项标签里嵌的功能名：与气泡里的强调同样处理，去引号、用主色 */
+.ui-strong { font-weight: 600; color: var(--accent); }
+
 .field-status:empty { display: none; }
 .field-status.ok .ks-warn { display: none; }
 .field-status.warn .ks-check { display: none; }

@@ -43,9 +43,16 @@ _ROOT = None                    # server 启动时 init() 一次
 
 def init(root):
     """由 server 在启动时指一次缓存根目录（通常是 config_dir）。"""
+    repoint(Path(root) / "cache")
+
+
+def repoint(path):
+    """直接把缓存目录指到 path 本身（设置里自定义了位置时用这个）。
+    建不出来就保持原样，由调用方决定要不要退回默认。"""
     global _ROOT
-    _ROOT = Path(root) / "cache"
-    _ROOT.mkdir(parents=True, exist_ok=True)
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    _ROOT = p
 
 
 def _root():

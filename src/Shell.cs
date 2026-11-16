@@ -432,6 +432,15 @@ namespace GISViewer
                 core.Settings.AreDevToolsEnabled = false;
                 core.Settings.IsStatusBarEnabled = false;
                 core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+                /* 关掉浏览器自带的自动填充：在路径、密钥这类输入框里打字时，
+                   Chromium 会弹出"保存的信息"候选框，挡住界面又没有用处。
+                   这两个属性只在较新的 WebView2 SDK 里有，用反射设，老 SDK 上自动跳过 */
+                foreach (string name in new[] { "IsGeneralAutofillEnabled", "IsPasswordAutosaveEnabled" })
+                {
+                    var prop = core.Settings.GetType().GetProperty(name);
+                    if (prop == null || !prop.CanWrite) continue;
+                    try { prop.SetValue(core.Settings, false); } catch { }
+                }
                 // 外部拖入走 WinForms 那条通道：这个开关只有 CoreWebView2 建好之后再设才作数，
                 // 构造时设是白设（文档里那句 "CoreWebView2 没初始化时返回 false" 说的就是这个）
                 _web.AllowExternalDrop = false;

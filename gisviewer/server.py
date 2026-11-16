@@ -140,6 +140,33 @@ def config_dir():
     return path
 
 
+def cache_root_dir():
+    """数据缓存放哪：设置里指定就用那个目录，没指定就是数据目录下的 cache。"""
+    want = str(read_config().get("cache_root") or "").strip()
+    return Path(want) if want else (config_dir() / "cache")
+
+
+def apply_cache_root():
+    """按当前配置把缓存目录指过去。返回 (实际用的目录, 说明)。
+    指定的目录建不出来就退回默认，并把原因带回去——不静默换地方。"""
+    want = str(read_config().get("cache_root") or "").strip()
+    if not want:
+        apply_cache_root()
+        return config_dir() / "cache", ""
+    target = Path(want)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".write"
+        probe.write_text("1", encoding="utf-8")
+        probe.unlink()
+        cache.repoint(target)
+        return target, ""
+    except OSError as exc:
+        reason = exc.strerror or exc.__class__.__name__
+        cache.init(config_dir())
+        return config_dir() / "cache", "缓存位置用不了（" + reason + "），仍用默认位置"
+
+
 def cache_base():
     """临时副本放哪：设置里指定就用那个目录，用不了就退回系统临时目录并把原因带回去。"""
     want = str(read_config().get("cache_dir") or "").strip()
@@ -300,7 +327,7 @@ def _write_config(data):
     allowed = {"theme", "basemap", "tianditu_key", "annotation", "max_features", "last_paths",
                "recent", "recent_max", "recent_meta",
                "ramp", "class_count", "nodata_view", "raster_default", "vector_color",
-               "restore_last", "cache_dir", "keep_hours",
+               "restore_last", "cache_dir", "cache_root", "keep_hours",
                "ui_font", "num_font", "ui_zoom", "panel_alpha", "unit_lang",
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "hk3_mods", "hk3_vk",
                "upd_freq", "close_act", "close_ask",
@@ -330,6 +357,9 @@ def _write_config(data):
     # 本轮的副本目录已经建好，中途换会把已复制的文件丢在原处，所以只能下次启动生效
     if _upload_root and str(payload.get("cache_dir") or "").strip() != _cache_dir_used:
         _cache_note = "本轮仍用 " + str(_upload_root) + "，副本目录下次启动才换"
+    # 缓存位置改了立刻生效：缓存的读写都走 cache 模块，指过去就行，不用重启
+    if "cache_root" in data:
+        apply_cache_root()
     return payload
 
 
@@ -695,6 +725,9 @@ class Handler(BaseHTTPRequestHandler):
             # 系统临时目录：界面上"副本存放位置"留空时实际用的就是这里，
             # 让它直接显示出来，不必让用户去猜
             payload["temp_dir"] = tempfile.gettempdir()
+            # 缓存位置：设置里那一项、实际生效的目录、以及用不了时的原因
+            payload.setdefault("cache_root", "")
+            payload["cache_effective"] = str(cache_root_dir())
             return self._send(200, {
                 "ok": True, "config": payload, "version": __version__,
                 # 色带的端点颜色只在这里给一份，设置页照着画预览条，不再抄第二遍。
@@ -735,7 +768,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/cache":
             return self._send(200, {"ok": True, "cache": cache.stats(),
                                     "data_dir": str(config_dir()),
-                                    "cache_dir": str(config_dir() / "cache")})
+                                    "cache_dir": str(cache_root_dir())})
         if route.startswith("/api/tile/"):
             return self._amap_tile(route)
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})

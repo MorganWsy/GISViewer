@@ -12,6 +12,7 @@
 其余功能不受影响。
 """
 
+import re
 import os
 
 from . import bootstrap
@@ -412,6 +413,11 @@ def convert(src, layer_index=0, fmt_key="geojson", out_dir=None, dry=False, suff
             folder, stem = _source_base(src)
             # 输出名 = 输入文件名 + 后缀（留空按 _转出）。默认就落在输入文件所在目录，
             # 不再另建一个文件夹——同一个目录里靠文件名区分就够了
+            raw_suffix = str(suffix or "").strip()
+            if raw_suffix and not SUFFIX_RE.match(raw_suffix):
+                return {"ok": False, "error": {
+                    "title": "文件后缀不合法",
+                    "hint": "只能包含字母、数字、汉字、下划线、连字符与点，长度不超过 20 个字。"}}
             suffix = _clean_suffix(suffix)
             base = stem + suffix
             out_dir = str(out_dir or "").strip() or folder
@@ -621,6 +627,9 @@ def _not_vector(src, exc):
                     "影像、DEM 这类栅格不在其中，直接查看或体检即可。"}}
     return {"ok": False, "error": {"title": "无法读取这个文件",
                                    "hint": labels.friendly_error(exc)[:200]}}
+
+
+SUFFIX_RE = re.compile(r"^[\w\-.\u4e00-\u9fff]{0,20}$")
 
 
 def _clean_suffix(text):

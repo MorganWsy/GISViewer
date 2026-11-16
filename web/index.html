@@ -36,7 +36,7 @@
   <div class="bar-gap"></div>
   <form id="pathForm" class="path-form no-drag" autocomplete="off">
     <!-- 占位符一次说清两件事：能填什么（路径 / 经纬度）、坐标怎么写（先纬后经也行，空格或英文逗号隔开） -->
-    <input id="pathInput" type="text" placeholder="输入或粘贴文件路径，也可输入经纬度坐标，如 116.4,39.9，经纬度之间请用单个空格或英文逗号隔开" spellcheck="false">
+    <input id="pathInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" placeholder="输入或粘贴文件路径，也可输入经纬度坐标，如 116.4,39.9，经纬度之间请用单个空格或英文逗号隔开" spellcheck="false">
     <button type="submit" class="btn ico-btn-only" data-tip="查看：打开路径里的数据，或按坐标定位" aria-label="查看：打开路径里的数据，或按坐标定位">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="10.4" cy="10.4" r="6.3"/><path d="M15.1 15.1L20 20"/></svg>
     </button>
@@ -110,7 +110,7 @@
       </div>
       <label class="cv-lab" for="convOut">输出目录</label>
       <div class="cp-field">
-        <input id="convOut" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-out" placeholder="默认与输入文件的目录相同">
+        <input id="convOut" type="text" readonly spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-autocomplete="none" name="conv-out" placeholder="默认与输入文件的目录相同">
         <button id="convDirPick" class="cp-in" type="button" data-tip="选择输出目录" aria-label="选择输出目录">
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
@@ -364,7 +364,7 @@
       <div class="field" id="cfgKeyField">
         <label for="cfgKey">天地图密钥</label>
         <div class="key-row">
-          <input id="cfgKey" type="password" autocomplete="off" spellcheck="false" placeholder="填一次就行，之后不用管">
+          <input id="cfgKey" type="password" autocomplete="new-password" spellcheck="false" data-lpignore="true" placeholder="填一次就行，之后不用管">
           <button id="keyPeek" class="key-eye" type="button" data-tip="显示密钥" aria-label="显示密钥">
             <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/><path d="m2.6 2.6 18.8 18.8"/></svg>
@@ -505,13 +505,15 @@
 
       <section class="set-pane" data-sec="file" hidden>
       <div class="field inline">
-        <label for="cfgCtxMenu">资源管理器右键"用图览打开"</label>
+        <label for="cfgCtxMenu">资源管理器右键 <b class="ui-strong">用图览打开</b></label>
         <input id="cfgCtxMenu" type="checkbox">
       </div>
       <div class="field">
         <label for="cfgOpenDir">文件框起始目录</label>
         <div class="icon-row">
-          <input id="cfgOpenDir" type="text" spellcheck="false" placeholder="留空则用上次打开文件所在的文件夹">
+          <input id="cfgOpenDir" type="text" readonly spellcheck="false" autocomplete="off" placeholder="点右侧按钮选择，留空则跟随上次打开文件">
+
+          <button id="cfgOpenDirClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
           <button id="cfgOpenDirPick" class="icon-btn" type="button" data-tip="选择一个固定目录" aria-label="选择一个固定目录">
             <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
           </button>
@@ -535,7 +537,9 @@
       <div class="field">
         <label for="cfgCache">副本存放位置</label>
         <div class="icon-row">
-          <input id="cfgCache" type="text" spellcheck="false" placeholder="留空则用系统临时目录">
+          <input id="cfgCache" type="text" readonly spellcheck="false" autocomplete="off" placeholder="点右侧按钮选择，留空则用系统临时目录">
+
+          <button id="cfgCacheClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
           <button id="cfgCachePick" class="icon-btn" type="button" data-tip="选择一个固定目录" aria-label="选择一个固定目录">
             <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
           </button>
@@ -554,19 +558,22 @@
       <div class="field">
         <label for="cachePath">缓存位置</label>
         <div class="icon-row">
-          <input id="cachePath" type="text" readonly value="">
-          <button id="cachePathOpen" class="icon-btn" type="button" data-tip="打开缓存文件夹" aria-label="打开缓存文件夹">
+          <input id="cachePath" type="text" readonly autocomplete="off" value="">
+          <button id="cachePathClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
+          <button id="cachePathPick" class="icon-btn" type="button" data-tip="选择缓存目录" aria-label="选择缓存目录">
             <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
           </button>
         </div>
+        <p class="field-status" id="cachePathStatus"><svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true"><path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/><path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg><span></span></p>
         <div class="upd-row">
+          <button id="cacheOpenBtn" class="btn ghost" type="button">打开文件夹</button>
           <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
           <span class="hint" id="cacheSizeHint">正在统计…</span>
         </div>
       </div>
       </section>
 
-      <section class="set-pane" data-sec="sys" hidden>
+       hidden>
       <div class="field inline">
         <label for="cfgAutoStart">开机自启动</label>
         <input id="cfgAutoStart" type="checkbox">

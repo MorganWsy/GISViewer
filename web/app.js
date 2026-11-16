@@ -3057,8 +3057,8 @@ function rememberLast(path, data) {
 /* 按控件 id 挂提示；一两句话把"这是什么、调了会怎样"说清楚。
    这些内容原来是各设置项下面的小字说明，统一改挂在气泡里，措辞从简、从正式 */
 const SETTING_TIPS = {
-  cfgBasemap: '地图底层使用的地图服务\n**天地图影像**、**天地图矢量**需要密钥\n**Esri 影像**、**OpenStreetMap**、**高德影像**都不要密钥\n选"**无底图**"时背景为纯色',
-  cfgAnnotation: '在**底图**上叠地名、路名等**注记**\n**天地图**两种底图自带注记层，可单独开关\n**Esri 影像**本身没有注记，勾选后叠天地图的，要密钥\n**OpenStreetMap** 瓦片自带注记、**高德**是 GCJ-02 基准，这两项不显示本条',
+  cfgBasemap: '地图底层使用的地图服务\n**天地图影像**、**天地图矢量**需要 **天地图密钥**\n**Esri 影像**、**OpenStreetMap**、**高德影像**都不要密钥\n选 **无底图** 时背景为纯色',
+  cfgAnnotation: '在**底图**上叠地名、路名等**注记**\n**天地图**两种底图自带注记层，可单独开关\n**Esri 影像**本身没有注记，勾选后叠天地图的，要 **天地图密钥**\n**OpenStreetMap** 瓦片自带注记、**高德**是 GCJ-02 基准，这两项不显示本条',
   cfgKey: '**天地图密钥**只保存在本机配置里\n到天地图开放平台申请"浏览器端"类型\n软件以本机网页方式运行，与授权域名无关',
   cfgRamp: '单色分级显示影像时用的颜色系列\n由低值到高值依次取色\n下拉选项就是实际配色',
   cfgClassCount: '分级上色把数值范围分成几档\n档数越多层次越细\n过密时画面容易显得破碎',
@@ -3066,14 +3066,14 @@ const SETTING_TIPS = {
   cfgRasterDefault: '打开多波段文件的默认显示方式\n取前三个波段合成彩色画面\n或取第一个波段做单色分级',
   cfgVectorColor: '矢量要素的填充、描边与数据范围框用的颜色\n只影响显示',
   cfgDrawLimit: '视野里一次最多画多少个要素\n调大能看到更多细节\n移动、缩放后每次重画会更慢\n超过上限会弹提示，动一下地图继续加载',
-  cfgMaxFeatures: '属性表向下滚动时每次续读的行数\n调大单次读得多，大图层上滚动更重',
+  cfgMaxFeatures: '**属性表** 向下滚动时每次续读的行数\n调大单次读得多，大图层上滚动更重',
   cfgFontUi: '界面文字用的字体\n列表里只有本机已安装的字体',
-  cfgFontNum: '数字、坐标与表格内容用的字体\n可以和界面字体分开设',
+  cfgFontNum: '数字、坐标与表格内容用的字体\n可以和 **界面字体** 分开设',
   cfgUnitLang: '量算结果与坐标读数用哪种单位写法\n符号（m、km）或中文（米、千米）',
   cfgZoom: '只缩放界面文字与面板\n地图画布不参与缩放\n所以不影响坐标取点的精度',
   cfgAlpha: '浮在地图上的面板的不透明度\n顶栏与右侧信息栏始终不透明',
   cfgToastSec: '错误与提示浮层停留多久自动收起\n定位、整列复制这类进行中的提示不会中途消失\n点一下浮层可以立即关掉',
-  cfgOpenDir: '点"**打开文件**""**打开文件夹**"时从哪个目录起步\n留空就用上次打开文件所在的位置\n也可以点"**选择…**"固定一个目录',
+  cfgOpenDir: '点 **打开文件**、**打开文件夹** 时从哪个目录起步\n留空就用上次打开文件所在的位置\n也可以点 **选择…** 固定一个目录',
   cachePath: '打开过的文件的元数据、直方图、缩略图与矢量索引都放在这里\n清空只会让下次读取变慢，不动源文件\n这一栏由软件管理，不能手动改',
   cfgCloseAct: '点窗口右上角关闭按钮时的行为\n驻留托盘：任务栏不再保留按钮，可从托盘或快捷键唤回\n直接退出：进程结束',
   cfgCloseAsk: '勾选后每次点关闭都先问一句：驻留托盘还是直接退出\n不勾选就按上面选的行为直接执行',
@@ -3081,8 +3081,8 @@ const SETTING_TIPS = {
   cfgDeskLnk: '在桌面放一个"图览"快捷方式',
   cfgUpdFreq: '检查新版本的频率\n检查时只访问发布页一次\n其余时间不联网',
   cfgRestore: '启动时自动打开上次查看的文件',
-  cfgRecentMax: '顶栏路径框点开时"最近打开"最多显示几条\n记录池最多留 20 条，调小不用重新攒',
-  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取\n软件退出后自动删除\n读取结果的缓存在"**缓存位置**"那一栏，不是这个目录',
+  cfgRecentMax: '顶栏路径框点开时 **最近打开** 最多显示几条\n记录池最多留 20 条，调小不用重新攒',
+  cfgCache: '从别处拖进来的文件会先复制一份到这里供读取\n软件退出后自动删除\n读取结果的缓存在 **缓存位置** 那一栏，不是这个目录',
   cfgKeepHours: '软件异常退出时临时副本保留多久\n超过后自动清理',
 };
 
@@ -3768,10 +3768,32 @@ function paintFieldStatus(id, kind, text) {
 function paintKeyStatus(kind, text) { paintFieldStatus('keyStatus', kind, text); }
 
 /* 起始目录：填了就报出来，空着就说清楚会跟随哪儿 */
+/* 目录行里那枚"清除"只在框里有内容时出现 */
+function syncDirClearBtns() {
+  const pairs = [['cfgOpenDir', 'cfgOpenDirClear'], ['cfgCache', 'cfgCacheClear'], ['cachePath', 'cachePathClear']];
+  pairs.forEach(([input, btn]) => {
+    const i = $(input);
+    const b = $(btn);
+    if (i && b) b.hidden = !(i.value || '').trim();
+  });
+}
+
 function paintOpenDirStatus() {
   const v = ($('cfgOpenDir').value || '').trim();
   paintFieldStatus('cfgOpenDirStatus', 'ok',
     v ? '已设置：' + v : '未设置：文件框默认停在上次打开文件所在的文件夹。');
+}
+
+/* 缓存位置：设置里没指就跟随数据目录，指了但用不了要说清 */
+function paintCachePathStatus() {
+  const v = ($('cachePath').value || '').trim();
+  const eff = config.cache_effective || cacheDirShown || '';
+  if (v && eff && !samePath(v, eff)) {
+    paintFieldStatus('cachePathStatus', 'warn', '这个位置用不了，仍在使用：' + eff);
+    return;
+  }
+  paintFieldStatus('cachePathStatus', 'ok',
+    v ? '当前使用：' + (eff || v) : (eff ? '跟随数据目录，当前使用：' + eff : '跟随数据目录。'));
 }
 
 /* 副本目录：空着时用系统临时目录，这里直接把实际用的路径写出来 */
@@ -3849,6 +3871,7 @@ function fillSettings() {
   /* 副本存放位置留空时直接填上系统临时目录：让用户看见实际用的是哪，
      而不是对着一个"留空则用临时目录"的占位符去猜 */
   $('cfgCache').value = config.cache_dir || config.temp_dir || '';
+  $('cachePath').value = config.cache_root || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
@@ -3878,6 +3901,8 @@ function fillSettings() {
   paintCacheHint();
   paintOpenDirStatus();
   paintCacheDirStatus();
+  paintCachePathStatus();
+  syncDirClearBtns();
   refreshCacheSize();
   document.querySelectorAll('#settings select').forEach((s) => window.syncSelect(s));
 }
@@ -3902,7 +3927,9 @@ let filePickTarget = '';   // 壳的选文件框回传填给谁：'conv' 或默�
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
   const where = $('cachePath');
-  if (where) where.value = cacheDirShown || '';
+  // 输入框里放"用户设置的位置"，空着表示跟随数据目录；实际生效的目录在状态行
+  if (where) where.value = config.cache_root || '';
+  paintCachePathStatus();
   const hint = $('cacheSizeHint');
   if (!hint) return;
   if (!info) { hint.textContent = '统计不了缓存占用'; return; }
@@ -4246,6 +4273,7 @@ let convFormats = null;   // [{key,label,note}]，问一次引擎就缓存
 let convDryTimer = 0;
 let convBusy = false;
 let convPathDirty = false;   // 用户在浮层里手填过输入文件：这时不再跟着地图走
+let convOutPicked = false;   // 用户自己选过输出目录：之后不再跟着输入文件走
 let convReady = false;       // 预检通过才允许点"开始转换"（栅格、路径不存在都算没通过）
 
 function convDefaultTarget() {
@@ -4281,6 +4309,29 @@ function convTargetPath() {
 }
 
 /* 文件后缀：直接接在输入文件名后面，留空由引擎按 _转出 处理 */
+/* 输出目录默认就是输入文件所在目录：直接填进框里，比留一句"默认与输入文件相同"清楚 */
+function convDefaultOutDir() {
+  const p = convTargetPath();
+  if (!p) return '';
+  const norm = p.replace(/\\/g, '/');
+  const i = norm.lastIndexOf('/');
+  return i > 0 ? norm.slice(0, i).replace(/\//g, '\\') : '';
+}
+
+function syncConvOutDir() {
+  if (convOutPicked) return;
+  const box = $('convOut');
+  const dir = convDefaultOutDir();
+  if (box && dir && box.value !== dir) box.value = dir;
+}
+
+/* 后缀只能是文件名里能出现的字符：路径分隔符、通配符、冒号之类一律不收 */
+const CONV_SUFFIX_RE = /^[\w\-.\u4e00-\u9fa5]{0,40}$/;
+
+function convSuffixValid() {
+  return CONV_SUFFIX_RE.test(convSuffixValue());
+}
+
 function convSuffixValue() {
   const box = $('convSuffix');
   return (box && box.value.trim()) || '';
@@ -4376,6 +4427,7 @@ function showConvPop() {
     const cur = convDisplayPath(convDefaultTarget());
     if (cur) input.value = cur;
   }
+  syncConvOutDir();
   // 立刻预检（不等防抖）：浮层打开的那一帧就开始算，结果到了原地填进去
   convLoadLayers(true);
   updateConvRun();
@@ -4513,6 +4565,13 @@ function runConvDry() {
     if (sum.textContent) sum.textContent = '';
     clearConvStatus();
     sum.textContent = '尚未选择输入文件。';
+    return;
+  }
+  /* 后缀不合法就别问引擎了：文件名都拼不出来，落点自然也没有 */
+  if (!convSuffixValid()) {
+    const hintBox = $('convOutHint');
+    if (hintBox) hintBox.textContent = '';
+    convError('文件后缀不合法', '只能包含字母、数字、汉字、下划线、连字符与点，不能带路径分隔符或通配符。');
     return;
   }
   fetch('/api/convert', {
@@ -4721,14 +4780,18 @@ window.GisHost = function (name, value) {
     // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
     const where = dirPickTarget === 'check' ? $('checkPath')
       : dirPickTarget === 'conv' ? $('convOut')
-      : dirPickTarget === 'cache' ? $('cfgCache') : $('cfgOpenDir');
+      : dirPickTarget === 'cache' ? $('cfgCache')
+      : dirPickTarget === 'cachedir' ? $('cachePath') : $('cfgOpenDir');
     const fromCheck = dirPickTarget === 'check';
     dirPickTarget = '';
     if (where) {
       where.value = String(value || '');
-      if (where.id === 'cfgOpenDir' || where.id === 'cfgCache') {
+      if (where.id === 'cfgOpenDir' || where.id === 'cfgCache' || where.id === 'cachePath') {
         applySettings();
-        if (where.id === 'cfgOpenDir') paintOpenDirStatus(); else paintCacheDirStatus();
+        if (where.id === 'cfgOpenDir') paintOpenDirStatus();
+        else if (where.id === 'cfgCache') paintCacheDirStatus();
+        else paintCachePathStatus();
+        syncDirClearBtns();
       }
     }
     if (fromCheck && where && where.value.trim()) runCheck();
@@ -5305,6 +5368,8 @@ async function applySettings() {
   renderRecent();   // 条数改了浮窗里的列表当场跟着变，不用重开文件
   config.toast_sec = Number($('cfgToastSec').value) || 5;
   config.cache_dir = $('cfgCache').value.trim();
+  // 缓存位置：留空＝跟随数据目录；改了由引擎当场指过去（服务端处理）
+  config.cache_root = ($('cachePath').value || '').trim();
   config.keep_hours = Number($('cfgKeepHours').value);
   applyDataColor();
   applyLook();
@@ -5666,12 +5731,24 @@ function init() {
     }).catch(() => { $('cacheSizeHint').textContent = '清空失败，稍后再试'; });
   });
   // 缓存位置：只读显示，旁边一颗"打开"直接把这层目录交给资源管理器
-  $('cachePathOpen').addEventListener('click', () => {
+  $('cacheOpenBtn').addEventListener('click', () => {
     if (cacheDirShown) toShell('openpath:' + cacheDirShown);
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; toShell('pickdir'); });
   $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; toShell('pickdir'); });
+  $('cachePathPick').addEventListener('click', () => { dirPickTarget = 'cachedir'; toShell('pickdir'); });
+  /* 三个目录框都是只读的，清空靠这枚按钮：清空＝恢复默认行为 */
+  [['cfgOpenDirClear', 'cfgOpenDir', paintOpenDirStatus],
+   ['cfgCacheClear', 'cfgCache', paintCacheDirStatus],
+   ['cachePathClear', 'cachePath', paintCachePathStatus]].forEach(([btnId, inputId, after]) => {
+    $(btnId).addEventListener('click', () => {
+      $(inputId).value = '';
+      applySettings();
+      after();
+      syncDirClearBtns();
+    });
+  });
   $('cfgOpenDir').addEventListener('input', paintOpenDirStatus);
   $('cfgCache').addEventListener('input', paintCacheDirStatus);
   // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、看结论都在这一块里
@@ -5687,6 +5764,8 @@ function init() {
   $('convBtn').addEventListener('click', toggleConvPop);
   $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
   $('convDirPick').addEventListener('click', () => { dirPickTarget = 'conv'; toShell('pickdir'); });
+  // 只读框：没有手输这回事，选中就算用户定了这个目录
+  $('convOut').addEventListener('change', () => { convOutPicked = !!$('convOut').value.trim(); });
   $('convPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); clearConvResult(); convLoadLayers(); }
   });

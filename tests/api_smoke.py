@@ -483,10 +483,16 @@ def main(argv=None):
         need(status == 200 and data.get("ok"), "预检失败：%s" % data.get("error"))
         need(Path(data.get("out_path") or "").name == "suffix-src_甲.geojson",
              "预检没给出最终文件名：%s" % data.get("out_path"))
-        # 文件名里不能用的字符要剔掉，而不是把路径写坏
+        # 文件名里不能用的字符一律拒收：界面按这条规则先把错误说清楚，
+        # 引擎也不悄悄改名——用户看到的落点就是真写出来的那个
         status, data, _ = cli.post("/api/convert", dict(base, suffix=" a/b:c ", dry=True))
-        need(Path(data.get("out_path") or "").name == "suffix-srcabc.geojson",
-             "非法字符没剔干净：%s" % data.get("out_path"))
+        need(not data.get("ok"), "非法后缀居然被接受了")
+        need((data.get("error") or {}).get("title") == "文件后缀不合法",
+             "没说清是后缀不合法：%s" % data.get("error"))
+        # 合法的写法照常接上去（换一个没用过的后缀，避免撞上前面写出的文件）
+        status, data, _ = cli.post("/api/convert", dict(base, suffix="  _2025  ", dry=True))
+        need(Path(data.get("out_path") or "").name == "suffix-src_2025.geojson",
+             "首尾空白没清掉：%s" % data.get("error"))
 
     @check("convert 源文件是 .zip 时按包内成员转换")
     def _(cli):
