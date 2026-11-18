@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import zipfile
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -18,8 +19,8 @@ gdal = bootstrap.gdal
 osr = bootstrap.osr
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-# 样例数据在源码树之外（见 PLAN §11），换位置时用 TULAN_DATA 指过去
-DATA = Path(os.environ.get("TULAN_DATA") or Path(__file__).resolve().parent.parent.parent / "GISViewer-data")
+# 样例数据在仓库里（见 PLAN §11），换位置时用 TULAN_DATA 指过去
+DATA = Path(os.environ.get("TULAN_DATA") or Path(__file__).resolve().parent.parent / "data")
 SAMPLES = DATA / "samples"
 
 
@@ -263,10 +264,8 @@ def main():
             print(f"  {step.__name__} 失败：{type(exc).__name__} {exc}")
     print(f"已生成 {len(made)} 个文件，位于 {FIXTURES}")
     for p in made:
-        try:
+        with suppress(OSError):
             print(f"  {p.name:<28} {p.stat().st_size / 1024:>9,.1f} KB")
-        except OSError:
-            pass
     return 0
 
 

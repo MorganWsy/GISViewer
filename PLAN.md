@@ -137,7 +137,7 @@ Python 引擎子进程（sidecar）        ~250-300 MB，GDAL 是体积大头
 
 **边界先划清。** 这里做的是"用户点了才更新"：启动 15 秒后悄悄问一次清单（与设置页"每次打开后 15 秒"是同一个数），有新版本才在顶栏标题右边亮一枚图标，点开看说明，再点"立即更新"才开始下载。不做强制更新、不做后台静默替换、不做差分包（首次发布的整包才 30 多 MB，为了省这点流量引入二进制 diff 与版本链校验，风险远大于收益）。
 
-**为什么不能自己换自己。** 运行中的 `Tulan.exe` 与同目录的 dll 被系统锁着，进程内写同名文件必失败；WebView2 的子进程在主管退出后还要多占几百毫秒。所以 `dist\TulanUpdater.exe` 是一个几十 KB 的独立程序：主程序把「主进程 PID / 解压好的暂存目录 / 安装目录」三样传给它，自己立刻退出；它等 PID 消失（最多 120 秒）再逐个文件覆盖，完成后把 `Tulan.exe` 拉起来。三条原则写在文件头：只覆盖不删除（用户自己的配置与缓存保持原样）、逐个文件重试（12 次 × 250 ms，专治"锁着但马上就放"）、每步都写日志。
+**为什么不能自己换自己。** 运行中的 `Tulan.exe` 与同目录的 dll 被系统锁着，进程内写同名文件必失败；WebView2 的子进程在主管退出后还要多占几百毫秒。所以 `app\TulanUpdater.exe` 是一个几十 KB 的独立程序：主程序把「主进程 PID / 解压好的暂存目录 / 安装目录」三样传给它，自己立刻退出；它等 PID 消失（最多 120 秒）再逐个文件覆盖，完成后把 `Tulan.exe` 拉起来。三条原则写在文件头：只覆盖不删除（用户自己的配置与缓存保持原样）、逐个文件重试（12 次 × 250 ms，专治"锁着但马上就放"）、每步都写日志。
 
 **发布侧就是一个静态目录。** 清单、签名与安装包同放一处，默认 `https://wsy-release.oss-cn-hangzhou.aliyuncs.com/tulan`（与历书共用同一个只读桶，不同前缀）。无鉴权、无服务端逻辑，客户端全程只发 GET；"发布"这个动作就是手动传三个文件，先包、再清单、最后签名——反过来会出现"清单有了包还没到"的窗口期，点更新就是 404。换地址改 `Host.cs` 的 `ManifestBase`，调试时用环境变量 `TULAN_UPD_BASE` 覆盖，不必重编译（本机就是用 `python -m http.server 8911` 当发布源验完的）。
 
@@ -155,7 +155,7 @@ Python 引擎子进程（sidecar）        ~250-300 MB，GDAL 是体积大头
 
 多出来的字段一律不读，留着给以后换包格式用。
 
-**打包一条命令：`tools\publish.ps1 -Ver 0.14 -Notes '第一条','第二条'`。** 它做四件事：① 对账——清单里的版本必须与 `dist\gisviewer\__init__.py` 的 `__version__` 一字不差，不然客户端要么永远提示、要么永远不提示；② 把 `dist` 下除 `runtime` 以外的全部打成 `tulan-patch-v<版本>.zip`（`runtime` 381 MB 且不随版本变，只有 `-Full` 才连它一起打）；③ 解包自查——`web/app.js`、`gisviewer/__init__.py` 必须在原位，根目录只准躺 exe 与 dll，混进 `runtime/` 直接报错；④ 写清单、算 sha256、签出 `.sig`，并核对私钥与 `Host.cs` 里的公钥是一对。当前 0.14 的包是 1.70 MB、41 个文件。
+**打包一条命令：`tools\publish.ps1 -Ver 0.14 -Notes '第一条','第二条'`。** 它做四件事：① 对账——清单里的版本必须与 `app\gisviewer\__init__.py` 的 `__version__` 一字不差，不然客户端要么永远提示、要么永远不提示；② 把 `app` 下除 `runtime` 以外的全部打成 `tulan-patch-v<版本>.zip`（`runtime` 381 MB 且不随版本变，只有 `-Full` 才连它一起打）；③ 解包自查——`web/app.js`、`gisviewer/__init__.py` 必须在原位，根目录只准躺 exe 与 dll，混进 `runtime/` 直接报错；④ 写清单、算 sha256、签出 `.sig`，并核对私钥与 `Host.cs` 里的公钥是一对。当前 0.14 的包是 1.70 MB、41 个文件。
 
 **客户端三步，任何一步失败都退回原样。** ① `Query()` 先取清单再取签名，**验签通过才解析**；网络不通、404、JSON 坏了、签名对不上都返回可读的话而不是抛异常（"还没有发布过版本"只在清单本身 404 时说，缺签名文件说的是"发布不完整"）；② `Fetch()` 下载到 `%LOCALAPPDATA%\GISViewer\update\v<版本>\`，核大小、核 sha256，再解压到 `stage\`；③ `Apply()` 起 updater 并退出。包内如果套了一层与包名同名的目录（`tulan-v0.14\...`）就把那层让出来——判据只认包名对齐，不拿"只有一个目录"当条件，因为增量包可能整包只有一个 `web\`，按"只有一个目录"拆会把文件摆到安装目录根上（0.14 开发期踩过，现为回归项）。日志固定落在 `%LOCALAPPDATA%\GISViewer\update.log`，不放在版本目录里——替换成功要删整份暂存，日志跟着删就什么都查不到。
 
@@ -381,7 +381,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 ### Phase 4 原生壳与分发
 
 - [x] C# WinForms + WebView2 壳，照 `D:\ICalendar\build.ps1` 的 csc.exe 编译方式
-      （`build.ps1` → `dist\GISViewer.exe` 174 KB；这台机器只有 .NET 运行时没有 SDK，
+      （`build.ps1` → `app\GISViewer.exe` 174 KB；这台机器只有 .NET 运行时没有 SDK，
       `Framework64\v4.0.30319\csc.exe` 够用，WebView2 程序集直接借历书的 `lib\`）
 - [x] 启动时拉起 Python sidecar，分配空闲端口，健康检查通过再加载页面
       （`FreePort()` 用 `TcpListener` 让系统分配，不能用 `HttpListener`——非管理员要 URL ACL，
@@ -601,7 +601,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 
 - **软件改名「图览」**（英文副名 MAP AT A GLANCE 保留）：窗口标题、任务栏、桌面快捷方式 `图览.lnk`、
   开机自启项 `Tulan`、exe 名 `Tulan.exe`、发布包 `图览-0.10-win64.zip` 一起换。
-  `build.ps1` 输出改成 `dist\Tulan.exe`，打包前先杀 `Tulan` 和 `GISViewer` 两个旧进程名
+  `build.ps1` 输出改成 `app\Tulan.exe`，打包前先杀 `Tulan` 和 `GISViewer` 两个旧进程名
 - **顶栏就是标题栏**（用户选定这个方案，因为顶栏和系统标题栏各写一遍标题加版本号是冗余）：
   `FormBorderStyle.None`，再在 `CreateParams` 里把 `WS_CAPTION|WS_THICKFRAME|WS_MINIMIZEBOX|
   WS_MAXIMIZEBOX|WS_SYSMENU` 加回去，`WM_NCCALCSIZE` 直接返回 0 让客户区等于窗口本身——
@@ -1275,7 +1275,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 - **验证**：隔离无头 Edge + CDP 逐项核对（设置弹窗截图、眼睛切换、recent_max 落盘、
   toast 自动隐藏/点击关闭、compass/homeBtn、DWG assumed_local 视野 query、
   最近打开 gdb/瓦片目录点击重开、属性表查找框截图）；全格式 sweep 27 项全 PASS；
-  真窗口（`dist\Tulan.exe` + CDP）核对：标题"图览 0.12"、`--hidden` 无窗口后台就绪、
+  真窗口（`app\Tulan.exe` + CDP）核对：标题"图览 0.12"、`--hidden` 无窗口后台就绪、
   单实例唤起、单选文件对话框（UIA `CanSelectMultiple=False`）、compass/homeBtn/属性表查找框、
   gdb 与瓦片目录经最近打开重开、DWG 预览 + 转换浮层；退出后无 python/webview2 残留
 - 打包：`archive\图览-0.12-win64.zip`（124.4 MiB）已出，含上述全部修复
@@ -1300,7 +1300,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
   （`settleHotkey` 清空）；缓存目录写进"数据缓存"气泡末尾（拿到 /api/cache 的
   `data_dir` 后动态补上，原 `#cachePathHint` 一行删除，`cacheLab` 记账那个标签）
 - 打包与真窗口复验（2026-10-18）：`archive\图览-0.12-win64.zip`（124.4 MiB）重新打出、
-  `dist\Tulan.exe` 12:27 编译；真窗口把上次锁屏做不了的两项补上——屏幕截图（全屏与
+  `app\Tulan.exe` 12:27 编译；真窗口把上次锁屏做不了的两项补上——屏幕截图（全屏与
   "图览：选择要看的数据文件"对话框裁剪都正常）、真实按键触发 Ctrl+Alt+G（最小化/还原都对）。
   另复验：单选对话框 UIA `CanSelectMultiple=False`、控件组圆角裁剪、指北指针光标、房子图标、
   CAD 开图后跳转 0 瓦片请求、设置页 27 提示且无小字、缓存气泡含真实路径；退出无残留
@@ -1322,7 +1322,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 - **最近打开浮窗两个 bug**：
   ① 列表是空的——`renderRecent()` 在配置读回来之前就画了一次，之后没人再画。改成
   `loadConfig` 末尾再画；实测 7 条记录正常列出。
-  ② 点不进去——上一轮把 `samples/` 搬到了 `..\GISViewer-data\samples`，老记录全指向
+  ② 点不进去——上一轮把 `samples/` 搬到了 `..\GISViewer-data\samples`（现已改为仓库内 `data/samples`），老记录全指向
   `D:\GISViewer\samples\...`。已迁移 `config.json`（近 7 条去重），并加自愈：点开失败
   且提示"找不到"时，自动把这条从最近列表里删掉。
   ③ 点顶栏空白不关闭——那里一按下就把窗口交给系统拖动循环，`click` 再也回不到页面。
@@ -1442,7 +1442,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 | 天地图 Origin | **实测通过**：浏览器上下文取瓦片 200（影像和注记都是），curl 直连会被判"权限类型错误"，属正常；OSM 在本机超时 |
 | 中文控制台乱码 | 已处理：CLI 里 `sys.stdout.reconfigure(encoding="utf-8")`，中文字段名与示例值输出正确；Git Bash 里的乱码是终端代码页，不影响程序 |
 | 中文文件名上传 | 已处理：请求头 latin-1 限制，前端 `encodeURIComponent` + 服务端 `unquote`，中文名称落盘和回显都正确 |
-| 打包体积 | **实测**：gisviewer 环境 1204 MB，剔除编译期内容、numpy 换成不带 MKL 的之后 runtime **364 MB**，整个 `dist` 377 MB，`tar -a` 压成 zip 后 **127 MiB**。解压到干净目录后直接双击即可跑：日志显示用的是包内 `runtime\python.exe`，引擎就绪约 0.7 s，底图、矢量、图例、比例尺全部正常 |
+| 打包体积 | **实测**：gisviewer 环境 1204 MB，剔除编译期内容、numpy 换成不带 MKL 的之后 runtime **364 MB**，整个 `app` 377 MB，`tar -a` 压成 zip 后 **127 MiB**。解压到干净目录后直接双击即可跑：日志显示用的是包内 `runtime\python.exe`，引擎就绪约 0.7 s，底图、矢量、图例、比例尺全部正常 |
 | MKL 占体积 | **已解决**：conda 的 numpy 链 Intel MKL，`Library/bin` 里那批 `mkl_*.dll` 445 MB。改成 PyPI 的 numpy wheel（自带 OpenBLAS）：`pip install --force-reinstall --no-deps numpy==2.5.4`，runtime 788 MB→364 MB，zip 274 MiB→127 MiB，`tools/check_runtime.py` 8 项健康检查全过 |
 | 拖放拿真实路径 | **已解决**：手写 `IDropTarget` + `RegisterDragDrop` 挂在任何窗口上，外部拖放都不会调进来（对照实验钉死）。改成外部拖放时盖一块顶层半透明遮罩（`AllowDrop`，即窗口自带的接收方式）来接，拿到的就是资源管理器里的真实路径；本机实测资源管理器拖 wuningGEP.json 全链路走通 |
 | 拖放验证 | **能自动化**：`tools/dropsrc.cs` 出一个只发起拖放的源窗口，`tools/dragdrop_test.ps1` 用真实鼠标按下—移动—松开走一遍 OLE 拖放，日志里看"拖入 N 项" |
@@ -1466,7 +1466,7 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 
 ## 10. 版本
 
-版本号由用户决定，本文件不自行递增。软件名「图览」，当前 `0.14`。0.12 打包（`archive\图览-0.12-win64.zip`）之后又走了两轮：0.13 是窗口与体检那一批（五套配色、边缘与四角拖拽缩放、启动位置与还原抖动、体检浮层与诊断包、文件被外部修改的横幅、指北针与角度徽标），0.14 是 HDF5 的单位与缩放系数、无坐标原因、"放不到地图上"的说法、顶栏更新提示与就地更新。原生壳 `dist\Tulan.exe` 加 364 MB 免安装 runtime 可跑，启动到界面出来约 0.7 s，无边框自绘标题栏。剩下三件：在没装过 Python/GDAL 的机器上验一次全流程、把 0.14 打到 `archive\`、首版发到 OSS 之后在真实网络下验一次更新。版本变更记录见 `CHANGELOG.md`。
+版本号由用户决定，本文件不自行递增。软件名「图览」，当前 `0.14`。0.12 打包（`archive\图览-0.12-win64.zip`）之后又走了两轮：0.13 是窗口与体检那一批（五套配色、边缘与四角拖拽缩放、启动位置与还原抖动、体检浮层与诊断包、文件被外部修改的横幅、指北针与角度徽标），0.14 是 HDF5 的单位与缩放系数、无坐标原因、"放不到地图上"的说法、顶栏更新提示与就地更新。原生壳 `app\Tulan.exe` 加 364 MB 免安装 runtime 可跑，启动到界面出来约 0.7 s，无边框自绘标题栏。剩下三件：在没装过 Python/GDAL 的机器上验一次全流程、把 0.14 打到 `archive\`、首版发到 OSS 之后在真实网络下验一次更新。版本变更记录见 `CHANGELOG.md`。
 
 ---
 
@@ -1474,24 +1474,27 @@ Shapefile 伴生文件检查分成"必需"和"重要"两档：缺 `.shx/.dbf` �
 
 0.12 打包之后补的一轮工程加固，不改任何功能行为。
 
-### 11.1 源码、样例、产物分三处
+### 11.1 源码、样例、产物分三处（同一个根目录下）
 
 | 位置 | 内容 | 进版本库 |
 |---|---|---|
 | `D:\GISViewer\` | 引擎 `gisviewer\`、前端 `web\`、原生壳 `src\` `shell\` `lib\`、脚本 `tools\`、测试 `tests\`、`build.ps1`、`PLAN.md`、`CHANGELOG.md` | 是 |
-| `D:\GISViewer\dist\` | 可运行产物 384 MB：`Tulan.exe` + `runtime\` + `web\` + `gisviewer\` | 否 |
-| `D:\GISViewer-data\samples\` | 用户提供的原始样例 9 项 351 MB | 否 |
-| `D:\GISViewer-build\archive\` | 各版本发布 zip（0.9~0.12）500 MB | 否 |
+| `D:\GISViewer\app\` | 可运行产物 384 MB：`Tulan.exe` + `runtime\` + `web\` + `gisviewer\` | 否 |
+| `D:\GISViewer\data\samples\` | 用户提供的原始样例 9 项 351 MB | 否 |
+| `D:\GISViewer\build\archive\` | 各版本发布 zip（0.9~0.12）500 MB | 否 |
+| `D:\GISViewer\archive\mkl-backup\` | 旧 MKL 运行时备份 445 MB | 否 |
 
-`dist` 留在源码树里是有意的：桌面快捷方式「图览」和开机自启都指向 `D:\GISViewer\dist\Tulan.exe`，挪走等于让每天用的入口失效，收益抵不过代价。它靠 `.gitignore` 排除——ripgrep 认 ignore 文件，检索和 `git status` 都不会再碰上那 4253 个文件。真正该搬出去的是样例与存档，已经搬走。
+`app` 是运行目录（原 `dist`）：桌面/开始菜单快捷方式与开机自启都已指向 `D:\GISViewer\app\Tulan.exe`，改名时同步入口即可。它靠 `.gitignore` 排除——ripgrep 认 ignore 文件，检索和 `git status` 都不会再碰上那 4253 个文件。
 
-换盘符或换机器时设两个环境变量即可，脚本里没有第二份硬编码路径：`TULAN_DATA` 指向样例的上级目录，`TULAN_OUT` 指向存档的上级目录。
+样例、构建存档、MKL 备份也收进同一个根目录，只是各自放在 `data\`、`build\`、`archive\` 下并用 `.gitignore` 排除；盘符根目录只剩 `GISViewer` 一个入口，不再平铺四个目录。
+
+换盘符或换机器时设两个环境变量即可，脚本里没有第二份硬编码路径：`TULAN_DATA` 指向样例的上级目录（默认 `data`），`TULAN_OUT` 指向存档的上级目录（默认 `build`）。
 
 ### 11.2 版本控制
 
 - `git init -b main`，首次提交 `5da6ce9`「0.12 基线：源码定格，产物与样例数据移出源码树」，70 个文件 1.9 MB
 - 提交身份是仓库级的 `吴博士 <wenwen99@users.noreply.github.com>`，不动全局配置，可随时改
-- 被忽略的：`dist/`、`build/`、`archive/`、`samples/`、`tests/fixtures/`、`__pycache__/`、编辑器目录
+- 被忽略的：`app/`、`build/`、`archive/`、`samples/`、`tests/fixtures/`、`__pycache__/`、编辑器目录
 - `tests/fixtures/` 88 MB 是 `tests/make_fixtures.py` 生成得出来的，所以不入库；换机器先跑一次生成脚本
 
 ### 11.3 回归：一条命令
@@ -1505,7 +1508,7 @@ pwsh -File tools\regress.ps1
 | 节 | 做什么 | 失败意味着 |
 |---|---|---|
 | syntax | 22 个 Python 文件过 `compile()`，3 个前端 js 过 `node --check` | 语法改坏了 |
-| shell | `csc.exe` 把 `Shell.cs` + `Host.cs` 编到临时目录（不覆盖 `dist`） | 原生壳改坏了，打包必失败 |
+| shell | `csc.exe` 把 `Shell.cs` + `Host.cs` 编到临时目录（不覆盖 `app`） | 原生壳改坏了，打包必失败 |
 | sweep | `tests\sweep.py` 23 条用例：8 个真实样例、12 个固件、3 条应当友好失败 | 引擎读错、崩溃，或错误提示不友好 |
 | api | `tests\api_smoke.py` 14 项：起真服务、打 `/api/*`、看返回约定 | 接口层坏了 |
 
@@ -1525,4 +1528,4 @@ pwsh -File build.ps1              # 只出 exe 与资源
 pwsh -File build.ps1 -Pack -Zip   # 一次出完整发布包
 ```
 
-`-Pack` 现在真能跑：调 `tools\pack_runtime.ps1` 整份复制 conda 环境到 `dist\runtime`，再用包内解释器跑 `tools\check_runtime.py` 体检，不过就中止。此前它指向不存在的 `pack_env.ps1`（conda-pack 那条路早已废弃），属于死代码，本轮删掉。
+`-Pack` 现在真能跑：调 `tools\pack_runtime.ps1` 整份复制 conda 环境到 `app\runtime`，再用包内解释器跑 `tools\check_runtime.py` 体检，不过就中止。此前它指向不存在的 `pack_env.ps1`（conda-pack 那条路早已废弃），属于死代码，本轮删掉。

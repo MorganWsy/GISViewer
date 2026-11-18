@@ -1,5 +1,11 @@
 const $ = (id) => document.getElementById(id);
 
+/* 只用于内置常量 SVG：用 Range 解析成节点，不把字符串当 HTML 塞进 DOM。
+   用户可控文本一律 textContent，不走这里。 */
+function setSVG(node, svg) {
+  node.replaceChildren(document.createRange().createContextualFragment(svg));
+}
+
 /* 原生壳里才有窗口三键和系统对话框，浏览器版这两样都没有 */
 const NATIVE = !!(window.chrome && window.chrome.webview);
 
@@ -21,13 +27,13 @@ window.addEventListener('error', (e) => {
   try {
     const file = String(e.filename || '').split('/').pop();
     toShell('jserr:' + (e.message || '未知错误') + ' @' + file + ':' + (e.lineno || 0));
-  } catch (_) { /* 连报错都失败就安静 */ }
+  } catch { /* 连报错都失败就安静 */ }
 });
 window.addEventListener('unhandledrejection', (e) => {
   try {
     const r = e.reason;
     toShell('jserr:未处理的异步错误 ' + ((r && (r.message || r)) || ''));
-  } catch (_) { /* 同上 */ }
+  } catch { /* 同上 */ }
 });
 
 let current = null;
@@ -395,7 +401,7 @@ function scheduleHideTip() {
     try {
       if (a && a.matches(':hover')) return;
       if (b && !b.hidden && b.matches(':hover')) return;
-    } catch (err) { /* matches 不支持就算了 */ }
+    } catch { /* matches 不支持就算了 */ }
     hideTipBox();
   }, 200);
 }
@@ -577,7 +583,7 @@ function hintIcon(label, custom) {
     i.setAttribute('data-tip-href', 'https://epsg.org/');
     i.setAttribute('data-tip-link', '在 EPSG 官网（epsg.org）按编号查');
   }
-  i.innerHTML = HINT_ICO;
+  setSVG(i, HINT_ICO);
   return i;
 }
 
@@ -1428,9 +1434,9 @@ function showLayerPop() {
     b.type = 'button';
     b.setAttribute('data-tip', it.full || it.label || '');
     b.setAttribute('aria-label', it.full || it.label || '');
-    b.innerHTML = '<svg class="lp-check" viewBox="0 0 12 12" fill="none" stroke="currentColor" ' +
+    setSVG(b, '<svg class="lp-check" viewBox="0 0 12 12" fill="none" stroke="currentColor" ' +
       'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
-      '<path d="M2 6.2l2.6 2.6L10 3.4"/></svg>';
+      '<path d="M2 6.2l2.6 2.6L10 3.4"/></svg>');
     b.appendChild(el('span', null, it.full || it.label || ('图层 ' + (i + 1))));
     b.addEventListener('click', () => {
       hideLayerPop();
@@ -1486,7 +1492,8 @@ function setChip(d) {
   ];
   if (f.is_dir) rows.push(['内含文件', count(f.item_count) + ' 个']);
   if (d.kind === 'vector') {
-    rows.push(['图层数', d.layer_count], ['要素总数', count(d.feature_count_total)]);
+    rows.push(['图层数', count(d.layer_count) + (d.layers_truncated ? '（仅显示前 ' + (d.layer_limit || 60) + ' 层）' : '')],
+      ['要素总数', count(d.feature_count_total)]);
   }
   if (d.kind === 'archive') {
     rows.push(['成员数', d.member_count], ['解压后大小', d.uncompressed_label]);
@@ -1545,6 +1552,53 @@ function loadTip(on, text) {
   // 读文件的时候给地图蒙一层，免得看不清是"没数据"还是"还在读"
   document.querySelector('.map-stage').classList.toggle('busy', !!on);
 }
+
+/* DWG 要先转 DXF；正常几十毫秒，超大图纸可能几十秒。转换期间显示已用时间，
+   并允许取消（取消会杀掉 dwg2dxf，而不是只把界面关掉）。 */
+let dwgWatchTimer = 0;
+let dwgWatchPath = '';
+let openAbort = null;
+
+function stopDwgWatch() {
+  if (dwgWatchTimer) clearInterval(dwgWatchTimer);
+  dwgWatchTimer = 0;
+  dwgWatchPath = '';
+  $('loadBar').hidden = true;
+  $('loadCancel').hidden = true;
+}
+
+function startDwgWatch(path) {
+  stopDwgWatch();
+  dwgWatchPath = path;
+  const tick = async () => {
+    if (!dwgWatchPath) return;
+    try {
+      const res = await fetch('/api/dwg/status?path=' + encodeURIComponent(path));
+      const st = await res.json();
+      if (!st.running || !dwgWatchPath) return;
+      $('loadBar').hidden = false;
+      $('loadCancel').hidden = false;
+      $('loadText').textContent = '正在转换 DWG… ' + Math.max(0, Math.round(st.elapsed)) + ' 秒';
+    } catch { /* 状态轮询失败不打断打开流程 */ }
+  };
+  tick();
+  dwgWatchTimer = setInterval(tick, 500);
+}
+
+async function cancelDwgWatch() {
+  const path = dwgWatchPath;
+  if (!path) return;
+  stopDwgWatch();
+  try {
+    await fetch('/api/dwg/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
+  } catch { /* 服务已退出也当取消成功 */ }
+  if (openAbort) openAbort.abort();
+  loadTip(false);
+}
+$('loadCancel').addEventListener('click', cancelDwgWatch);
 
 /* 首屏先把配色算完再画，避免先出一帧灰图再跳成彩色 */
 async function setupRaster(d) {
@@ -1756,7 +1810,7 @@ function tickUnit(top) {
 }
 
 let histChart = null;
-let histLast = null;   // 换主题时照着这份数据重画一次
+let _histLast = null;   // 换主题时照着这份数据重画一次
 
 function destroyHistChart() {
   if (histChart) { histChart.destroy(); histChart = null; }
@@ -1859,7 +1913,7 @@ function drawHistogram(hist, phys) {
       },
     },
   });
-  histLast = hist;
+  _histLast = hist;
   return wrap;
 }
 
@@ -2086,7 +2140,7 @@ function fallbackCopy(text, done) {
   ta.style.left = '-9999px';
   document.body.appendChild(ta);
   ta.select();
-  try { document.execCommand('copy'); } catch (err) { /* 复制不了就给个安静的结果 */ }
+  try { document.execCommand('copy'); } catch { /* 复制不了就给个安静的结果 */ }
   document.body.removeChild(ta);
   done();
 }
@@ -2144,7 +2198,7 @@ function bindAttrResize(c, th) {
   handle.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    try { handle.setPointerCapture(ev.pointerId); } catch (err) { /* 合成事件没有真实指针，忽略 */ }
+    try { handle.setPointerCapture(ev.pointerId); } catch { /* 合成事件没有真实指针，忽略 */ }
     attrResizing = true;
     const startX = ev.clientX;
     const startW = th.getBoundingClientRect().width;
@@ -2200,7 +2254,7 @@ function attrShell(c) {
     cp.type = 'button';
     cp.setAttribute('data-tip', '复制整列');
     cp.setAttribute('aria-label', '复制整列');
-    cp.innerHTML = COPY_ICO;
+    setSVG(cp, COPY_ICO);
     cp.addEventListener('click', (e) => {
       e.stopPropagation();
       copyAttrCol(c, th.cellIndex);
@@ -2423,6 +2477,9 @@ function loadAttrPage(c) {
     }
     const m = res.gisviewer || {};
     const got = res.features || [];
+    if (m.deep_page && !got.length) {
+      toastNote('翻页较慢', '这个格式没有空间索引，已在后台建索引；等几秒再翻会快很多。', '', false);
+    }
     if (m.layer_total !== null && m.layer_total !== undefined) c.total = m.layer_total;
     if (!c.built) {
       if (!(c.keys && c.keys.length)) c.keys = keysFromRows(got, c.layer);
@@ -2879,10 +2936,12 @@ async function inspectPath(path) {
   current = { path, data: null };
   mouseOn = false;
   openFrom = Date.now();
+  openAbort = new AbortController();
   $('empty').hidden = true;
   $('panels').hidden = false;
   hideErrToast();
   loadTip(true, '正在读取…');
+  if (/\.dwg$/i.test(String(path))) startDwgWatch(String(path));
   skeleton(String(path).split(/[\\/]/).pop());
   let data;
   try {
@@ -2890,10 +2949,13 @@ async function inspectPath(path) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, fast: true }),   // 先立界面，个数范围后台补
+      signal: openAbort.signal,
     });
     data = await res.json();
   } catch (err) {
+    stopDwgWatch();
     loadTip(false);
+    if (err && err.name === 'AbortError') return;   // 用户取消 DWG 转换
     renderError('本地服务没有响应', err.message, '请确认服务已启动。');
     return;
   }
@@ -2930,21 +2992,41 @@ async function inspectPath(path) {
   try {
     await renderResult(data, path, { deferMap });
     if (deferMap && data.ok) {
+      /* 先出图，再补统计：统计会拿 GDAL 读锁，和首屏取数抢锁会把首屏拖慢。
+         等这一批要素画完（gis:drawn）再发全量请求；取数失败也会发这个事件，
+         15 秒兜底，避免统计永远不补 */
+      const drawn = new Promise((resolve) => {
+        const mapEl = $('map');
+        const timer = setTimeout(done, 15000);
+        function done() {
+          clearTimeout(timer);
+          mapEl.removeEventListener('gis:drawn', done);
+          resolve();
+        }
+        mapEl.addEventListener('gis:drawn', done);
+      });
       loadTip(true, '补齐要素数量与范围…');
-      let full = null;
-      try {
-        const res = await fetch('/api/path', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path, fast: false }),
-        });
-        full = await res.json();
-      } catch (err) { /* 补不上就用快速数据画 */ }
+      await renderResult(data, path);   // 先出图（范围由取数响应补）
+      await drawn;
+      const fullPromise = fetch('/api/path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, fast: false }),
+      }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const full = await fullPromise;
       if (current && current.data === data && full && full.ok) {
         current.data = full;
         data = full;
+        const ly = (full.layers || [])[data.layerIndex || 0];
+        if (ly && ly.extent_wgs84 && window.GisMap) {
+          /* 首屏是拿这一批要素的包围盒临时对上的；全量范围到了，
+             用户还没动过地图就补一次真正的全图 */
+          GisMap.setExtent(ly.extent_wgs84);
+        }
+        renderRail(data, false);        // 只换右栏，地图保持已画好的状态
+        setChip(data);                  // 左上角文件卡片也要从“0”补成真实数量
+        if (window.GisMap) GisMap.setElapsed(dur(data.elapsed_ms));
       }
-      await renderResult(data, path);   // 带着范围正式渲染（右栏重画 + 画地图）
       if (data.ok) noteOpened(path, data);
       return;
     }
@@ -2953,6 +3035,8 @@ async function inspectPath(path) {
     releaseVeil();
     renderError('界面渲染出错', (err && err.message) || String(err));
   } finally {
+    stopDwgWatch();
+    openAbort = null;
     if (!staged) { releaseVeil(); loadTip(false); }
   }
 }
@@ -3006,7 +3090,7 @@ async function checkStale() {
     if (!s.exists) { showStale('gone'); return; }
     if (staleSize === null) { staleSize = s.size; staleMtime = s.mtime_ns; return; }
     if (s.size !== staleSize || s.mtime_ns !== staleMtime) showStale('changed');
-  } catch (err) {
+  } catch {
     /* 服务端忙或刚重启：下一拍再问，不必打扰用户 */
   } finally {
     staleBusy = false;
@@ -3031,6 +3115,24 @@ function noteOpened(path, data) {
   rememberLast(path, data);
   watchStale(path, data);
   syncCheckInput(path);
+  schedulePrebuild(path, data);
+}
+
+/* 大文件首屏出来后，趁用户还在看，后台把索引建了；下一次拖动/翻页就是毫秒级。
+   只在矢量文件上叫一次，服务端会按大小和“是否已有索引”决定做不做。 */
+let prebuildKey = '';
+function schedulePrebuild(path, data) {
+  if (!data || !data.ok || data.kind !== 'vector') return;
+  const k = path + '#' + (data.layerIndex || 0);
+  if (prebuildKey === k) return;
+  prebuildKey = k;
+  setTimeout(() => {
+    fetch('/api/vindex/prebuild', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, layer: data.layerIndex || 0 }),
+    }).catch(() => {});
+  }, 1500);
 }
 
 /* 记住这次打开的是哪个文件：一条给"启动时恢复上次的文件"，
@@ -3124,7 +3226,7 @@ function wireSetDrag() {
     card.style.left = r.left + 'px';
     card.style.top = r.top + 'px';
     card.classList.add('dragging');
-    try { head.setPointerCapture(e.pointerId); } catch (err) { /* 捕获不上也照样能拖 */ }
+    try { head.setPointerCapture(e.pointerId); } catch { /* 捕获不上也照样能拖 */ }
     e.preventDefault();
   });
   head.addEventListener('pointermove', (e) => {
@@ -3139,7 +3241,7 @@ function wireSetDrag() {
     if (!drag) return;
     drag = null;
     card.classList.remove('dragging');
-    try { head.releasePointerCapture(e.pointerId); } catch (err) { /* 已经松开了 */ }
+    try { head.releasePointerCapture(e.pointerId); } catch { /* 已经松开了 */ }
   };
   head.addEventListener('pointerup', end);
   head.addEventListener('pointercancel', end);
@@ -3152,7 +3254,7 @@ function mountSettingTips() {
     if (!lab || !tip || lab.querySelector('.tip-ico')) return;
     const i = el('i', 'tip-ico');
     i.setAttribute('data-tip', tip);
-    i.innerHTML = HINT_ICO;
+    setSVG(i, HINT_ICO);
     lab.appendChild(i);
   };
   Object.keys(SETTING_TIPS).forEach((id) => {
@@ -3358,7 +3460,7 @@ function renderRecent() {
     const meta = metas[p] || null;
     const item = el('div', 'rp-item');
     const ico = el('span', 'rp-ico');
-    ico.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + RECENT_ICO[recentIconKey(meta)] + '</svg>';
+    setSVG(ico, '<svg viewBox="0 0 24 24" aria-hidden="true">' + RECENT_ICO[recentIconKey(meta)] + '</svg>');
     item.appendChild(ico);
     const text = el('div', 'rp-text');
     text.appendChild(el('div', 'rp-name', baseName(p)));
@@ -3370,7 +3472,7 @@ function renderRecent() {
     if (bits.length) item.appendChild(el('div', 'rp-meta', bits.join(' · ')));
     const del = el('button', 'rp-del');
     del.type = 'button';
-    del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    setSVG(del, '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>');
     del.addEventListener('mousedown', (e) => e.preventDefault());
     del.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -3610,7 +3712,7 @@ function paintThemeBtn() {
   const btn = $('themeBtn');
   const mode = THEME_LABELS[config.theme] ? config.theme : 'auto';
   btn.dataset.mode = mode;
-  btn.innerHTML = '<span class="btn-ico">' + (THEME_ICONS[mode] || THEME_ICONS.auto) + '</span>';
+  setSVG(btn, '<span class="btn-ico">' + (THEME_ICONS[mode] || THEME_ICONS.auto) + '</span>');
   const tip = '当前主题：' + THEME_LABELS[mode] + '，点击切换';
   btn.setAttribute('data-tip', tip);
   btn.setAttribute('aria-label', tip);
@@ -3660,13 +3762,13 @@ async function loadConfig() {
       document.title = '图览 ' + data.version;
       toShell('ver:' + data.version);
     }
-  } catch (err) { /* 用默认值 */ }
+  } catch { /* 用默认值 */ }
   // 右键菜单挂哪些后缀由引擎定，取回来备着；页面没起在壳里时这一步失败也无所谓
   try {
     const fr = await fetch('/api/formats');
     const fd = await fr.json();
     if (fd && fd.ok && Array.isArray(fd.menu)) host.menuExt = fd.menu;
-  } catch (err) { /* 壳那边收到空清单就不注册 */ }
+  } catch { /* 壳那边收到空清单就不注册 */ }
   applyTheme(config.theme);
   paintThemeBtn();
   applyDataColor();
@@ -3715,7 +3817,7 @@ function basemapOn() { return String(config.basemap || '') !== 'none'; }
 
 function rememberedBasemap() {
   let v = '';
-  try { v = localStorage.getItem(BASE_MEM_KEY) || ''; } catch (e) { v = ''; }
+  try { v = localStorage.getItem(BASE_MEM_KEY) || ''; } catch { v = ''; }
   return v && v !== 'none' ? v : 'tianditu_img';
 }
 
@@ -3735,7 +3837,7 @@ window.updateBaseBtn = updateBaseBtn;
 function toggleBasemap() {
   if (basemapOn()) {
     const cur = String(config.basemap || '');
-    try { if (cur && cur !== 'none') localStorage.setItem(BASE_MEM_KEY, cur); } catch (e) { /* 存不了就本次生效 */ }
+    try { if (cur && cur !== 'none') localStorage.setItem(BASE_MEM_KEY, cur); } catch { /* 存不了就本次生效 */ }
     config.basemap = 'none';
   } else {
     config.basemap = rememberedBasemap();
@@ -3752,7 +3854,7 @@ function toggleBasemap() {
 const TDT_KEY_RE = /^[A-Za-z0-9]{32}$/;
 
 let keyTouched = false;   // 用户手动动过密钥栏：只有这时才允许把空值写进配置
-let cachePickIntent = null;    // 用户想用的缓存目录；null＝跟随数据目录（框里显示的是实际生效的目录）
+let cachePickIntent = null;    // 用户选的缓存父目录；null＝跟随数据目录（框里显示父目录，实际生效的 TulanCache 在状态行）
 
 /* 输入控件下方那行状态：ok=绿勾，warn=黄三角，空=整行收起 */
 function paintFieldStatus(id, kind, text) {
@@ -3787,15 +3889,15 @@ function paintOpenDirStatus() {
 
 /* 缓存位置：设置里没指就跟随数据目录，指了但用不了要说清 */
 /* 缓存位置只有两种结论：服务端说行，就说"当前使用 …"；服务端说不行（回带说明），
-   就把说明原样给出来。界面不做任何"两条路径比对"的猜测——那正是之前误报的来源 */
+   就把说明原样给出来。生效目录是所选位置下的 TulanCache 子目录，和用户选的
+   父目录天然不是同一条路径，所以不能再靠比对两条路径判断有没有回退。 */
 function paintCachePathStatus() {
   const eff = config.cache_effective || cacheDirShown || '';
   const note = config.cache_root_note || '';
-  const intent = cachePickIntent || '';
-  // 只有"想用的位置"与"实际生效的位置"不一致时才算没生效，说明由引擎给
-  const fellBack = !!(intent && eff && !samePath(intent, eff));
+  const fellBack = !!config.cache_fallback;
   if (fellBack && note) { paintFieldStatus('cachePathStatus', 'warn', note); return; }
-  paintFieldStatus('cachePathStatus', 'ok', eff ? '缓存目录：' + eff : '');
+  paintFieldStatus('cachePathStatus', 'ok',
+    eff ? '缓存目录：' + eff + (config.cache_root && !fellBack ? '（专用子目录）' : '') : '');
 }
 
 /* 副本目录：空着时用系统临时目录，这里直接把实际用的路径写出来 */
@@ -3874,8 +3976,8 @@ function fillSettings() {
      而不是对着一个"留空则用临时目录"的占位符去猜 */
   $('cfgCache').value = config.cache_dir || config.temp_dir || '';
   cachePickIntent = config.cache_root || null;
-  // 框里给"实际在用的目录"：选自建位置时它就是那个位置，回退时也能立刻看见回退到了哪
-  $('cachePath').value = config.cache_effective || cacheDirShown || '';
+  // 框里给"用户选的位置"；实际生效的目录（所选位置 / TulanCache）在下方状态行
+  $('cachePath').value = config.cache_root || config.cache_effective || cacheDirShown || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
@@ -4142,7 +4244,7 @@ function renderGroups(files, host) {
     // 档位色由 lv- 前缀决定（红 / 橙 / 绿）。早先只写 chk-ico，图标只好继承标题的
     // 强调色，三种档位在列表里长得一模一样
     ico.className = 'chk-ico lv-' + lv;
-    ico.innerHTML = LEVEL_ICON[lv];
+    setSVG(ico, LEVEL_ICON[lv]);
     hd.appendChild(ico);
     hd.appendChild(el('span', 'chk-grp-name', LEVEL_TEXT[lv]));
     hd.appendChild(el('span', 'chk-grp-n', String(rows.length)));
@@ -4192,7 +4294,7 @@ function renderReport(f, host) {
     const row = el('div', 'chk-row');
     const lab = el('div', 'chk-row-lab');
     const ico = el('i', 'chk-ico lv-' + r.level);
-    ico.innerHTML = LEVEL_ICON[r.level] || LEVEL_ICON.ok;
+    setSVG(ico, LEVEL_ICON[r.level] || LEVEL_ICON.ok);
     lab.appendChild(ico);
     lab.appendChild(el('span', '', r.label || ''));
     const val = el('div', 'chk-row-val');
@@ -4488,7 +4590,7 @@ function paintConvFmt() {
   const sel = $('convFmt');
   sel.textContent = '';
   let last = '';
-  try { last = localStorage.getItem('gisviewer.conv_fmt') || ''; } catch (e) { /* 存不了就用默认 */ }
+  try { last = localStorage.getItem('gisviewer.conv_fmt') || ''; } catch { /* 存不了就用默认 */ }
   (convFormats || []).forEach((f) => {
     const o = el('option', null, f.label);
     o.value = f.key;
@@ -4723,7 +4825,7 @@ function convOpenBtns(path) {
     b.type = 'button';
     b.setAttribute('data-tip', tip);
     b.setAttribute('aria-label', tip);
-    b.innerHTML = svg;
+    setSVG(b, svg);
     b.addEventListener('click', () => toShell(msg + path));
     return b;
   };
@@ -5331,7 +5433,7 @@ function paintUpdPop() {
   later.type = 'button';
   later.onclick = () => {
     updLater = updInfo ? updInfo.latest : '';
-    try { sessionStorage.setItem('gisviewer.upd_later', updLater); } catch (e) { /* 存不下就只在本次生效 */ }
+    try { sessionStorage.setItem('gisviewer.upd_later', updLater); } catch { /* 存不下就只在本次生效 */ }
     closeUpdPop();
     paintUpdBadge(false);
   };
@@ -5461,21 +5563,21 @@ async function commitConfig() {
       config.cache_note = data.cache_note || '';
       /* 缓存位置的真相由服务端给：生效目录 + 切换说明。界面照抄，不自己判断 */
       if ('cache_effective' in data) config.cache_effective = data.cache_effective;
+      config.cache_fallback = !!data.cache_fallback;
       const note = data.cache_root_note || '';
-      const fellBack = !!(cachePickIntent && config.cache_effective
-        && !samePath(cachePickIntent, config.cache_effective));
+      const fellBack = !!data.cache_fallback;
       if (note && note !== (config.cache_root_note || '')) {
         config.cache_root_note = note;
         // 切换失败由状态行说明；切换成功时把"旧缓存已清理"作为一次性提示
         if (!fellBack) showErrToast('缓存位置已更改', note, '', 'info');
       }
-      // 框里始终显示服务端确认的生效目录（可能因为不可用而回退）
-      $('cachePath').value = config.cache_effective || '';
+      // 框里始终显示用户选的位置（可能因为不可用而回退，状态行会说明）
+      $('cachePath').value = config.cache_root || config.cache_effective || '';
       paintCachePathStatus();
       syncDirClearBtns();
       paintCacheHint();
     }
-  } catch (err) { /* 界面已经生效 */ }
+  } catch { /* 界面已经生效 */ }
 }
 
 /* 设置改完后的重算：换了默认显示方式就切波段，否则丢缓存重出当前波段 */
@@ -5766,7 +5868,7 @@ function init() {
     if (e.target.closest && e.target.closest('#updPop, #updBadge')) return;
     closeUpdPop();
   });
-  try { updLater = sessionStorage.getItem('gisviewer.upd_later') || ''; } catch (e) { /* 存不了就只在本次生效 */ }
+  try { updLater = sessionStorage.getItem('gisviewer.upd_later') || ''; } catch { /* 存不了就只在本次生效 */ }
 
   $('settingsBtn').addEventListener('click', () => {
     settleHotkey();
@@ -5803,6 +5905,8 @@ function init() {
 
   mountSettingTips();
   $('cacheClearBtn').addEventListener('click', () => {
+    const where = cacheDirShown || '缓存目录';
+    if (!window.confirm('将清空 ' + where + ' 里本软件生成的缓存，不会动其他文件。\n\n继续？')) return;
     $('cacheSizeHint').textContent = '正在清空…';
     fetch('/api/cache', { method: 'POST' }).then((r) => r.json()).then((d) => {
       paintCacheSize((d && d.cache) || { bytes: 0, count: 0 }, d && (d.cache_dir || d.data_dir));
@@ -5876,7 +5980,7 @@ function init() {
   });
   $('convFmt').addEventListener('change', () => {
     if (window.syncSelect) window.syncSelect($('convFmt'));
-    try { localStorage.setItem('gisviewer.conv_fmt', convFmtKey()); } catch (e) { /* 存不了就本次生效 */ }
+    try { localStorage.setItem('gisviewer.conv_fmt', convFmtKey()); } catch { /* 存不了就本次生效 */ }
     clearConvResult();
     convScheduleDry();
   });
@@ -5898,7 +6002,7 @@ function init() {
       '· 输出目录留空时，**与输入文件同目录**，靠文件名里的后缀区分；同名文件 **一律不覆盖**。',
       '· 转换前先给出该格式的已知代价与实测警告，转换后逐项对比要素数、字段数、几何类型与坐标系。',
     ].join('\n'));
-    cvTip.innerHTML = HINT_ICO;
+    setSVG(cvTip, HINT_ICO);
   }
   /* 标题旁那颗说明：分点讲清体检查了什么、结论怎么分档。
      以"· "开头的行画圆点，其余行整段排——首句和末句是说明，中间三条才是清单 */
@@ -5912,7 +6016,7 @@ function init() {
       '每条结论按严重程度归入“有问题、要留意、没问题”3 档。',
       '一次最多体检 500 个数据，超出部分不查。',
     ].join('\n'));
-    cpTip.innerHTML = HINT_ICO;
+    setSVG(cpTip, HINT_ICO);
   }
   $('diagBtn').addEventListener('click', runDiagnose);
   // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。

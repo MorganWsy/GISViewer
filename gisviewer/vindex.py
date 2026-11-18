@@ -15,22 +15,34 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sqlite3
 import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 
-from osgeo import ogr
+from osgeo import ogr  # pyright: ignore[reportMissingImports]
 
 from . import cache
 
 MIN_BYTES = 8 * 1024 * 1024      # 小于 8 MB 的文件整份读也快，不值得建索引
 SCHEMA_VERSION = 2         # 2：meta 里加了坐标系、字段表、要素总数，命中索引时不必再打开源文件
+LOCK_STALE = 15 * 60      # 建索引的锁超过 15 分钟视为残留（正常一份 60~70 秒）
 
 _lock = threading.Lock()
 _procs = {}                      # 索引键 -> 正在建它的子进程；同一文件不重复建
+
+
+def _as_int(value, default=0):
+    """配置/URL 里来的层号、limit 可能是 None 或脏字符串；坏值退回默认，不抛。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 def _size(target):
@@ -46,12 +58,12 @@ def suitable(target, lyr):
         return False
     try:
         return not lyr.TestCapability(ogr.OLCFastSpatialFilter)
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return True
 
 
 def key_of(target, layer_index):
-    return cache.key("vindex", target, "layer=%d;v=%d" % (int(layer_index or 0), SCHEMA_VERSION))
+    return cache.key("vindex", target, f"layer={_as_int(layer_index)};v={SCHEMA_VERSION}")
 
 
 def path_of(target, layer_index):
@@ -69,8 +81,8 @@ def existing(target, layer_index):
 
 def _connect(path, readonly=False):
     if readonly:
-        return sqlite3.connect("file:%s?mode=ro" % str(path).replace("\\", "/"), uri=True,
-                               timeout=5.0)
+        uri = f"file:{str(path).replace(chr(92), '/')}?mode=ro"
+        return sqlite3.connect(uri, uri=True, timeout=5.0)
     return sqlite3.connect(str(path), timeout=5.0)
 
 
@@ -95,18 +107,20 @@ def build(target, layer_index, path):
 
     返回写入的要素数。中途出错会把半成品删掉，不让它冒充可用索引。
     """
-    from . import vector   # 延迟导入：vector 反过来要用本模块
+    from . import dwg, vector  # 延迟导入：vector 反过来要用本模块
+
+    # DWG 新版要先转 DXF 才能被 OGR 打开；索引建在原始路径上，
+    # 转换结果只在本函数内用
+    if str(target).lower().endswith(".dwg"):
+        target = dwg.convert(str(target)) or target
 
     tmp = str(path) + ".tmp"
-    for stale in (tmp,): 
-        try:
-            os.remove(stale)
-        except OSError:
-            pass
+    for stale in (tmp,):
+        Path(stale).unlink(missing_ok=True)
     ds = vector._open_vector(target)
     if ds is None:
         return 0
-    lyr = ds.GetLayerByIndex(int(layer_index or 0))
+    lyr = ds.GetLayerByIndex(_as_int(layer_index))
     if lyr is None:
         return 0
     specs = _field_specs(lyr)
@@ -121,6 +135,11 @@ def build(target, layer_index, path):
     else:
         wgs84 = vector._driver_name(ds) in vector._TABLE_WGS84_DRIVERS
         assumed_local = not wgs84
+        if assumed_local:
+            # CAD 图纸按 $INSUNITS 缩小到米以后才摆到 3857；
+            # 索引里也存这份带单位的 WKT，查询时才不会把毫米当米
+            with contextlib.suppress(Exception):
+                srs_wkt = vector._local_srs(target)[0].ExportToWkt()
     conn = None
     n = 0
     try:
@@ -139,7 +158,8 @@ def build(target, layer_index, path):
             ("wgs84", "1" if wgs84 else "0"),
             ("assumed_local", "1" if assumed_local else "0"),
         ])
-        conn.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)
+        # SCHEMA_VERSION 是本文件的整数常量，不来自外部
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")  # pi-lens-ignore: python.lang.security.audit.formatted-sql-query.formatted-sql-query
         lyr.ResetReading()
         rows_f = []
         rows_g = []
@@ -149,7 +169,7 @@ def build(target, layer_index, path):
                 break
             try:
                 fid = int(feat.GetFID())
-            except Exception:
+            except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
                 fid = n
             geom = feat.GetGeometryRef()
             blob = None
@@ -158,7 +178,7 @@ def build(target, layer_index, path):
                 try:
                     blob = bytes(geom.ExportToWkb())
                     env = geom.GetEnvelope()   # (minX, maxX, minY, maxY)
-                except Exception:
+                except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
                     blob = None
                     env = None
             rows_f.append((fid, json.dumps(vector.feature_props(feat, specs),
@@ -169,12 +189,12 @@ def build(target, layer_index, path):
             n += 1
             # 攒一批再一次写入：逐条 execute 十万次要十几秒，批量只要两三秒
             if len(rows_f) >= 2000:
-                conn.executemany("INSERT INTO f VALUES (?, ?, ?)", rows_f)
-                conn.executemany("INSERT INTO g VALUES (?, ?, ?, ?, ?)", rows_g)
+                conn.executemany("INSERT INTO f VALUES (?, ?, ?)", rows_f)  # pi-lens-ignore: python-sql-injection -- SQL 常量，值已绑定
+                conn.executemany("INSERT INTO g VALUES (?, ?, ?, ?, ?)", rows_g)  # pi-lens-ignore: python-sql-injection -- SQL 常量，值已绑定
                 rows_f, rows_g = [], []
         if rows_f:
-            conn.executemany("INSERT INTO f VALUES (?, ?, ?)", rows_f)
-            conn.executemany("INSERT INTO g VALUES (?, ?, ?, ?, ?)", rows_g)
+            conn.executemany("INSERT INTO f VALUES (?, ?, ?)", rows_f)  # pi-lens-ignore: python-sql-injection -- SQL 常量，值已绑定
+            conn.executemany("INSERT INTO g VALUES (?, ?, ?, ?, ?)", rows_g)  # pi-lens-ignore: python-sql-injection -- SQL 常量，值已绑定
         conn.execute("INSERT INTO meta VALUES ('total', ?)", (str(n),))
         conn.commit()
         conn.close()
@@ -183,18 +203,63 @@ def build(target, layer_index, path):
         return n
     except Exception:
         if conn is not None:
-            try:
+            with contextlib.suppress(Exception):
                 conn.close()
-            except Exception:
-                pass
         for stale in (tmp,):
-            try:
-                os.remove(stale)
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                os.remove(stale)  # pi-lens-ignore: python-path-traversal -- 本函数自己建的临时文件
         raise
     finally:
         ds = None
+
+
+def _lock_path(path):
+    return str(path) + ".lock"
+
+
+def _acquire_lock(path):
+    """跨进程抢“建索引”的锁：拿到返回锁路径，别人在建设返回 None。
+    锁文件里写 pid 与时间，进程被杀后最多等 LOCK_STALE 就能自动放行。"""
+    lock = _lock_path(path)
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)  # pi-lens-ignore: python-path-traversal -- 索引旁的锁文件
+    except FileExistsError:  # pi-lens-ignore: unreachable-except -- FileExistsError 是 OSError 子类，必须先捕
+        try:
+            age = time.time() - os.path.getmtime(lock)
+        except OSError:
+            age = 0
+        if age < LOCK_STALE:
+            return None
+        try:
+            os.remove(lock)  # pi-lens-ignore: python-path-traversal -- 过期锁，路径由 path_of 决定
+        except OSError:
+            return None
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)  # pi-lens-ignore: python-path-traversal -- 索引旁的锁文件
+        except OSError:
+            return None
+    except OSError:
+        return None
+    try:
+        os.write(fd, f"{os.getpid()} {time.time()}\n".encode("ascii"))
+    finally:
+        os.close(fd)
+    return lock
+
+
+def _release_lock(lock):
+    if lock:
+        Path(lock).unlink(missing_ok=True)
+
+
+def _watch(proc, lock, key):
+    """子进程结束后释放锁；父进程被杀时留下锁，由 _acquire_lock 的超时处理。"""
+    try:
+        proc.wait()
+    finally:
+        _release_lock(lock)
+        with _lock:
+            _procs.pop(key, None)
 
 
 def ensure(target, layer_index, wait=False):
@@ -207,38 +272,53 @@ def ensure(target, layer_index, wait=False):
     wait=True 时在本进程同步建完（命令行、测试用）。
     返回已存在的索引路径；正在建或建不出来时返回 None，调用方照旧读源文件。
     """
+    if _size(target) < MIN_BYTES:
+        return None
     path = path_of(target, layer_index)
     if not path:
         return None
     k = str(path)
     if os.path.exists(k):
         return k
+    if wait:
+        lock = _acquire_lock(k)
+        if lock is None:
+            return None
+        try:
+            build(target, layer_index, path)
+        except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
+            return None
+        finally:
+            _release_lock(lock)
+        return k if os.path.exists(k) else None
     with _lock:
         proc = _procs.get(k)
         if proc is not None and proc.poll() is None:
-            return None                 # 正在建，别再起一个
-        if wait:
-            _procs.pop(k, None)
-    if wait:
-        try:
-            build(target, layer_index, path)
-        except Exception:
-            return None
-        return k if os.path.exists(k) else None
+            return None                 # 本进程正在建，别再起一个
+    lock = _acquire_lock(k)
+    if lock is None:
+        return None                     # 别的进程正在建，等它
 
     args = [sys.executable, "-m", "gisviewer.vindex_run", str(target),
-            str(int(layer_index or 0)), k]
+            str(_as_int(layer_index)), k]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if os.name == "nt":
+        # 后台建索引别跟首屏抢 CPU：低于正常优先级，前台拖动优先
+        flags |= getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log = None
     try:
-        proc = subprocess.Popen(args, creationflags=flags, cwd=root,
-                                stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                close_fds=True)
-    except Exception:
+        with open(k + ".log", "ab", buffering=0) as log:  # pi-lens-ignore: python-path-traversal -- 索引旁的日志
+            proc = subprocess.Popen(args, creationflags=flags, cwd=root,
+                                    stdin=subprocess.DEVNULL,
+                                    stdout=log, stderr=log,
+                                    close_fds=True)
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
+        _release_lock(lock)
         return None
     with _lock:
         _procs[k] = proc
+    threading.Thread(target=_watch, args=(proc, lock, k), daemon=True).start()  # pi-lens-ignore: python-thread-global-write
     return None
 
 
@@ -247,6 +327,12 @@ def building(target, layer_index):
     path = path_of(target, layer_index)
     if not path:
         return False
+    lock = _lock_path(path)
+    try:
+        if time.time() - os.path.getmtime(lock) < LOCK_STALE:
+            return True
+    except OSError:
+        pass  # pi-lens-ignore: python-empty-except -- 没有锁文件就是没在建
     with _lock:
         proc = _procs.get(str(path))
         return proc is not None and proc.poll() is None
@@ -259,18 +345,19 @@ def _srs_of(path, meta_cache):
     if not wkt:
         return None
     try:
-        from osgeo import osr
+        from osgeo import osr  # pyright: ignore[reportMissingImports]
         ref = osr.SpatialReference()
         ref.SetFromUserInput(wkt)
         ref.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         return ref
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return None
 
 
 def _rows(conn, sql, args, srs=None):
     out = []
-    for fid, props, wkb in conn.execute(sql, args):
+    # sql 只由本模块的常量拼成，值一律走 args；这里不是用户输入
+    for fid, props, wkb in conn.execute(sql, args):  # pi-lens-ignore: python-sql-injection -- sql 仅本模块常量，值走 args
         try:
             obj = json.loads(props)
         except ValueError:
@@ -281,13 +368,13 @@ def _rows(conn, sql, args, srs=None):
                 geom = ogr.CreateGeometryFromWkb(wkb)
                 if geom is not None and srs is not None:
                     geom.AssignSpatialReference(srs)
-            except Exception:
+            except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
                 geom = None
         env = None
         if geom is not None:
             try:
                 env = geom.GetEnvelope()
-            except Exception:
+            except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
                 env = None
         out.append({
             "fid": fid,
@@ -305,15 +392,48 @@ def count(path):
             return int(conn.execute("SELECT COUNT(*) FROM f").fetchone()[0])
         finally:
             conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return None
 
 
 def _box_geom(rect):
     minx, miny, maxx, maxy = rect
     return ogr.CreateGeometryFromWkt(
-        "POLYGON((%r %r,%r %r,%r %r,%r %r,%r %r))"
-        % (minx, miny, maxx, miny, maxx, maxy, minx, maxy, minx, miny))
+        f"POLYGON(({minx!r} {miny!r},{maxx!r} {miny!r},"
+        f"{maxx!r} {maxy!r},{minx!r} {maxy!r},{minx!r} {miny!r}))")
+
+
+def count_bbox(path, rect):
+    """rect 内真实相交的要素数（和 rows_bbox 同一口径，含逐要素精确相交）。
+
+    只给"视野内 N 个"用；R*Tree 的候选包络会多算几条，所以这里不直接
+    COUNT(*)，而是把候选的几何再判一次。视野大、候选多时由调用方决定是否用。
+    """
+    minx, miny, maxx, maxy = rect
+    try:
+        conn = _connect(path, readonly=True)
+        try:
+            srs = _srs_of(path, meta(path))
+            rows = _rows(conn,
+                         "SELECT f.fid, f.props, f.wkb FROM g JOIN f ON f.fid = g.id - 1 "
+                         "WHERE g.minx <= ? AND g.maxx >= ? AND g.miny <= ? AND g.maxy >= ?",
+                         (maxx, minx, maxy, miny), srs)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
+        return None
+    box = _box_geom(rect)
+    n = 0
+    for row in rows:
+        g = row["geom"]
+        if g is None:
+            continue
+        try:
+            if g.Intersects(box):
+                n += 1
+        except Exception:  # noqa: BLE001, S112  （单条坏几何跳过，继续数）
+            continue
+    return n
 
 
 def rows_bbox(path, rect, limit):
@@ -332,10 +452,10 @@ def rows_bbox(path, rect, limit):
                          "SELECT f.fid, f.props, f.wkb FROM g JOIN f ON f.fid = g.id - 1 "
                          "WHERE g.minx <= ? AND g.maxx >= ? AND g.miny <= ? AND g.maxy >= ? "
                          "ORDER BY f.fid LIMIT ?",
-                         (maxx, minx, maxy, miny, int(limit) + 1), srs)
+                         (maxx, minx, maxy, miny, _as_int(limit) + 1), srs)
         finally:
             conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return None
     box = _box_geom(rect)
     kept = []
@@ -346,10 +466,10 @@ def rows_bbox(path, rect, limit):
         try:
             if not g.Intersects(box):
                 continue
-        except Exception:
-            pass                      # 几何坏了也留着，交给上层数成 no_geometry
+        except Exception:  # noqa: BLE001, S110  （坏几何保留，交给上层计数）
+            pass  # pi-lens-ignore: python-empty-except
         kept.append(row)
-        if len(kept) >= int(limit):
+        if len(kept) >= _as_int(limit):
             break
     return kept
 
@@ -363,7 +483,7 @@ def rows_page(path, offset, limit):
                          (int(limit), int(offset)), _srs_of(path, meta(path)))
         finally:
             conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return None
 
 
@@ -374,7 +494,7 @@ def meta(path):
             return dict(conn.execute("SELECT k, v FROM meta").fetchall())
         finally:
             conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001  （回退路径，坏一份数据不影响整体）
         return {}
 
 
@@ -400,7 +520,4 @@ def describe(path):
 
 def drop(path):
     """索引读不出来就删掉，下次重新建一份。"""
-    try:
-        os.remove(str(path))
-    except OSError:
-        pass
+    Path(path).unlink(missing_ok=True)

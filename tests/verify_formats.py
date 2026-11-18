@@ -2,7 +2,6 @@
 
 用法：D:/GISViewer/dist/runtime/python.exe tests/verify_formats.py
 """
-import json
 import os
 import sys
 import time
@@ -10,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ.setdefault("TULAN_DATA", str(ROOT.parent / "GISViewer-data"))
+os.environ.setdefault("TULAN_DATA", str(ROOT / "data"))
 
 DATA = Path(os.environ["TULAN_DATA"]) / "samples" / "formats"
 SKIP_SUFFIX = {".prj", ".dat", ".id", ".map", ".xsd", ".mid", ".hdr"}
@@ -31,18 +30,18 @@ for p in sorted(DATA.iterdir()):
         extra = ""
         if kind == "raster":
             b = (info.get("bands") or [{}])[0]
-            extra = "%dx%dx%d" % (info.get("width", 0), info.get("height", 0), info.get("band_count", 0))
+            extra = f"{info.get('width', 0)}x{info.get('height', 0)}x{info.get('band_count', 0)}"
         elif kind == "vector":
-            extra = "%s 层 %s 要素" % (layers, sum(x.get("feature_count") or 0 for x in info.get("layers") or []))
+            extra = f"{layers} 层 {sum(x.get('feature_count') or 0 for x in info.get('layers') or [])} 要素"
     except Exception as exc:
         ok, kind, driver, extra = False, "-", "-", str(exc)[:60]
     rows.append((p.name, ok, kind, driver, extra, (time.perf_counter() - t) * 1000))
 
-print("%-24s %-6s %-10s %-14s %-22s %8s" % ("样例", "结果", "种类", "驱动", "规模", "耗时"))
+print(f"{'样例':<24} {'结果':<6} {'种类':<10} {'驱动':<14} {'规模':<22} {'耗时':>8}")
 bad = 0
 for name, ok, kind, driver, extra, ms in rows:
-    print("%-24s %-6s %-10s %-14s %-22s %6.0f ms" % (name, "PASS" if ok else "FAIL", kind, driver, extra, ms))
+    print(f"{name:<24} {'PASS' if ok else 'FAIL':<6} {kind:<10} {driver:<14} {extra:<22} {ms:>6.0f} ms")
     if not ok:
         bad += 1
-print("\n共 %d 个：通过 %d，失败 %d" % (len(rows), len(rows) - bad, bad))
+print(f"\n共 {len(rows)} 个：通过 {len(rows) - bad}，失败 {bad}")
 sys.exit(0)

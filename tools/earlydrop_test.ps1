@@ -3,7 +3,7 @@
 # 用法：pwsh -File tools/earlydrop_test.ps1 -SrcPid 1234 [-DelayMs 350]
 param(
   [Parameter(Mandatory = $true)][int]$SrcPid,
-  [string]$Exe = 'D:\GISViewer\dist\Tulan.exe',
+  [string]$Exe = 'D:\GISViewer\app\Tulan.exe',
   [string]$DataDir = 'C:\Users\wsy\AppData\Local\Temp\tulan-test',
   [int]$DelayMs = 350
 )

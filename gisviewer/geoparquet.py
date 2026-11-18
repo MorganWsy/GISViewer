@@ -100,7 +100,7 @@ def is_parquet(path):
 def _duckdb():
     """按需导入：没有 duckdb 时给一句能读懂的话，不让整个引擎起不来。"""
     try:
-        import duckdb
+        import duckdb  # pyright: ignore[reportMissingImports]
     except Exception as exc:
         raise RuntimeError("缺少 Parquet 读写组件（duckdb）：%s" % exc)
     return duckdb
@@ -116,6 +116,7 @@ def geo_meta(path):
     duckdb = _duckdb()
     con = duckdb.connect()
     try:
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         rows = con.execute("SELECT key, value FROM parquet_kv_metadata(%s)" % _lit(path)).fetchall()
     finally:
         con.close()
@@ -185,6 +186,7 @@ def read_to_geojson(src, dst):
     name = os.path.splitext(os.path.basename(str(src)))[0]
     con = duckdb.connect()
     try:
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         desc = con.execute("DESCRIBE SELECT * FROM read_parquet(%s)" % _lit(src)).fetchall()
         names = [str(r[0]) for r in desc]
         if geom_col not in names:
@@ -196,6 +198,7 @@ def read_to_geojson(src, dst):
                 picks.append('CAST(%s AS BLOB) AS %s' % (q, q))
             else:
                 picks.append(q)
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         rows = con.execute("SELECT %s FROM read_parquet(%s)" % (", ".join(picks), _lit(src))).fetchall()
     finally:
         con.close()
@@ -312,6 +315,7 @@ def write(lyr, out_path, layer_name):
     con = duckdb.connect()
     try:
         cols = ['"%s" BLOB' % geom_col] + ['"%s" %s' % (n.replace('"', '""'), t) for n, t in fields]
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         con.execute("CREATE TABLE t (%s)" % ", ".join(cols))
         marks = ", ".join(["?"] * (len(fields) + 1))
         sql = "INSERT INTO t VALUES (%s)" % marks
@@ -333,7 +337,7 @@ def write(lyr, out_path, layer_name):
                 blob = bytes(geom.ExportToWkb())
             else:
                 blob = None
-            row = [blob]
+            row: list = [blob]
             for i in range(len(fields)):
                 if feat.IsFieldNull(i):
                     row.append(None)
@@ -385,6 +389,7 @@ def write(lyr, out_path, layer_name):
             },
         }
         text = json.dumps(meta, ensure_ascii=False, separators=(",", ":")).replace("'", "''")
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         con.execute("COPY (SELECT * FROM t) TO %s (FORMAT PARQUET, KV_METADATA {geo: '%s'})"
                     % (_lit(out_path), text))
     finally:

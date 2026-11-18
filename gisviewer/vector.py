@@ -1,5 +1,6 @@
 """矢量元数据。字段宽度、几何类型分布这些都要从 OGR 直接取。"""
 
+import contextlib
 import functools
 import json
 import math
@@ -8,14 +9,11 @@ import re
 import threading
 from pathlib import Path
 
-from . import bootstrap
+from . import bootstrap, geoparquet, labels, vindex
 from . import dwg as _dwg
 from . import encoding as dbfenc
-from . import geoparquet
-from . import labels
-from . import vindex
-from .errors import InspectError
 from .crs import bounds_to_wgs84, describe, extent_warning
+from .errors import InspectError
 
 ogr = bootstrap.ogr
 osr = bootstrap.osr
@@ -58,22 +56,18 @@ _SOURCE_DRIVER_KEY = "TULAN_SOURCE_DRIVER"
 def _driver_name(ds):
     name = ds.GetDriver().ShortName
     if name == "Memory":
-        try:
+        with contextlib.suppress(Exception):
             name = (ds.GetMetadata() or {}).get(_SOURCE_DRIVER_KEY) or name
-        except Exception:
-            pass
     return name
 
 
 def _driver_long(ds):
     short = _driver_name(ds)
     if ds.GetDriver().ShortName == "Memory" and short != "Memory":
-        try:
+        with contextlib.suppress(Exception):
             other = ogr.GetDriverByName(short)
             if other is not None:
                 return other.LongName
-        except Exception:
-            pass
     return ds.GetDriver().LongName
 
 
@@ -161,12 +155,12 @@ def _xy_upgrade(ds):
                         if raw:
                             try:
                                 geom = ogr.CreateGeometryFromWkt(raw)
-                            except Exception:
+                            except Exception:  # noqa: BLE001  （WKT 解析失败就当没有几何）
                                 geom = None
                             if geom is None:
                                 try:
                                     geom = ogr.CreateGeometryFromWkb(bytes.fromhex(raw))
-                                except Exception:
+                                except Exception:  # noqa: BLE001  （WKB 解析失败就当没有几何）
                                     geom = None
                     else:
                         xv = _xy_number(feat, xi)
@@ -182,13 +176,13 @@ def _xy_upgrade(ds):
                     dup.SetGeometry(geom)
                     out.CreateFeature(dup)
                     made_any = True
-                except Exception:
+                except Exception:  # noqa: BLE001, S112
                     continue
             src.ResetReading()
         if not made_any:
             return ds
         return mem
-    except Exception:
+    except Exception:  # noqa: BLE001  （内存数据源建不出来就退回原数据源）
         return ds
 
 
@@ -209,13 +203,11 @@ def _open_vector(target):
     force = dbfenc.gdal_shape_encoding(target)
     gdal.SetConfigOption("SHAPE_ENCODING", force)
     options = _XY_OPEN_OPTIONS if str(target).lower().endswith(".csv") else None
-    try:
+    with contextlib.suppress(Exception):
         ds = gdal.OpenEx(target, gdal.OF_VECTOR | gdal.OF_READONLY,
                          open_options=options)
         if ds is not None:
             return _xy_upgrade(ds)
-    except Exception:
-        pass
     ds = ogr.Open(target)
     if ds is None:
         return None
@@ -266,14 +258,14 @@ _GEOM_NAMES = {
 
 def _geom_name(base):
     """不用 ogr.GeometryTypeToName，它遇到新式枚举值会 OverflowError。"""
-    return _GEOM_NAMES.get(int(base), "Unknown")
+    return _GEOM_NAMES.get(int(base), "Unknown")  # pi-lens-ignore: unchecked-numeric-parse-python -- 几何类型码本来就是 int
 
 
 def _split_geom_code(code):
     """把带 Z/M 标志的几何类型码拆成基础类型和维度说明。"""
     dims = []
     # 旧式带 Z 的编码（0x80000001）会返回成负数，先按 32 位无符号取回来
-    base = int(code) & 0xFFFFFFFF
+    base = int(code) & 0xFFFFFFFF  # pi-lens-ignore: unchecked-numeric-parse-python -- 同上，码值来自 GDAL
     if base & _SRID_FLAG:
         base &= ~_SRID_FLAG
     if base & _Z_FLAG:
@@ -300,7 +292,7 @@ def geom_type_label(code):
     name = labels.GEOM_TYPE_LABELS.get(base)
     if not name:
         name = labels.geom_type(_geom_name(base))
-    return name + ("·" + "·".join(dims) if dims else "")
+    return (name or "几何") + ("·" + "·".join(dims) if dims else "")
 
 
 def _field_defs(defn, samples):
@@ -326,7 +318,7 @@ def _field_defs(defn, samples):
                     v = feat.GetField(i)
                 else:
                     v = None
-            except Exception:
+            except Exception:  # noqa: BLE001  （单个字段取不出来就当空值）
                 v = None
             if v is not None:
                 values.append(_short(v))
@@ -370,7 +362,7 @@ def _sample_geom_types(lyr, limit=GEOM_SAMPLE):
 
 def _layer_info(lyr, index, fallback_epsg=None, quick=False):
     defn = lyr.GetLayerDefn()
-    geom_code = int(lyr.GetGeomType())
+    geom_code = int(lyr.GetGeomType())  # pi-lens-ignore: unchecked-numeric-parse-python -- GDAL 枚举值
     base, dims = _split_geom_code(geom_code)
     name = lyr.GetName()
     # 个数和范围都要把文件从头读到尾，quick 模式直接跳过（页面上先显示"统计中"）
@@ -381,7 +373,7 @@ def _layer_info(lyr, index, fallback_epsg=None, quick=False):
             count = int(lyr.GetFeatureCount())
             if count < 0:
                 count = None
-        except Exception:
+        except Exception:  # noqa: BLE001  （要素数量拿不到就当未知）
             count = None
 
         try:
@@ -389,10 +381,10 @@ def _layer_info(lyr, index, fallback_epsg=None, quick=False):
             ext = [round(float(v), 6) for v in raw]
             if any(abs(v) > 1e12 for v in ext):
                 raise ValueError("extent 未初始化")
-        except Exception:
+        except Exception:  # noqa: BLE001  （extent 没准备好就强制算一次）
             try:
                 ext = [round(float(v), 6) for v in lyr.GetExtent(force=1)]
-            except Exception:
+            except Exception:  # noqa: BLE001  （强制算也算不出来就当没有）
                 ext = None
 
     srs = lyr.GetSpatialRef()
@@ -459,10 +451,8 @@ def _layer_info(lyr, index, fallback_epsg=None, quick=False):
         (ogr.OLCFastSetNextByIndex, "快速跳转"),
         (ogr.OLCFastSpatialFilter, "空间过滤加速"),
     ):
-        try:
+        with contextlib.suppress(Exception):
             info["capabilities"][key] = bool(lyr.TestCapability(cap))
-        except Exception:
-            pass
 
     return info
 
@@ -504,7 +494,7 @@ def inspect(target, quick=False):
             if attr_encoding:
                 item["attr_encoding"] = attr_encoding
             layers.append(item)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  （单个图层元数据出错不影响其他图层）
             layers.append({"index": i, "name": lyr.GetName(),
                            "error": labels.friendly_error(exc)[:200]})
 
@@ -515,9 +505,11 @@ def inspect(target, quick=False):
         "driver_label": labels.driver(driver),
         "driver_long": "GeoParquet" if parquet else _driver_long(ds),
         "layer_count": total,
+        "layer_limit": MAX_LAYERS,
+        "layers_truncated": total > MAX_LAYERS,
         "layers": layers,
         "dataset_metadata": ds.GetMetadata() or {},
-        "subdatasets": [k for k in (ds.GetMetadata("SUBDATASETS") or {})],
+        "subdatasets": list(ds.GetMetadata("SUBDATASETS") or {}),
     }
     counts = [x.get("feature_count") or 0 for x in layers]
     info["feature_count_total"] = sum(counts)
@@ -549,11 +541,9 @@ def _pair(wkt):
     src.SetFromUserInput(wkt)
     src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     dst = _wgs84()
-    try:
+    with contextlib.suppress(Exception):
         if src.IsGeographic() and src.IsSame(dst):
             return src, dst, None
-    except Exception:
-        pass
     return src, dst, osr.CoordinateTransformation(src, dst)
 
 
@@ -563,7 +553,7 @@ def _rect_for_src(reverse, bbox, densify=2):
     视野框本身就是坏的（NaN、正负无穷、经纬度反着写）时返回 None：
     这种框不该拿去算过滤范围，更不该把整份数据连坐。
     """
-    left, bottom, right, top = [float(v) for v in bbox]
+    left, bottom, right, top = [float(v) for v in bbox]  # pi-lens-ignore: unchecked-numeric-parse-python -- bbox 由 server 解析成数字后传进来
     if not all(math.isfinite(v) for v in (left, bottom, right, top)) or left >= right or bottom >= top:
         return None
     fx = [left + (right - left) * i / densify for i in range(densify + 1)]
@@ -572,7 +562,7 @@ def _rect_for_src(reverse, bbox, densify=2):
     for x, y in [(x, y) for x in fx for y in fy]:
         try:
             px, py, _ = reverse.TransformPoint(x, y)
-        except Exception:
+        except Exception:  # noqa: BLE001  （个别点转不回来就跳过）
             return None
         xs.append(px)
         ys.append(py)
@@ -593,7 +583,7 @@ def _wgs_metrics(geom):
     几何没有坐标系时 GeodesicArea 会直接抛错（"missing SRS"）：这是"能不能量"
     的问题，不该把要素本身也连累成读取失败，所以量不出来就留空。
     """
-    base = _split_geom_code(int(geom.GetGeometryType()))[0]
+    base = _split_geom_code(int(geom.GetGeometryType()))[0]  # pi-lens-ignore: unchecked-numeric-parse-python -- GDAL 枚举值
     area = None
     length = None
     try:
@@ -603,7 +593,7 @@ def _wgs_metrics(geom):
         elif base in (ogr.wkbLineString, ogr.wkbMultiLineString, ogr.wkbCircularString,
                       ogr.wkbCompoundCurve, ogr.wkbMultiCurve):
             length = geom.GeodesicLength()
-    except Exception:
+    except Exception:  # noqa: BLE001  （量算失败就不显示面积长度）
         area = length = None
     if area is not None and area < 0:
         area = None
@@ -624,7 +614,7 @@ def _wgs_box(env, ct):
             return [min(p1[0], p2[0]), min(p1[1], p2[1]),
                     max(p1[0], p2[0]), max(p1[1], p2[1])]
         return [float(env[0]), float(env[1]), float(env[2]), float(env[3])]
-    except Exception:
+    except Exception:  # noqa: BLE001  （包围盒算不出来就返回 None）
         return None
 
 
@@ -662,16 +652,12 @@ def _shape_item(fid, props, geom, ct, tolerance, target, index, stamp):
             # 用 WKB 字节数判断顶点有没有真被删掉：多面体的 GetPointCount
             # 只数几何个数，拿它比会一直得出"没抽稀"的错误结论
             before = 0
-            try:
+            with contextlib.suppress(Exception):
                 before = geom.WkbSize()
-            except Exception:
-                pass
             geom = geom.SimplifyPreserveTopology(tolerance)
             after = 0
-            try:
+            with contextlib.suppress(Exception):
                 after = geom.WkbSize()
-            except Exception:
-                pass
             simplified = before == 0 or after < before
         item = {"type": "Feature", "geometry": json.loads(geom.ExportToJson()),
                 "properties": props}
@@ -683,7 +669,7 @@ def _shape_item(fid, props, geom, ct, tolerance, target, index, stamp):
         if length is not None:
             props["_msr_len"] = length
         return item, ("simple" if simplified else "ok")
-    except Exception:
+    except Exception:  # noqa: BLE001  （单个要素转换失败记一行 failed）
         return None, "failed"
 
 
@@ -702,21 +688,41 @@ def feature_props(feat, specs):
     return out
 
 
-def _src_rect(src, dst, ct, bbox, assumed_local):
-    """经纬度视野框 -> 源坐标系矩形；没有视野框、或本地坐标摆法时返回 None。
+def _local_srs(target):
+    """无坐标系数据（CAD/本地坐标）的临时平面：Web 墨卡托 + 图纸单位。
 
+    读 DXF/DWG 的 $INSUNITS 把毫米/英寸等换算成米；读不到就按米。
+    返回 (SpatialReference, (factor, label) 或 None)。
+    """
+    local = osr.SpatialReference()
+    local.ImportFromEPSG(3857)
+    local.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    unit = None
+    with contextlib.suppress(Exception):
+        unit = _dwg.insunits(target)
+    if unit:
+        with contextlib.suppress(Exception):
+            local.SetLinearUnits(unit[1], unit[0])
+    return local, unit
+
+
+def _src_rect(src, dst, ct, bbox, assumed_local):
+    """经纬度视野框 -> 源坐标系矩形；没有视野框或换不出范围时返回 None。
+
+    本地坐标（assumed_local）也走这里：源 SRS 是带单位的临时墨卡托，
+    WGS84 视野框换过去就是图纸单位，SetSpatialFilterRect / 索引都用同一套数。
     视野框换不出有效范围（退化视野、落在投影有效区之外、框里是 NaN）时也返回 None，
     让上层按"不裁剪"处理。早先这里直接抛 InspectError，一个小窗口里算歪的视野框
     就能把整份数据判成"画不了"——那是个过滤条件的问题，不该连累数据本身。
     """
-    if not bbox or assumed_local:
+    if not bbox:
         return None
     if ct is None:
-        return [float(v) for v in bbox]
+        return [float(v) for v in bbox]  # pi-lens-ignore: unchecked-numeric-parse-python -- bbox 由 server 解析成数字后传进来
     rect = _rect_for_src(osr.CoordinateTransformation(dst, src), bbox)
     if rect is None:
         return None
-    return [float(v) for v in rect]
+    return [float(v) for v in rect]  # pi-lens-ignore: unchecked-numeric-parse-python -- 投影转换后的矩形，本来就是数字
 
 
 def _layer_from_desc(desc, index, bbox, layer_total_hint):
@@ -738,9 +744,14 @@ def _layer_from_desc(desc, index, bbox, layer_total_hint):
     except (TypeError, ValueError):
         pass
     rect_src = _src_rect(src, dst, ct, bbox, desc["assumed_local"])
+    unit_label = None
+    if desc["assumed_local"] and src is not None:
+        with contextlib.suppress(Exception):
+            unit_label = src.GetLinearUnitsName()
     return {
         "ds": None, "lyr": None, "index": index, "src": src, "dst": dst, "ct": ct,
         "assumed_local": desc["assumed_local"], "rect_src": rect_src,
+        "unit_label": unit_label,
         "layer_name": desc["layer_name"], "geometry_label": geom_type_label(desc["geom_type"]),
         "field_count": desc["field_count"], "layer_total": total,
         "in_bbox": total if rect_src is None else None,
@@ -755,7 +766,7 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
     layers = ds.GetLayerCount()
     if layers < 1:
         raise InspectError("这个数据里没有矢量图层")
-    index = max(0, min(int(layer_index or 0), layers - 1))
+    index = max(0, min(int(layer_index or 0), layers - 1))  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 已在 server 侧校验
     lyr = ds.GetLayerByIndex(index)
     if lyr is None:
         raise InspectError("打不开这个图层")
@@ -763,6 +774,8 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
     srs = lyr.GetSpatialRef()
     wkt = srs.ExportToWkt() if srs else ""
     assumed_local = False
+    local = None
+    unit_label = None
     if not wkt:
         # TopoJSON 一类不写坐标系，格式规范规定坐标就是 WGS 84 经纬度；表格驱动的
         # XY/WKT 列补出来的几何同理，坐标本来就是度，直接按经纬度画
@@ -772,10 +785,10 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
             # 没有坐标系的情况（多为 CAD 图纸、本地坐标）：把原始坐标当作米、
             # 按 Web 墨卡托的平面摆上去，先让用户看见图形本身。
             # 信息栏提示和地图说明里都会注明这是"临时摆放、仅供预览"
-            local = osr.SpatialReference()
-            local.ImportFromEPSG(3857)
+            local, unit = _local_srs(target)
             src, dst, ct = _pair(local.ExportToWkt())
             assumed_local = True
+            unit_label = unit[1] if unit else None
     else:
         src, dst, ct = _pair(wkt)
 
@@ -790,8 +803,21 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
             layer_total = int(lyr.GetFeatureCount())
             if layer_total < 0:
                 layer_total = None
-        except Exception:
+        except Exception:  # noqa: BLE001  （要素总数拿不到就当未知）
             layer_total = None
+
+    # 驱动能快速报范围（Shapefile 头、GeoPackage 目录、GDB catalog）时先拿一份，
+    # 首屏取数回来就能定位；GeoJSON 这类要全扫的格式留给全量检查，不在这里多花几秒
+    extent_wgs84 = None
+    try:
+        # 本地坐标的图层没有源 WKT，用带单位的临时平面算；CAD 的 GetExtent 很快
+        extent_wkt = local.ExportToWkt() if assumed_local and local is not None else wkt
+        if layer_total != 0 and extent_wkt and (assumed_local or lyr.TestCapability(ogr.OLCFastGetExtent)):
+            ext = lyr.GetExtent()
+            if ext and all(v is not None for v in ext):
+                extent_wgs84 = bounds_to_wgs84(extent_wkt, ext[0], ext[2], ext[1], ext[3])
+    except Exception:  # noqa: BLE001  （范围转 WGS84 失败就当没有）
+        extent_wgs84 = None
 
     rect_src = _src_rect(src, dst, ct, bbox, assumed_local)
     in_bbox = None
@@ -801,7 +827,7 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
         try:
             if lyr.TestCapability(ogr.OLCFastFeatureCount):
                 in_bbox = int(lyr.GetFeatureCount())
-        except Exception:
+        except Exception:  # noqa: BLE001  （范围内计数拿不到就当未知）
             in_bbox = None
     else:
         # 没有滤波器（没视野框，或本地坐标没法按视野筛）时，"视野内"就是全部
@@ -818,9 +844,10 @@ def _layer_from_file(target, layer_index, bbox, layer_total_hint):
     return {
         "ds": ds, "lyr": lyr, "index": index, "src": src, "dst": dst, "ct": ct,
         "assumed_local": assumed_local, "rect_src": rect_src,
-        "layer_name": lyr.GetName(), "geometry_label": geom_type_label(int(lyr.GetGeomType())),
+        "layer_name": lyr.GetName(), "geometry_label": geom_type_label(int(lyr.GetGeomType())),  # pi-lens-ignore: unchecked-numeric-parse-python -- GDAL 枚举值
         "field_count": defn.GetFieldCount(), "field_specs": field_specs,
         "layer_total": layer_total, "in_bbox": in_bbox,
+        "extent_wgs84": extent_wgs84, "unit_label": unit_label,
     }
 
 
@@ -843,7 +870,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     有它就不用再花几秒钟重新数一遍。
     """
     target = read_target(target)
-    index = max(0, int(layer_index or 0))
+    index = max(0, int(layer_index or 0))  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     target_stamp = _stamp(target)   # 指纹每次请求算一次，别放在逐要素循环里
 
     # ---------- 先试索引：命中就不打开源文件 ----------
@@ -868,9 +895,12 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         # 建好之后同一个文件的每次拖动、缩放都是几毫秒（见 vindex 的说明）
         if with_geometry and info["rect_src"] and vindex.suitable(target, info["lyr"]):
             vindex.ensure(target, index)
-        elif not with_geometry and int(offset or 0) > 0:
-            # 属性表翻到很深的页：有索引就按编号直接取，不必让驱动从头扫过去
+        elif not with_geometry and int(offset or 0) > 0:  # pi-lens-ignore: unchecked-numeric-parse-python -- offset 来自查询串，已由 _as_int 兜底
+            # 属性表翻到很深的页：有索引就按编号直接取，不必让驱动从头扫过去。
+            # 没有索引的，顺手在后台建一份；本次仍要扫，但下一次翻页就是毫秒级。
             idx = vindex.existing(target, index)
+            if not idx and vindex.suitable(target, info["lyr"]):
+                vindex.ensure(target, index)
         if idx:
             rows = _rows_from_index(idx, info, limit, offset)
 
@@ -885,6 +915,10 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
     assumed_local = info["assumed_local"]
     layer_total = info["layer_total"]
     in_bbox = info["in_bbox"]
+    # 索引命中的 bbox 查询：源驱动往往不支持 OLCFastFeatureCount，
+    # 这里用 R*Tree 的候选 + 精确相交补上“视野内 N 个”，和属性表口径一致。
+    if rows is not None and in_bbox is None and info["rect_src"] and idx:
+        in_bbox = vindex.count_bbox(idx, info["rect_src"])
     # 走索引时没有图层对象，字段表只有打开文件那条路上才有
     field_specs = info.get("field_specs") or []
 
@@ -918,7 +952,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         if offset:
             try:
                 lyr.SetNextByIndex(int(offset))
-            except Exception:
+            except Exception:  # noqa: BLE001  （驱动不支持随机跳转就退回逐个跳过）
                 # 个别驱动不支持直接跳转，退回逐个跳过
                 for _ in range(int(offset)):
                     if lyr.GetNextFeature() is None:
@@ -934,7 +968,7 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
             geom = feat.GetGeometryRef()
             try:
                 fid_now = int(feat.GetFID())
-            except Exception:
+            except Exception:  # noqa: BLE001  （FID 取不到就当 -1）
                 fid_now = -1
             if with_geometry:
                 item, why = _shape_item(fid_now, feature_props(feat, field_specs), geom, ct, tolerance,
@@ -968,14 +1002,14 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
                         if all(v is not None for v in env):
                             row_box = [float(env[0]), float(env[2]),
                                        float(env[1]), float(env[3])]
-                except Exception:
+                except Exception:  # noqa: BLE001  （单行包围盒算不出来就不带）
                     row_box = None
             try:
                 # 属性表的每一行都带着编号与经纬度范围，双击定位不必再回读文件
                 features.append({"type": "Feature", "geometry": None,
                                  "properties": feature_props(feat, field_specs), "fid": fid_now,
                                  "bbox": row_box})
-            except Exception:
+            except Exception:  # noqa: BLE001  （坏要素跳过并计数）
                 failed += 1
                 continue
 
@@ -990,12 +1024,12 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         "geometry_type_label": info["geometry_label"],
         "layer_total": layer_total,
         "in_bbox": in_bbox,
-        "bbox": [float(v) for v in bbox] if (bbox and not assumed_local) else None,
+        "bbox": [float(v) for v in bbox] if bbox else None,  # pi-lens-ignore: unchecked-numeric-parse-python -- bbox 就是数字列表
         "returned": len(features),
         "scanned": scanned,
         "truncated": truncated,
         "limit": limit,
-        "offset": int(offset or 0),
+        "offset": int(offset or 0),  # pi-lens-ignore: unchecked-numeric-parse-python -- offset 已由 _as_int 兜底
         "tolerance": tolerance,
         "simplified": simplified_features > 0,
         "simplified_features": simplified_features,
@@ -1003,8 +1037,13 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
         "failed": failed,
         "reprojected": ct is not None,
         "assumed_local": assumed_local,
+        "unit_label": info.get("unit_label"),
         "with_geometry": bool(with_geometry),
+        "deep_page": bool(offset and not idx and vindex.suitable(target, lyr)),
         "field_count": info["field_count"],
+        # 图层全图范围：快速打开时 inspect 还没算出来，前端拿这一份先定位，
+        # 不必等全量检查回来才出图；索引路径与直读路径都从这里走
+        "extent_wgs84": info.get("extent_wgs84"),
         # 这一次是否走了索引；indexing 表示正在后台建（建好之前的拖动还会慢）
         "indexed": bool(idx),
         "indexing": bool(not idx and vindex.building(target, index)),
@@ -1016,11 +1055,11 @@ def read_features(target, layer_index=0, bbox=None, limit=MAX_FEATURES_PER_REQUE
 
 def count_cn(n):
     """数字按中文习惯带万/亿，跟界面上的数字写法保持一致。"""
-    n = int(n)
+    n = int(n)  # pi-lens-ignore: unchecked-numeric-parse-python -- n 是本函数的计数
     if n >= 100000000:
-        return "%g 亿" % round(n / 100000000.0, 1)
+        return f"{round(n / 100000000.0, 1):g} 亿"
     if n >= 10000:
-        return "%g 万" % round(n / 10000.0, 1)
+        return f"{round(n / 10000.0, 1):g} 万"
     return str(n)
 
 
@@ -1038,7 +1077,7 @@ def geom_type_counts(target, layer_index=0):
     total = ds.GetLayerCount()
     if total < 1:
         raise InspectError("这个数据里没有矢量图层")
-    index = max(0, min(int(layer_index or 0), total - 1))
+    index = max(0, min(int(layer_index or 0), total - 1))  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     lyr = ds.GetLayerByIndex(index)
     if lyr is None:
         raise InspectError("打不开这个图层")
@@ -1052,7 +1091,7 @@ def geom_type_counts(target, layer_index=0):
             break
         scanned += 1
         g = feat.GetGeometryRef()
-        key = "无几何" if g is None else geom_type_label(int(g.GetGeometryType()))
+        key = "无几何" if g is None else geom_type_label(int(g.GetGeometryType()))  # pi-lens-ignore: unchecked-numeric-parse-python -- GDAL 枚举值
         # CAD 数据一个文件里"线·含 Z 值"和"线"各一大堆，分开列出来一长串没法看。
         # 按基础类型归并（Z 值信息"Z 值坐标"那一行已经有了，这里不重复）
         if "含 Z 值" in key:
@@ -1061,7 +1100,7 @@ def geom_type_counts(target, layer_index=0):
         counts[key] = counts.get(key, 0) + 1
     del ds
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    text = " · ".join("%s %s" % (k, count_cn(v)) for k, v in ordered)
+    text = " · ".join(f"{k} {count_cn(v)}" for k, v in ordered)
     return {"layer": index, "total": scanned,
             "types": [{"label": k, "count": v} for k, v in ordered],
             "counts_text": text,
@@ -1089,7 +1128,7 @@ _MEASURE_HITS_MAX = 512
 
 def _measure_layer(target, layer_index):
     target = read_target(target)
-    key = (str(target), int(layer_index or 0)) + _stamp(target)
+    key = (str(target), int(layer_index or 0)) + _stamp(target)  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     if _MEASURE_SRC.get("key") == key:
         return _MEASURE_SRC["lyr"], _MEASURE_SRC["index"], _MEASURE_SRC["assume_local"]
     ds = _open_vector(target)
@@ -1099,7 +1138,7 @@ def _measure_layer(target, layer_index):
     if layers < 1:
         del ds
         raise InspectError("这个数据里没有矢量图层")
-    index = max(0, min(int(layer_index or 0), layers - 1))
+    index = max(0, min(int(layer_index or 0), layers - 1))  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     lyr = ds.GetLayerByIndex(index)
     if lyr is None:
         del ds
@@ -1121,8 +1160,8 @@ def measure_feature(target, layer_index=0, fid=0):
     统一转到 WGS 84 后按椭球算（面积用大地测量面积，和 GIS 桌面软件的口径一致）。
     点要素没有面积周长，返回 kind='point'，由前端决定怎么显示。
     """
-    want = int(fid)
-    hit_key = (str(target), int(layer_index or 0), want) + _stamp(target)
+    want = int(fid)  # pi-lens-ignore: unchecked-numeric-parse-python -- fid 来自要素本身
+    hit_key = (str(target), int(layer_index or 0), want) + _stamp(target)  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     cached = _MEASURE_HITS.get(hit_key)
     if cached is not None:
         return dict(cached)
@@ -1136,7 +1175,7 @@ def measure_feature(target, layer_index=0, fid=0):
         feat = None
         try:
             feat = lyr.GetFeature(want)
-        except Exception:
+        except Exception:  # noqa: BLE001  （按 FID 取要素失败就当没有）
             feat = None
         if feat is None:
             # 个别驱动不支持按编号直接取，退回顺序扫描比对 FID
@@ -1149,7 +1188,7 @@ def measure_feature(target, layer_index=0, fid=0):
                     if int(item.GetFID()) == want:
                         feat = item
                         break
-                except Exception:
+                except Exception:  # noqa: BLE001, S112
                     continue
         if feat is None:
             raise InspectError("没找到编号 " + str(want) + " 的要素")
@@ -1158,7 +1197,7 @@ def measure_feature(target, layer_index=0, fid=0):
         if geom is None:
             raise InspectError("这个要素没有几何")
         geom = geom.Clone()
-        base, _dims = _split_geom_code(int(geom.GetGeometryType()))
+        base, _dims = _split_geom_code(int(geom.GetGeometryType()))  # pi-lens-ignore: unchecked-numeric-parse-python -- GDAL 枚举值
 
         srs = lyr.GetSpatialRef()
         wgs = _wgs84()
@@ -1169,20 +1208,19 @@ def measure_feature(target, layer_index=0, fid=0):
                     raise InspectError("要素坐标转换失败")
             except InspectError:
                 raise
-            except Exception:
-                raise InspectError("要素坐标转换失败")
+            except Exception:  # noqa: BLE001  （坐标转换失败转成可读错误）
+                raise InspectError("要素坐标转换失败") from None
         elif assume_local:
             # 本地坐标图层：原始坐标当时作米，"先摆到平面再转经纬度"和画图同一套换算，
             # 量出来的面积周长和图上看到的一致
-            local = osr.SpatialReference()
-            local.ImportFromEPSG(3857)
+            local, _unit = _local_srs(target)
             try:
                 if geom.Transform(osr.CoordinateTransformation(local, wgs)) != 0:
                     raise InspectError("要素坐标转换失败")
             except InspectError:
                 raise
-            except Exception:
-                raise InspectError("要素坐标转换失败")
+            except Exception:  # noqa: BLE001  （坐标转换失败转成可读错误）
+                raise InspectError("要素坐标转换失败") from None
         geom.AssignSpatialReference(wgs)
 
         kind = "other"
@@ -1212,13 +1250,11 @@ def measure_feature(target, layer_index=0, fid=0):
             "kind": kind,
             "area_m2": area,
             "length_m": length,
-            "bbox": [float(env[0]), float(env[2]), float(env[1]), float(env[3])],   # 左,下,右,上
+            "bbox": [float(env[0]), float(env[2]), float(env[1]), float(env[3])],   # 左,下,右,上  # pi-lens-ignore: unchecked-numeric-parse-python -- bbox 就是数字
         }
         if len(_MEASURE_HITS) >= _MEASURE_HITS_MAX:
-            try:
+            with contextlib.suppress(Exception):
                 _MEASURE_HITS.pop(next(iter(_MEASURE_HITS)))
-            except Exception:
-                pass
         _MEASURE_HITS[hit_key] = result
         return dict(result)
 
@@ -1234,7 +1270,7 @@ def column_values(target, layer_index, field, limit=200000):
     ds = _open_vector(target)
     if ds is None:
         raise ValueError("未找到可识别的矢量图层")
-    lyr = ds.GetLayerByIndex(int(layer_index))
+    lyr = ds.GetLayerByIndex(int(layer_index))  # pi-lens-ignore: unchecked-numeric-parse-python -- layer_index 来自请求，坏值在上层已挡
     if lyr is None:
         raise ValueError("该图层无法读取")
     lyr.ResetReading()
@@ -1244,7 +1280,7 @@ def column_values(target, layer_index, field, limit=200000):
             break
         try:
             v = feat.GetField(field)
-        except Exception:
+        except Exception:  # noqa: BLE001  （字段取不出来就当空值）
             v = None
         # JSON 里放不下 bytes，转成可读的占位
         if isinstance(v, (bytes, bytearray)):

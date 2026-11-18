@@ -4,6 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>图览 Tulan</title>
+<script>
+/* 本地接口的会话令牌：壳把 ?t= 带进来的令牌存进 sessionStorage，
+   之后同源 fetch 自动加请求头；地址栏里的令牌立刻抹掉，刷新仍可用。 */
+(() => {
+  const KEY = 'tulan.token';
+  let token = '';
+  try {
+    token = new URLSearchParams(location.search).get('t') || sessionStorage.getItem(KEY) || '';
+    if (token) sessionStorage.setItem(KEY, token);
+  } catch (e) { /* 无痕模式禁用 storage 时退回 URL 里的令牌 */ }
+  if (!token) return;
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
+  const orig = window.fetch;
+  window.fetch = function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    if (!url.startsWith('/') && !url.startsWith(location.origin)) return orig(input, init);
+    const opts = Object.assign({}, init || {});
+    const headers = new Headers(opts.headers || {});
+    headers.set('X-GISViewer-Token', token);
+    opts.headers = headers;
+    return orig(input, opts);
+  };
+})();
+</script>
 <link rel="stylesheet" href="/web/vendor/maplibre-gl.css">
 <link rel="stylesheet" href="/web/style.css">
 </head>
@@ -211,7 +235,7 @@
     <div class="map-pane">
       <div class="map-stage">
       <div id="map" class="map-fill"></div>
-      <div id="loadTip" class="map-load" hidden><i class="load-spin"></i><span id="loadText">正在读取…</span></div>
+      <div id="loadTip" class="map-load" hidden><i class="load-spin"></i><div class="load-main"><span id="loadText">正在读取…</span><div id="loadBar" class="load-bar" hidden><i></i></div></div><button id="loadCancel" class="load-cancel" type="button" hidden>取消</button></div>
       <!-- 一句就说完的小提示：定位到某个坐标这类操作用它，不弹窗口 -->
       <div id="mapToast" class="map-toast" hidden></div>
       <div id="fileChip" class="map-chip" hidden>

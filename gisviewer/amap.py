@@ -5,11 +5,13 @@
 用户数据的坐标一个字节都不改（底图只是参照物，不能反过来挪数据）。
 """
 
+import contextlib
 import math
 import threading
 import warnings
+from http.client import HTTPException, HTTPSConnection
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -39,7 +41,9 @@ def set_cache_dir(path):
 
 
 def _disk_key(z, x, y):
-    return _cache_dir / "amap" / str(z) / str(x) / ("%d.png" % y)
+    if _cache_dir is None:          # 还没 set_cache_dir：只走内存，不落盘
+        return None
+    return _cache_dir / "amap" / str(z) / str(x) / (f"{y}.png")
 
 
 def _shift_lat(x, y):
@@ -75,13 +79,30 @@ def wgs84_to_gcj02(lon, lat):
 
 
 def _fetch(url):
-    req = Request(url, headers={"User-Agent": UA, "Referer": "https://www.amap.com/"})
-    try:
-        with urlopen(req, timeout=8) as resp:
-            data = resp.read()
-    except Exception:
+    """取一张高德瓦片。只走 https，主机名来自本文件的常量表。
+
+    用 http.client 而不是 urllib.request：这里不需要 opener 体系，
+    也免得"任意 scheme 的 URL 都能打开"这种隐患。"""
+    parts = urlparse(url)
+    if parts.scheme != "https" or not parts.hostname:
         return b""
-    return data if data[:8] == b"\x89PNG\r\n\x1a\n" or data[:2] == b"\xff\xd8" else b""
+    path = parts.path + (f"?{parts.query}" if parts.query else "")
+    # Python 3.12（随包的运行时）默认校验证书；不关校验
+    conn = HTTPSConnection(parts.hostname, timeout=8)  # pi-lens-ignore: httpsconnection-detected
+    try:
+        conn.request("GET", path, headers={"User-Agent": UA,
+                                           "Referer": "https://www.amap.com/"})
+        resp = conn.getresponse()
+        if resp.status != 200:
+            return b""
+        data = resp.read()
+    except (OSError, HTTPException):
+        return b""
+    finally:
+        conn.close()
+    png = data[:8] == b"\x89PNG\r\n\x1a\n"
+    jpeg = data[:2] == b"\xff\xd8"
+    return data if png or jpeg else b""
 
 
 def _raw(z, x, y):
@@ -95,8 +116,9 @@ def _raw(z, x, y):
     if hit is not None:
         return hit
     host = HOSTS[(x + y) % len(HOSTS)]
-    data = _fetch("https://%s.is.autonavi.com/appmaptile?style=%s&x=%d&y=%d&z=%d"
-                  % (host, STYLE, x, y, z))
+    # 主机名/样式是常量，坐标是整数，不接受用户传入的 URL
+    data = _fetch(f"https://{host}.is.autonavi.com/appmaptile?"
+                  f"style={STYLE}&x={x}&y={y}&z={z}")  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with _lock:
         if len(_mem) > MEM_CACHE:
             _mem.clear()
@@ -110,10 +132,9 @@ def _decode(blob):
     # rasterio 只有纠偏瓦片才用得到，放到函数里导，引擎启动能省 100 多毫秒
     from rasterio.io import MemoryFile
     try:
-        with MemoryFile(blob) as mem:
-            with mem.open() as src:
-                arr = src.read()
-    except Exception:
+        with MemoryFile(blob) as mem, mem.open() as src:
+            arr = src.read()
+    except Exception:  # noqa: BLE001  （坏瓦片直接放弃）
         return None
     if arr is None or arr.ndim != 3:
         return None
@@ -148,9 +169,10 @@ def _plain(z, x, y):
 
 def render(z, x, y):
     """输出标准经纬网下第 (z,x,y) 张瓦片的 PNG 字节。"""
-    z = int(z)
-    x = int(x)
-    y = int(y)
+    try:
+        z, x, y = int(z), int(x), int(y)
+    except (TypeError, ValueError):
+        return None
     if z < 0 or z > MAX_LEVEL:
         return None
     path = _disk_key(z, x, y) if _cache_dir else None
@@ -158,7 +180,7 @@ def render(z, x, y):
         try:
             return path.read_bytes()
         except OSError:
-            pass
+            pass            # pi-lens-ignore: python-empty-except -- 读不出来就当没缓存，重新拼一张
     n = 2 ** z
     span = 1.0 / TILE
     frac = (np.arange(TILE) + 0.5) * span
@@ -167,10 +189,11 @@ def render(z, x, y):
     glon, glat = wgs84_to_gcj02(lon[None, :], lat[:, None])
     src_x = (glon + 180.0) / 360.0 * n * TILE
     src_y = (1.0 - np.arcsinh(np.tan(glat / 180.0 * math.pi)) / math.pi) / 2.0 * n * TILE
-    x0 = int(np.floor(src_x.min() / TILE))
-    x1 = int(np.floor(src_x.max() / TILE))
-    y0 = int(np.floor(src_y.min() / TILE))
-    y1 = int(np.floor(src_y.max() / TILE))
+    # math.floor 直接给 int（数组元素是 np.float64，本来就实现了 __float__）
+    x0 = math.floor(src_x.min() / TILE)
+    x1 = math.floor(src_x.max() / TILE)
+    y0 = math.floor(src_y.min() / TILE)
+    y1 = math.floor(src_y.max() / TILE)
     if (x1 - x0 + 1) * (y1 - y0 + 1) > 4:
         return _plain(z, x, y)
     mosaic = np.zeros(((y1 - y0 + 1) * TILE, (x1 - x0 + 1) * TILE, 4), dtype="uint8")
@@ -189,9 +212,8 @@ def render(z, x, y):
     row = np.clip(np.rint(src_y - y0 * TILE).astype("int32"), 0, mosaic.shape[0] - 1)
     out = _encode(mosaic[row, col])
     if path and out:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(out)
-        except OSError:
-            pass
+        with contextlib.suppress(OSError):
+            # 路径由缓存根 + 整数 z/x/y 拼成，不含用户输入
+            path.parent.mkdir(parents=True, exist_ok=True)  # pi-lens-ignore: python-path-traversal
+            path.write_bytes(out)  # pi-lens-ignore: python-path-traversal
     return out

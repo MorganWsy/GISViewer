@@ -1,15 +1,15 @@
-﻿# 一条命令跑完全部回归：语法检查 → 原生壳编译 → 引擎全格式 → 接口冒烟。
+﻿# 一条命令跑完全部回归：语法检查 → 原生壳编译 → 引擎全格式 → 缓存安全 → 索引生命周期 → 接口冒烟。
 # 任何一步不过就以退出码 1 结束，CI 和本地用的是同一条命令。
 #
 # 用法：
 #   pwsh -File tools\regress.ps1                全部
 #   pwsh -File tools\regress.ps1 -SkipShell     不编译 C#（没装 .NET Framework 的机器）
-#   pwsh -File tools\regress.ps1 -Only sweep    只跑某一节：syntax / shell / sweep / api
+#   pwsh -File tools\regress.ps1 -Only sweep    只跑某一节：syntax / shell / sweep / cache / vindex / api
 #   pwsh -File tools\regress.ps1 -Offline       引擎和接口都跳过，只做静态检查
 param(
   [switch]$SkipShell,
   [switch]$Offline,
-  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'api')]
+  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'api', 'ui')]
   [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Stop'
@@ -20,16 +20,16 @@ $env:PYTHONIOENCODING = 'utf-8'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
-# 样例数据在源码树之外（见 PLAN §11）
+# 样例数据在仓库里（见 PLAN §11）
 if (-not $env:TULAN_DATA) {
-  $guess = Join-Path (Split-Path $root -Parent) 'GISViewer-data'
+  $guess = Join-Path $root 'data'
   if (Test-Path $guess) { $env:TULAN_DATA = $guess }
 }
 
 # 解释器：先开发环境，再打包出来的 runtime，最后 PATH
 $py = $env:TULAN_PY
 if (-not $py) {
-  foreach ($cand in @('D:\miniAnaconda\envs\gisviewer\python.exe', (Join-Path $root 'dist\runtime\python.exe'))) {
+  foreach ($cand in @('D:\miniAnaconda\envs\gisviewer\python.exe', (Join-Path $root 'app\runtime\python.exe'))) {
     if (Test-Path $cand) { $py = $cand; break }
   }
 }
@@ -102,6 +102,20 @@ raise SystemExit(1 if bad else 0)
     $note = if ($badJs.Count) { "出错：" + ($badJs -join ', ') } else { "{0} 个文件" -f $jsFiles.Count }
     Record 'JS 语法' ($badJs.Count -eq 0) $note
   }
+
+  # .ps1/.cs 在 Windows PowerShell 5.1 下必须是 UTF-8 BOM；无 BOM 会把中文
+  # 当 ANSI 读，构建/拖放脚本的中文提示会乱码。构建目录和运行目录不查。
+  $bomFiles = Get-ChildItem $root -Recurse -File -Include '*.ps1', '*.cs' |
+    Where-Object { $_.FullName -notmatch '\(app|build|data|archive|\.git)\' }
+  $badBom = @()
+  foreach ($f in $bomFiles) {
+    $bytes = [IO.File]::ReadAllBytes($f.FullName)
+    if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+      $badBom += $f.FullName.Substring($root.Length + 1)
+    }
+  }
+  $bomNote = if ($badBom.Count) { '缺 BOM：' + ($badBom -join ', ') } else { "{0} 个文件" -f $bomFiles.Count }
+  Record '脚本 BOM' ($badBom.Count -eq 0) $bomNote
 }
 
 # ---------- 2. 原生壳编译 ----------
@@ -135,7 +149,7 @@ if ((Want 'shell') -and (-not $SkipShell)) {
       ) + $refs + @("$root\src\Shell.cs", "$root\src\Host.cs")
       $out = & $csc @cscArgs 2>&1
       if ($LASTEXITCODE -ne 0) { Write-Host ($out -join "`n") }
-      Record 'Shell.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 dist'
+      Record 'Shell.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 app'
 
       # 更新组件是第二个可执行文件，同样只编译到临时目录
       $updArgs = @(
@@ -144,7 +158,7 @@ if ((Want 'shell') -and (-not $SkipShell)) {
       ) + $refs + @("$root\src\Updater.cs")
       $out2 = & $csc @updArgs 2>&1
       if ($LASTEXITCODE -ne 0) { Write-Host ($out2 -join "`n") }
-      Record 'Updater.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 dist'
+      Record 'Updater.cs 编译' ($LASTEXITCODE -eq 0) '只编译，不覆盖 app'
     } finally {
       Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -158,11 +172,39 @@ if ((Want 'sweep') -and (-not $Offline)) {
   Record '引擎 sweep' ($LASTEXITCODE -eq 0) '见上方逐条结果'
 }
 
-# ---------- 4. 接口冒烟 ----------
+# ---------- 4. 缓存目录安全 ----------
+if (Want 'cache') {
+  Section '缓存目录安全'
+  & $py (Join-Path $root 'tests\cache_safety.py')
+  Record '缓存目录安全' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4b. 索引生命周期 ----------
+if (Want 'vindex') {
+  Section '索引生命周期'
+  & $py (Join-Path $root 'tests/vindex_test.py')
+  Record '索引生命周期' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4c. 本地接口鉴权 ----------
+if (Want 'auth') {
+  Section '本地接口鉴权'
+  & $py (Join-Path $root 'tests/auth_test.py')
+  Record '本地接口鉴权' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 5. 接口冒烟 ----------
 if ((Want 'api') -and (-not $Offline)) {
   Section '接口冒烟'
   & $py (Join-Path $root 'tests\api_smoke.py')
   Record '接口冒烟' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 5b. 前端失败恢复（需要 Edge + playwright-cli，单独跑） ----------
+if (Want 'ui') {
+  Section '前端失败恢复'
+  & $py (Join-Path $root 'tests/ui_failure.py')
+  Record '前端 500 恢复' ($LASTEXITCODE -eq 0) '缺 Edge 时脚本会明确 SKIP'
 }
 
 # ---------- 汇总 ----------

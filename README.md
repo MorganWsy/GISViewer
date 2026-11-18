@@ -2,13 +2,13 @@
 
 一款 Windows 桌面端的**本地数据体检工具**：把 GIS 数据拖进来，几秒钟看清坐标系、字段结构、要素数量与几何质量。定位是"打开看看、快速判断"，不是轻量 GIS，也不做编辑。
 
-![版本](https://img.shields.io/badge/版本-0.12-blue) ![协议](https://img.shields.io/badge/协议-Apache--2.0-green) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
+![版本](https://img.shields.io/badge/版本-0.15-blue) ![协议](https://img.shields.io/badge/协议-Apache--2.0-green) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
 
 ## 它解决什么问题
 
 拿到一份陌生的 GIS 数据（Shapefile、GeoJSON、DWG……），第一件事往往是：坐标系是什么？有哪些字段？要素有多少？几何有没有问题？为此打开 QGIS/ArcGIS 太重，写脚本太慢。图览把这个"看一眼"做到秒级：
 
-- **秒开元数据**：大 GeoJSON 走头部解析，132 MB / 10.9 万要素约 1 秒出第一屏；
+- **秒开元数据**：大 GeoJSON 走头部解析，132 MB / 10.9 万要素约 1 秒出信息栏；地图首屏在有索引时约 1 秒，首次打开需建索引时约 10 秒；
 - **信息栏体检报告**：坐标系与单位、字段清单（类型/宽度/样例）、要素数量、几何类型分布、范围、无数据像元、压缩方式；
 - **直方图与分级**：数值型栅格自动统计直方图、分位拉伸、按色带设色；
 - **属性表**：滚动分页加载大图层，列选中复制（整列），查找定位，双击回到要素并高亮；

@@ -11,8 +11,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-# 样例数据在源码树之外（见 PLAN §11），换位置时用 TULAN_DATA 指过去
-DATA = os.environ.get("TULAN_DATA") or os.path.join(os.path.dirname(ROOT), "GISViewer-data")
+# 样例数据在仓库里（见 PLAN §11），换位置时用 TULAN_DATA 指过去
+DATA = os.environ.get("TULAN_DATA") or os.path.join(ROOT, "data")
 
 
 def ms(t0):

@@ -5,7 +5,7 @@
 # 用法：pwsh -File tools/pack_runtime.ps1 [-Full]   （-Full 表示一点不删，整份复制）
 param(
   [string]$Src = 'D:\miniAnaconda\envs\gisviewer',
-  [string]$Dst = 'D:\GISViewer\dist\runtime',
+  [string]$Dst = 'D:\GISViewer\app\runtime',
   [switch]$Full
 )
 $ErrorActionPreference = 'Stop'

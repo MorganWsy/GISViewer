@@ -7,6 +7,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
@@ -104,6 +105,7 @@ namespace GISViewer
         readonly string[] _startupPaths;
         Process _side;
         int _port;
+        string _token;
         string _logPath;
         bool _navigated;
         readonly Stopwatch _sw = Stopwatch.StartNew();
@@ -266,6 +268,18 @@ namespace GISViewer
 
         /* HttpListener 在非管理员下要 URL ACL，用不了；让系统直接分配一个空闲端口最省事，
            也不会撞上别的程序正在监听的号 */
+        static string NewToken()
+        {
+            byte[] bytes = new byte[32];
+            using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(bytes);
+            }
+            StringBuilder sb = new StringBuilder(64);
+            for (int i = 0; i < bytes.Length; i++) sb.Append(bytes[i].ToString("x2"));
+            return sb.ToString();
+        }
+
         static int FreePort()
         {
             System.Net.Sockets.TcpListener probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
@@ -299,6 +313,7 @@ namespace GISViewer
 
             // 界面组件的初始化与引擎启动互不依赖，先发起再等引擎，别串行加起来
             Task web = PrepareWebView();
+            _token = NewToken();
             bool alive = false;
             for (int i = 0; i < 3 && !alive; i++)
             {
@@ -334,6 +349,7 @@ namespace GISViewer
                 psi.RedirectStandardOutput = true;
                 // 壳被任务管理器直接结束时，引擎要自己收摊，别留后台
                 psi.EnvironmentVariables["GISVIEWER_PPID"] = Process.GetCurrentProcess().Id.ToString();
+                psi.EnvironmentVariables["GISVIEWER_TOKEN"] = _token;
                 _side = Process.Start(psi);
                 _side.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Log("引擎 " + e.Data); };
                 _side.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) Log("引擎! " + e.Data); };
@@ -371,7 +387,8 @@ namespace GISViewer
                 }
                 try
                 {
-                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + port + "/api/formats");
+                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(
+                        "http://127.0.0.1:" + port + "/api/formats?t=" + Uri.EscapeDataString(_token));
                     req.Timeout = 900;
                     using (HttpWebResponse res = (HttpWebResponse)await req.GetResponseAsync())
                     {
@@ -489,7 +506,7 @@ namespace GISViewer
         {
             CoreWebView2 core = _web == null ? null : _web.CoreWebView2;
             if (core == null) return;
-            core.Navigate("http://127.0.0.1:" + _port + "/");
+            core.Navigate("http://127.0.0.1:" + _port + "/?t=" + Uri.EscapeDataString(_token));
         }
 
         /* 页面报来的底色：#rrggbb 直接用；只有 "dark" / "light" 两个字时退回内置的两个默认值 */

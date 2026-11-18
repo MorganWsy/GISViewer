@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """属性表编码识别。
 
 分两类：一类是"字节自己定编码"的格式（shp 的 DBF、csv），要真的去认；
@@ -46,8 +45,11 @@ def _norm(name):
 
 def _dbf_sample(path, max_records=200):
     """取 DBF 里字符字段的原始字节（最多前 max_records 条）与 LDID。"""
-    with open(path, "rb") as fh:
-        return _dbf_sample_fh(fh, max_records)
+    try:
+        with open(path, "rb") as fh:
+            return _dbf_sample_fh(fh, max_records)
+    except OSError:
+        return b"", 0
 
 
 def _dbf_sample_fh(fh, max_records=200):
@@ -84,8 +86,11 @@ def _dbf_sample_fh(fh, max_records=200):
 
 
 def _csv_sample(path, max_bytes=65536):
-    with open(path, "rb") as fh:
-        return fh.read(max_bytes)
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(max_bytes)
+    except OSError:
+        return b""
 
 
 def _sniff(data):
@@ -163,7 +168,8 @@ def detect(target):
             data, ldid = _dbf_sample(base + ".dbf") if os.path.exists(base + ".dbf") else (b"", 0)
             if os.path.exists(cpg):
                 try:
-                    name = _norm(open(cpg, "r", encoding="utf-8", errors="replace").read(64))
+                    with open(cpg, encoding="utf-8", errors="replace") as fh:
+                        name = _norm(fh.read(64))
                 except OSError:
                     name = None
                 # .cpg 写什么就按什么解，解得动才算数；解不动再按内容判
@@ -202,7 +208,7 @@ def gdal_shape_encoding(target):
     if not path.lower().endswith(".shp"):
         return None
     label = detect(path)
-    return _GDAL.get(label)
+    return _GDAL.get(label) if label else None
 
 
 # 哪些驱动的属性表编码不固定，值得在信息栏里显示出来

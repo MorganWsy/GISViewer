@@ -1,4 +1,4 @@
-// 拖放测试的“源窗口”：按住它往别处拖，就是从另一个进程发起的真实 OLE 拖放。
+﻿// 拖放测试的“源窗口”：按住它往别处拖，就是从另一个进程发起的真实 OLE 拖放。
 // 只为验证图览窗口能不能收到文件拖放，不参与打包。
 // 编译：csc /target:winexe /out:%TEMP%\dropsrc.exe tools\dropsrc.cs
 using System;
@@ -58,13 +58,13 @@ class DropSrc : Form
         Application.Run(new DropSrc(p, asText));
     }
 
-    // 样例数据在源码树之外（见 PLAN §11），默认 ..\GISViewer-data\samples，可用 TULAN_DATA 覆盖
+    // 样例数据在仓库里（见 PLAN §11），默认 ..\data\samples，可用 TULAN_DATA 覆盖
     static string DefaultSample()
     {
         string data = Environment.GetEnvironmentVariable("TULAN_DATA");
         if (string.IsNullOrEmpty(data))
             data = System.IO.Path.GetFullPath(System.IO.Path.Combine(
-                AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\GISViewer-data"));
+                AppDomain.CurrentDomain.BaseDirectory, @"..\data"));
         return System.IO.Path.Combine(data, "samples", "wuningGEP.json");
     }
 }

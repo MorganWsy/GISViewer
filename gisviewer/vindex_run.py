@@ -6,6 +6,7 @@
 """
 
 import sys
+import traceback
 
 from . import vindex
 
@@ -21,6 +22,7 @@ def main(argv=None):
     try:
         vindex.build(argv[0], layer, argv[2])
     except Exception:
+        traceback.print_exc()
         return 1
     return 0
 

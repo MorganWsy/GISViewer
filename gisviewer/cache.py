@@ -4,8 +4,11 @@
   ① 主信息读取（/api/path、/api/histogram 里的 safe_inspect）
   ② 每个波段的值分布直方图
   ③ 缩略图 PNG（合成底图、按分级上色的影像）
-不缓存：/api/vector（跟着当前视野走）、量算、点选识别（都是即时的）、
-底图瓦片（amap.py 自己有一套磁盘缓存）。
+不缓存：量算、点选识别（都是即时的）、底图瓦片（amap.py 自己有一套磁盘缓存）。
+/api/vector 按视野缓存（见 server.py），只进进程内 LRU，不落盘：单条几 MB，
+落盘既会把 prune 的 256 MB 预算吃光，也会在下次启动时和索引抢删除顺序。
+索引（vindex/）不参与 prune：它按“最后修改时间”淘汰会误删最该留的东西，
+只在用户点“清空缓存”时删。
 
 键 = 用途 + 参数 + 规范化路径 + 文件指纹（大小、修改时间；目录把内容也算上）。
 文件一改，指纹就变，旧键自然不命中；残留的旧条目交给容量清理。
@@ -26,19 +29,27 @@ import stat
 import tempfile
 import threading
 from collections import OrderedDict
+from contextlib import suppress
 from pathlib import Path
 
-MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限
+MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限（不含 vindex/）
 MEM_ITEMS = 48                  # 进程内热点条数（打开过的文件再接再开就是零等待）
-SCAN_FILES = 50000              # 目录指纹最多数这么多文件，超大瓦片目录不细算
+VEC_MEM_ITEMS = 8               # 矢量视野响应：条数少，单条大
+VEC_MEM_BYTES = 64 * 1024 * 1024  # 矢量响应内存上限
+SCAN_FILES = 500                # 目录指纹最多数这么多文件，再大就退回目录 mtime
 # 载荷结构版本：缓存里存的东西改了形状（信息栏多一行、直方图多一项）就加一。
 # 只靠版本号不够——同一个版本号下 rebuild 过、装了不同构建的副本，
 # 旧结果会带着缺字段的样子被搬出来（实测：加了"属性表编码"，旧缓存里没有这一项）
 SCHEMA = 2
+# 缓存根下只认这几种子目录。clear()/切换目录时按白名单删，绝不整个 rmtree——
+# 用户可能把缓存位置指到一个已经有资料的文件夹，根目录本身不是我们的。
+KINDS = ("inspect", "hist", "gtypes", "vec", "thumb", "vindex", "tiles")
 
 _lock = threading.Lock()
 _mem = OrderedDict()            # (kind, key) -> 值；只放 JSON 结果，PNG 不进内存
-_ROOT = None                    # server 启动时 init() 一次
+_vec_mem = OrderedDict()        # key -> (响应, 字节数)；只进内存，不落盘
+_vec_bytes = 0
+_ROOT: Path | None = None       # server 启动时 init() 一次
 
 
 def init(root):
@@ -55,12 +66,13 @@ def repoint(path):
     _ROOT = p
 
 
-def _root():
-    global _ROOT
+def _root() -> Path:
     if _ROOT is None:
         # 没被显式初始化过（比如单元测试直接调），就跟着引擎的配置目录走
         from .server import config_dir
         init(config_dir())
+    if _ROOT is None:  # 初始化过还是空：只能是配置目录不可写
+        raise RuntimeError("缓存目录没有初始化成功")
     return _ROOT
 
 
@@ -91,9 +103,9 @@ def _stamp(path):
             newest = max(newest, fst.st_mtime_ns)
             count += 1
             if count >= SCAN_FILES:
-                break
-        if count >= SCAN_FILES:
-            break
+                # 超大目录（瓦片缓存常见）不再逐个扫：文件内容变化不会改目录
+                # mtime，但这里只拿它当缓存指纹，宁可偶尔失效也不要每次几万次 stat。
+                return ("d", st.st_mtime_ns, -1)
     return ("d", newest, total, count)
 
 
@@ -105,7 +117,8 @@ def key(kind, path, extra=""):
         return None
     norm = os.path.normcase(os.path.abspath(str(path)))
     raw = "|".join([kind, __version__, str(SCHEMA), norm, repr(stamp), str(extra)])
-    return hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()
+    return hashlib.blake2b(raw.encode("utf-8", "replace"),
+                           digest_size=20).hexdigest()
 
 
 # ---------- 内存层 ----------
@@ -126,6 +139,34 @@ def _mem_put(k, v):
             _mem.popitem(last=False)
 
 
+def load_vec(k):
+    """矢量响应的内存命中；不读写磁盘。"""
+    if not k:
+        return None
+    with _lock:
+        item = _vec_mem.get(k)
+        if item is None:
+            return None
+        _vec_mem.move_to_end(k)
+        return item[0]
+
+
+def save_vec(k, value, size):
+    """存一份矢量响应；按条数和总字节双重淘汰，单条超过 48 MB 的调用方不存。"""
+    global _vec_bytes
+    if not k:
+        return
+    with _lock:
+        old = _vec_mem.pop(k, None)
+        if old is not None:
+            _vec_bytes -= old[1]
+        _vec_mem[k] = (value, size)
+        _vec_bytes += size
+        while len(_vec_mem) > VEC_MEM_ITEMS or _vec_bytes > VEC_MEM_BYTES:
+            _old_key, (_, old_size) = _vec_mem.popitem(last=False)
+            _vec_bytes -= old_size
+
+
 # ---------- 磁盘层 ----------
 
 def _entry(kind, key_hex, ext):
@@ -136,10 +177,8 @@ def _entry(kind, key_hex, ext):
 
 def _touch(path):
     """读取命中时把修改时间刷新成现在，当"最近用过"的记号给清理用。"""
-    try:
+    with suppress(OSError):
         os.utime(path, None)
-    except OSError:
-        pass
 
 
 def _write(path, body):
@@ -151,7 +190,7 @@ def _write(path, body):
             tmp = fh.name
         os.replace(tmp, path)
     except OSError:
-        pass
+        pass  # pi-lens-ignore: python-empty-except -- 写不进缓存就当没缓存，功能照跑
 
 
 def load_json(kind, key_hex, mem=True):
@@ -234,24 +273,37 @@ def stats():
 
 
 def prune(max_bytes=MAX_BYTES):
-    """超容量就清：按修改时间（=最后用过的时间）从旧到新删，留出余量。"""
+    """超容量就清：按修改时间（=最后用过的时间）从旧到新删，留出余量。
+
+    vindex/ 不参与：索引只在读时打开，mtime 不会刷新，按“最旧”删会先删
+    最该留的索引；它的体积单独算，用户在设置页点“清空缓存”时才删。"""
     root = _root()
     entries = []
     total = 0
+    index_bytes = 0
     for path in root.rglob("*"):
         try:
-            if path.is_file():
-                st = path.stat()
-                entries.append((st.st_mtime, st.st_size, path))
-                total += st.st_size
+            if not path.is_file():
+                continue
+            st = path.stat()
+            rel = path.relative_to(root)
+            if rel.parts and rel.parts[0] == "vindex":
+                index_bytes += st.st_size
+                continue
+            entries.append((st.st_mtime, st.st_size, path))
+            total += st.st_size
         except OSError:
             continue
     if total <= max_bytes:
-        return total
+        return total + index_bytes
     entries.sort(key=lambda item: item[0])
     for _mtime, size, path in entries:
         if total <= max_bytes * 0.8:
             break
+        # 标记文件（.tulan-cache）和写了一半的临时文件不参与清理，
+        # 否则清完容量反而丢了"这是我的缓存目录"的凭据。
+        if path.name.startswith("."):
+            continue
         try:
             path.unlink()
             total -= size
@@ -259,13 +311,29 @@ def prune(max_bytes=MAX_BYTES):
             continue
     with _lock:
         _mem.clear()
-    return total
+    return total + index_bytes
 
 
 def clear():
-    """设置页的"清空缓存"：内存和磁盘一起清，清完目录留着。"""
+    """设置页的"清空缓存"：内存和磁盘一起清，清完目录留着。
+
+    只删 KINDS 里的子目录。早先这里直接 rmtree(root)，用户把缓存位置指到
+    一个已有资料的文件夹后，点一次"清空"就把人家的原文件一起删了——
+    缓存目录可以是用户选的，根目录从来不是我们的。"""
     with _lock:
         _mem.clear()
+        _vec_mem.clear()
+    global _vec_bytes
+    _vec_bytes = 0
     root = _root()
-    shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+    for kind in KINDS:
+        # 缓存子目录可能正被索引子进程占着（Windows 上文件有锁），
+        # 删不掉就留给下次清理，不能因此让"清空缓存"整个失败。
+        try:
+            shutil.rmtree(root / kind, ignore_errors=True)
+        except OSError:
+            continue

@@ -1,4 +1,4 @@
-﻿# 发布打包：从 dist\ 产出更新包、清单与清单签名到 publish\。
+﻿# 发布打包：从 app\ 产出更新包、清单与清单签名到 publish\。
 # 三样东西的分工：
 #   tulan-patch-v<版本>.zip  给已经装过的人：程序、前端、引擎源码，不含 381 MB 的 runtime
 #   latest.json              客户端先看它（版本、日期、说明、包名、大小、sha256）
@@ -19,7 +19,7 @@
 # 更新包不含 runtime（381 MB，不随版本变），所以只够给已经装过的机器换文件。
 # 首次安装要的是完整包：加 -Full 另存一份 tulan-v<版本>.zip。分发时两个都要。
 #
-# 关键约束：清单里的 ver 必须与 dist\gisviewer\__init__.py 里的 __version__ 一字不差。
+# 关键约束：清单里的 ver 必须与 app\gisviewer\__init__.py 里的 __version__ 一字不差。
 # 客户端拿引擎报的版本号跟清单比，两边对不上就永远判成"有新版"或永远不提示。
 param(
   [Parameter(Mandatory = $true)][string]$Ver,
@@ -33,23 +33,31 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 
 if ($Ver -notmatch '^\d+\.\d+$') { throw "版本号要写成 X.Y 两段（如 0.14），现在是：$Ver" }
-if (-not (Test-Path (Join-Path $root 'dist\Tulan.exe'))) { throw 'dist 里没有构建产物，先跑 build.ps1' }
+if (-not (Test-Path (Join-Path $root 'app\Tulan.exe'))) { throw 'app 里没有构建产物，先跑 build.ps1' }
 if ($Notes.Count -eq 0) { throw '没有更新说明：至少给一条 -Notes，否则弹层里是一片空白' }
 
 # 版本号对账：清单说 0.14、引擎却是 0.13 的话，客户端要么永远提示、要么永远不提示
-$initPy = Join-Path $root 'dist\gisviewer\__init__.py'
+$initPy = Join-Path $root 'app\gisviewer\__init__.py'
 $m = [regex]::Match([IO.File]::ReadAllText($initPy), '__version__\s*=\s*"([^"]+)"')
-if (-not $m.Success) { throw "读不到 dist 里的版本号：$initPy" }
+if (-not $m.Success) { throw "读不到 app 里的版本号：$initPy" }
 if ($m.Groups[1].Value -ne $Ver) {
-  throw "清单版本 $Ver 与 dist 引擎版本 $($m.Groups[1].Value) 不一致；先改 gisviewer\__init__.py 再 build"
+  throw "清单版本 $Ver 与 app 引擎版本 $($m.Groups[1].Value) 不一致；先改 gisviewer\__init__.py 再 build"
+}
+
+# README 徽章也要跟同一版走：它是最容易被忘掉的一处
+$readme = Join-Path $root 'README.md'
+$rm = [regex]::Match([IO.File]::ReadAllText($readme), 'badge/版本-([0-9.]+)-')
+if (-not $rm.Success) { throw "README 里找不到版本徽章：$readme" }
+if ($rm.Groups[1].Value -ne $Ver) {
+  throw "清单版本 $Ver 与 README 徽章 $($rm.Groups[1].Value) 不一致；先改 README 再发布"
 }
 
 $out = Join-Path $root $OutDir
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 
-# 更新包：dist 下除了 runtime 全都带上。runtime 有 381 MB 且不随版本变，
+# 更新包：app 下除了 runtime 全都带上。runtime 有 381 MB 且不随版本变，
 # 每次重发一遍只是白等；它靠完整包（-Full）或者重装一次解决。
-$items = Get-ChildItem (Join-Path $root 'dist') -Force |
+$items = Get-ChildItem (Join-Path $root 'app') -Force |
   Where-Object { $_.Name -ne 'runtime' -and $_.Name -ne 'win.json' -and $_.Extension -ne '.log' } |
   ForEach-Object { $_.FullName }
 $patchZip = Join-Path $out "tulan-patch-v$Ver.zip"
@@ -73,7 +81,7 @@ try {
 
 if ($Full) {
   $fullZip = Join-Path $out "tulan-v$Ver.zip"
-  Compress-Archive -Path (Join-Path $root 'dist\*') -DestinationPath $fullZip -CompressionLevel Optimal -Force
+  Compress-Archive -Path (Join-Path $root 'app\*') -DestinationPath $fullZip -CompressionLevel Optimal -Force
   '完整包  {0,-26} {1,10:N0} B' -f (Split-Path $fullZip -Leaf), (Get-Item $fullZip).Length
 }
 

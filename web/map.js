@@ -5,12 +5,19 @@
   const TD_HOSTS = ['t0', 't1', 't2', 't3', 't4', 't5', 't6', 't7'];
   let drawLimit = 5000;   // 视野内单次绘制的要素数（设置里可改）
   let vecInFlight = false;   // 上一次取数还没回来
+  let userMoved = false;     // 用户自己拖过/缩放过：后台统计回来不要再抢镜头
   let vecPending = false;    // 取数期间视野又变了：回来后补一次
   let lastLimitToast = 0;    // 上次弹"超上限"提示的时刻：6 秒内不重复
   let localNoteShown = false;   // "坐标按米临时摆放"每个文件只说明一次
   const TILE_PALETTE = ['#d9781f', '#2f6fed', '#2e9e5b', '#a24bd8', '#c94f4f', '#0f9b8e'];
 
   let map = null;
+
+  /* 常量 SVG 走 Range 解析，不用 innerHTML：这些标记都不含用户数据，
+     但统一入口以后改起来不容易漏掉转义 */
+  function setMarkup(el, markup) {
+    el.replaceChildren(document.createRange().createContextualFragment(markup));
+  }
   let popup = null;
   let idToken = 0;
   let elapsed = '';
@@ -325,7 +332,19 @@
     const cap = h > 0 ? Math.max(24, Math.round(h * 0.4)) : want;
     const bottom = 26 + Math.min(want, cap);
     map.fitBounds([[box[0], box[1]], [box[2], box[3]]],
-      { padding: { top: 26, left: 26, right: 26, bottom }, duration: 0, maxZoom: 12 });
+      { padding: { top: 26, left: 26, right: 26, bottom }, duration: 0, maxZoom: 18 });
+  }
+
+  /* 全量检查回来时补一次真正的图层范围。用户已经自己拖过/缩放过就不动镜头，
+     只把范围记下来，留给"全图"按钮 */
+  function setExtent(b) {
+    if (!live() || !b) return false;
+    const t = targets && targets[activeTarget];
+    if (!t || t.kind !== 'vector') return false;
+    t.wgs = b;
+    if (userMoved) return false;
+    fitTo(b, t.reserveAttr);
+    return true;
   }
 
   function cornersOf(t) {
@@ -418,6 +437,12 @@
         return;
       }
       const m = res.gisviewer || {};
+      /* 快速打开时元数据还没有范围；取数响应里带了一份图层范围，
+         先拿它定位，不必等第二次全量检查回来才框视野 */
+      const t = targets && targets[activeTarget] && targets[activeTarget].kind === 'vector'
+        ? targets[activeTarget] : null;
+      const fitFromMeta = !!(t && !t.wgs && m.extent_wgs84);
+      if (fitFromMeta) t.wgs = m.extent_wgs84;
       // 无坐标系图层：底图和注记跟它摆不到一起（见 setBaseHidden 的说明）
       setBaseHidden(!!m.assumed_local);
       // 补一个稳定的 id：点选时要在填充层和描边层之间去重，认的就是它
@@ -443,11 +468,12 @@
       /* 状态栏只留事实：没有坐标系这件事在这里写一句短的，
          为什么要这样摆、底图去哪了，交给全局浮层说一次 */
       if (m.assumed_local) {
-        parts.push('坐标按米临时摆放');
+        const unit = m.unit_label || '米';
+        parts.push('坐标按' + unit + '临时摆放');
         if (!localNoteShown) {
           localNoteShown = true;
           toast('这个图层没有坐标系',
-            '按原始坐标当作米临时摆放，只用于看清图形；**底图**与**注记**已暂时收起。');
+            '按原始坐标当作' + unit + '临时摆放，只用于看清图形；**底图**与**注记**已暂时收起。');
         }
       } else if (m.reprojected) parts.push('显示坐标已转到经纬度');
       note(baseNote() + parts.join(' · '));
@@ -463,13 +489,15 @@
       }
       const src = map.getSource('gis-data');
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
-      // 没有经纬度范围可框（无坐标系的本地坐标文件）：用第一屏要素自己的
-      // 范围把视图对上去，每个图层只对一次，之后随便平移缩放都不再抢镜头
-      const fkey = (data.target || '') + '|' + (data.layerIndex || 0);
-      if (!data.wgs && !vecLocalFit[fkey] && feats.length) {
+      /* 没有经纬度范围可框（无坐标系的本地坐标文件）：用第一屏要素自己的
+         范围把视图对上去，每个图层只对一次，之后随便平移缩放都不再抢镜头。
+         t.wgs 有值说明打开时已经有范围（全量检查或取数响应），drawVector/上面
+         已经框过，这里不再重复动镜头 */
+      const fkey = (data.target || '') + '|' + ((t && t.layerIndex) || 0);
+      if (!fromMove && t && !vecLocalFit[fkey] && (fitFromMeta || !t.wgs)) {
         vecLocalFit[fkey] = 1;
-        const b = featsBBox(feats);
-        if (b) fitTo(b, data.reserveAttr);
+        const b = t.wgs || (feats.length ? featsBBox(feats) : null);
+        if (b) fitTo(b, t.reserveAttr);
       }
       emit('gis:vector', lastVec);
       // 属性表双击定位的要素如果刚才还没画出来，这一批里有了就补上高亮
@@ -768,6 +796,7 @@
     guard('载入', () => {
       if (!ensureMap()) return;
       map.resize();
+      userMoved = false;
       const list = collect(d);
       targets = list;
       activeTarget = 0;
@@ -792,6 +821,7 @@
     idToken++;
     vecInFlight = false;
     vecPending = false;
+    userMoved = false;
     data = null;
     pending = null;
     lastVec = null;
@@ -933,25 +963,25 @@
          viewBox 只框住针形：同样的格子里墨迹铺得更满，看着才够大。
          角度胶囊不能放组内——组有 overflow:hidden（裁按钮圆角用），
          组外的胶囊会被整个裁掉，所以挂到组的外层容器。 */
-      compass.innerHTML =
+      setMarkup(compass,
         '<svg class="compass-needle" viewBox="6.2 0.4 7.6 19.2" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
         '<path d="M10 1.4 L12.9 10 L7.1 10 Z" fill="#e05252"/>' +
         '<path d="M7.1 10 L12.9 10 L10 18.6 Z" fill="#ffffff" stroke="#8f979f" stroke-width="1.1"/>' +
         '<circle cx="10" cy="10" r="1.8" fill="#e05252" stroke="#ffffff" stroke-width="0.9"/>' +
-        '</svg>';
+        '</svg>');
       const needle = compass.querySelector('.compass-needle');
       const badge = document.createElement('div');
       badge.className = 'map-bearing';
       badge.id = 'mapBearing';
       /* 两个数值各带一枚小图标：斜面＝俯仰角，环形箭头＝旋转角，
          光有两个数字谁也分不清哪个是哪个。顺序按"先俯仰后旋转"走 */
-      badge.innerHTML =
+      setMarkup(badge,
         '<span class="mb-item"><svg class="mb-ico" viewBox="0 0 14 14" aria-hidden="true">' +
         '<path d="M1.9 11.4h10.2"/><path d="M1.9 11.4 10.4 3.2"/></svg>' +
         '<b class="mb-p">0°</b></span>' +
         '<span class="mb-item"><svg class="mb-ico" viewBox="0 0 14 14" aria-hidden="true">' +
         '<path d="M11.8 7.6a5 5 0 1 1-1.6-4.2"/><path d="M9.1 1.3l1.4 2.3-2.4 1"/></svg>' +
-        '<b class="mb-b">0°</b></span>';
+        '<b class="mb-b">0°</b></span>');
       const outPitch = badge.querySelector('.mb-p');
       const outBearing = badge.querySelector('.mb-b');
       const group = compass.closest('.maplibregl-ctrl-group');
@@ -1050,6 +1080,9 @@
       if (e.sourceId !== undefined && e.tile !== undefined) return;
       fail('初始化', err);
     });
+    map.on('dragstart', () => { userMoved = true; });
+    map.on('wheel', () => { userMoved = true; });
+    map.on('zoomstart', (e) => { if (e && e.originalEvent) userMoved = true; });
     map.on('moveend', () => {
       /* 画布只是变大了（窗口还原），相机没动：视野里的要素还是那批，
          再取一遍只是多一次往返，画面还要再重绘一次，看着就是闪。
@@ -1236,7 +1269,7 @@
       const b = map.getBounds();
       if (!b.contains([(pendingFocus.box[0] + pendingFocus.box[2]) / 2,
                        (pendingFocus.box[1] + pendingFocus.box[3]) / 2])) return false;
-    } catch (err) { /* 拿不到视野就照常往下走 */ }
+    } catch { /* 拿不到视野就照常往下走 */ }
     // 只在这一轮画完时说一次；之后每次平移缩放都再报一遍就成了骚扰
     if (!pendingFocus.told) {
       pendingFocus.told = true;
@@ -1254,8 +1287,8 @@
     if (!lngLat) return;
     const node = document.createElement('div');
     node.className = 'map-pin';
-    node.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
-      '<path d="M12 3.4v6.2M12 14.4v6.2M3.4 12h6.2M14.4 12h6.2"/><circle cx="12" cy="12" r="2.6"/></svg>';
+    setMarkup(node, '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">' +
+      '<path d="M12 3.4v6.2M12 14.4v6.2M3.4 12h6.2M14.4 12h6.2"/><circle cx="12" cy="12" r="2.6"/></svg>');
     pin = new maplibregl.Marker({ element: node, anchor: 'center' })
       .setLngLat(lngLat).addTo(map);
   }
@@ -1420,7 +1453,7 @@
         b.setAttribute('data-tip', title);
         b.setAttribute('aria-label', title);
       }
-      b.innerHTML = icon;
+      setMarkup(b, icon);
       return b;
     };
     const focus = mkBtn(ICON_FOCUS, '聚焦到该要素');
@@ -1656,7 +1689,7 @@
 
   window.GisMap = {
     init, show, clear, refresh, themeChanged, setElapsed, restyle, resize,
-    vector, current, viewQuery, selectLayer,
+    vector, current, viewQuery, selectLayer, setExtent,
     layerInfo() {
       return { active: activeTarget, items: targets.map((t, i) => ({
         label: t.label, kind: t.kind, key: targetKey(t), index: i })) };

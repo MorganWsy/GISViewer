@@ -6,7 +6,7 @@
     ... tests\\sweep.py --list         # 只列用例
     ... tests\\sweep.py --twice        # 每条读两遍，顺便核对两次结果是否一致
 
-样例数据在源码树之外（见 PLAN §11）：默认 ..\\GISViewer-data\\samples，用 TULAN_DATA 覆盖。
+样例数据在仓库里（见 PLAN §11）：默认 data\\samples，用 TULAN_DATA 覆盖。
 固件在 tests\\fixtures，由 tests\\make_fixtures.py 生成；缺了会提示先跑生成脚本。
 """
 
@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DATA = Path(os.environ.get("TULAN_DATA") or ROOT.parent / "GISViewer-data")
+DATA = Path(os.environ.get("TULAN_DATA") or ROOT / "data")
 SAMPLES = DATA / "samples"
 FIXTURES = ROOT / "tests" / "fixtures"
 

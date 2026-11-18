@@ -5,8 +5,8 @@
 # 用法：pwsh -File tools/dragcover_check.ps1 [-Proc Tulan]
 param(
   [string]$Proc = 'Tulan',
-  # 样例数据在源码树之外（见 PLAN §11），默认 ..\GISViewer-data\samples，可用 TULAN_DATA 覆盖
-  [string]$Data = $(if ($env:TULAN_DATA) { $env:TULAN_DATA } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'GISViewer-data' }),
+  # 样例数据在仓库里（见 PLAN §11），默认 data\samples，可用 TULAN_DATA 覆盖
+  [string]$Data = $(if ($env:TULAN_DATA) { $env:TULAN_DATA } else { Join-Path (Split-Path $PSScriptRoot -Parent) 'data' }),
   [string]$File = '',
   [string]$Folder = ''
 )

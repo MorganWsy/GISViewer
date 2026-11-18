@@ -1,8 +1,9 @@
 # 构建产物与免安装包
-dist/
+app/
 build/
 archive/
 publish/
+data/
 
 # 本地样例数据与测试夹具（几百 MB 的二进制，不进仓库）
 samples/
@@ -16,6 +17,8 @@ design/backup_*/
 # Python 运行时缓存
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
 
 # 助手的工作记忆（本地笔记，不随源码发布）
 .workbuddy/
@@ -25,3 +28,6 @@ __pycache__/
 *.user
 Thumbs.db
 Desktop.ini
+
+# Playwright CLI 生成的快照/日志，不进仓库
+.playwright-cli/
