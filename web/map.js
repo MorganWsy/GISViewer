@@ -81,9 +81,58 @@
       const span = document.createElement('span');
       span.textContent = lastNote;
       box.appendChild(span);
+      paintNoteAction(box);
       return;
     }
-    box.textContent = elapsed ? elapsed + ' · ' + lastNote : lastNote;
+    const span = document.createElement('span');
+    span.textContent = elapsed ? elapsed + ' · ' + lastNote : lastNote;
+    box.appendChild(span);
+    paintNoteAction(box);
+  }
+
+  /* 底栏说明后面跟一枚小按钮：这一屏是被抽稀画的，才给"看全精度"的入口。
+     按钮只在需要的时候出现，平时那行读数还是干净的一句话 */
+  function paintNoteAction(box) {
+    const t = targets && targets[activeTarget];
+    if (!t || t.kind !== 'vector') return;
+    const key = String(t.target) + '#' + (t.layerIndex || 0);
+    const shot = vecShot[key];
+    if (!shot) return;
+    if (!shot.simplified && !shot.forced) return;   // 本来就没抽稀，没什么可点
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mn-act';
+    btn.textContent = shot.forced ? '回到快速显示' : '看全精度';
+    btn.setAttribute('data-tip', shot.forced
+      ? '按当前缩放抽稀重画，平移缩放更快'
+      : '按原始顶点重画这一屏，数据大时要等几秒');
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleFullPrecision();
+    });
+    box.appendChild(btn);
+  }
+
+  /* 手动切换全精度：用户自己点的，就不再做"超时自动退回"那一套，
+     代价由他决定，随时可以切回来 */
+  function toggleFullPrecision() {
+    const t = targets && targets[activeTarget];
+    if (!t || t.kind !== 'vector') return false;
+    const key = String(t.target) + '#' + (t.layerIndex || 0);
+    if (vecForceFull[key]) {
+      delete vecForceFull[key];
+      delete vecFull[key];            // 回到默认判断：小文件还是全精度
+      toast('回到快速显示', '按当前缩放抽稀重画，平移、缩放会快一些，量算仍按原始几何。');
+    } else {
+      vecForceFull[key] = true;
+      vecFull[key] = true;
+      toast('按原始顶点重画', '这一屏会慢一些，数据越大越久；底栏可以点「回到快速显示」切回去。');
+    }
+    vecShot[key] = Object.assign({}, vecShot[key] || {}, { forced: !!vecForceFull[key] });
+    paintNote();
+    loadVector(t, true);
+    return true;
   }
 
   function note(text, kind) {
@@ -410,11 +459,14 @@
        12 MB 是实测的安全线。22 MB 的省界（35 个要素、顶点极密）全精度要 22 秒，
        而十几兆以内常见的县界、管网点线，一个视野几百毫秒就够。 */
   const vecFull = {};                 // 文件#图层 -> true 全精度 / false 按缩放抽稀
+  const vecForceFull = {};            // 文件#图层 -> true 用户明确点了"看全精度"
+  const vecShot = {};                 // 文件#图层 -> 这一屏的实况，底栏按钮要读它
   const VEC_FULL_MAX = 12 * 1024 * 1024;
   const VEC_FULL_BUDGET = 1200;       // 毫秒，超过就认为这份数据不适合全精度
   let vecDenseNoteShown = false;
 
   function vecTolerance(key, data, count, z) {
+    if (vecForceFull[key]) return 0;   // 用户自己点的，别再擅自替他抽稀
     const known = vecFull[key];
     if (known === true) return 0;
     const coarse = zoomTolerance(z) * (count != null && count > 20000 ? 1 : 1 / 3);
@@ -497,10 +549,11 @@
          退回后按新容差立刻重取，别让用户盯着 22 秒的等待 */
       /* 用服务端自己报的耗时，别用前端从发出到拿到的墙钟时间：
          第一次请求还要等引擎预热、GDAL 初始化，那几秒不算这份数据的账 */
-      const spent = typeof res.elapsed_ms === 'number'
-        ? res.elapsed_ms
+      const engineMs = res.gisviewer && res.gisviewer.elapsed_ms;
+      const spent = typeof engineMs === 'number'
+        ? engineMs
         : (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-      if (vecFull[vecKey] === undefined && tol === 0 && res.ok) {
+      if (vecFull[vecKey] === undefined && tol === 0 && res.ok && !vecForceFull[vecKey]) {
         if (spent > VEC_FULL_BUDGET) {
           vecFull[vecKey] = false;
           if (!vecDenseNoteShown) {
@@ -538,7 +591,14 @@
         total: m.layer_total, inBbox: m.in_bbox, truncated: !!m.truncated,
         assumedLocal: !!m.assumed_local,
       };
-      const parts = [];
+      const parts0 = [];
+      vecShot[vecKey] = {
+        simplified: !!m.simplified,
+        forced: !!vecForceFull[vecKey],
+        tolerance: m.tolerance,
+      };
+      if (vecForceFull[vecKey] && !m.simplified) parts0.push('按原始顶点绘制');
+      const parts = parts0;
       if (m.simplified) parts.push('几何已抽稀，误差不超过 2 个屏幕像素，量算仍按原始几何');
       if (m.layer_name) parts.push('图层 ' + m.layer_name);
       if (m.field_count != null) parts.push(m.field_count + ' 个字段');
@@ -890,6 +950,9 @@
       const list = collect(d);
       targets = list;
       activeTarget = 0;
+      // 换文件就清账：上一份数据的全精度选择不该跟到下一份
+      for (const k of Object.keys(vecForceFull)) delete vecForceFull[k];
+      for (const k of Object.keys(vecShot)) delete vecShot[k];
       if (!list.length) {
         clear();
         if (d.kind === 'json') toast('这份 JSON 里没有可定位的地理要素', '信息栏里仍可查看它的结构与字段。');
@@ -1783,7 +1846,7 @@
 
   window.GisMap = {
     init, show, clear, refresh, themeChanged, setElapsed, restyle, resize,
-    vector, current, viewQuery, selectLayer, setExtent,
+    vector, current, viewQuery, selectLayer, setExtent, toggleFullPrecision,
     layerInfo() {
       return { active: activeTarget, items: targets.map((t, i) => ({
         label: t.label, kind: t.kind, key: targetKey(t), index: i })) };

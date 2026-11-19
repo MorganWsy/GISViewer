@@ -703,6 +703,14 @@ table.grid.tile-table th:nth-child(5), table.grid.tile-table td:nth-child(5) { w
 .map-note.warn { display: flex; align-items: flex-start; gap: 6px; line-height: 18px; margin-top: 3px; }
 .map-note.warn .mn-ico { flex: none; width: 13px; height: 13px; margin-top: 2.5px; display: block; fill: var(--warn-ico); }
 
+/* 底栏那枚小按钮：和说明文字同一行，像一句话后面的链接，不做成显眼的方块按钮 */
+.mn-act {
+  flex: none; margin-left: 6px; padding: 0 2px; border: 0; background: none;
+  font: inherit; font-size: 12px; color: var(--accent); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
+}
+.mn-act:hover { color: var(--text); }
+
 .map-chip {
   position: absolute;
   z-index: 5;
