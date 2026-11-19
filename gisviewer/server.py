@@ -609,14 +609,18 @@ def _png_size(body):
         return 0, 0
 
 
-def raster_grid(target, indexes, max_side=512, resampling="bilinear"):
+def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None):
     """出图用的像元网格：投影坐标系的数据先降采样、再转到 Web 墨卡托，返回 (波段数组列表, 经纬度框)。
 
     地图那一侧只能把一张图贴到四个角点上，而圆锥投影里数据的边是弧线：
     照原样出图，整幅影像会和底图错开（pre_2000_01.tif 就是这样）。
-    先在原坐标系里降到 512 再转墨卡托，两步加起来不到半秒；
+    先在原坐标系里降到 max_side 再转墨卡托，两步加起来不到半秒；
     直接对原文件开 WarpedVRT 要把上亿像元整个重算一遍，得两秒多。
     贴图的四角取同一个经纬度外框，和这里的网格范围一一对应。
+
+    bbox（WGS84 的 w,s,e,n）给定时只读视野对应的窗口：
+    整幅图永远只有一张 512 的缩略图，放大后就是 512 个像素被拉满屏；
+    按视野重采样才能在高倍下读到原像素。窗口外按 NoData 透明处理。
     """
     import numpy as np  # pyright: ignore[reportMissingImports]
     import rasterio  # pyright: ignore[reportMissingImports]
@@ -626,39 +630,73 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear"):
         reproject,
         transform_bounds,
     )
+    from rasterio.windows import from_bounds as window_from_bounds  # pyright: ignore[reportMissingImports]
 
     from .crs import bounds_to_wgs84
 
     want = [_as_int(i, 1) for i in indexes]
     with rasterio.open(target) as src:
         want = [min(max(1, i), src.count) for i in want]
-        ratio = max(1, math.floor(max(src.height, src.width) / max(1, max_side)) + 1)
-        small_h, small_w = max(1, src.height // ratio), max(1, src.width // ratio)
         b = src.bounds
-        box = [b.left, b.bottom, b.right, b.top]
         crs = src.crs
         geographic = crs is None or crs.is_geographic
-        if not geographic and crs is not None:
-            conv = bounds_to_wgs84(crs.wkt, b.left, b.bottom, b.right, b.top, densify=16)
-            geographic = not conv
-            box = conv or box
-        if geographic:
-            return [src.read(i, out_shape=(small_h, small_w), masked=True) for i in want], box
+        box = [b.left, b.bottom, b.right, b.top]
+        window = None
 
-        out_w = max_side
+        if bbox and len(bbox) == 4:
+            box = [float(v) for v in bbox]
+            src_box = box
+            if not geographic and crs is not None:
+                # 视野是经纬度，先换成数据自己的投影，才能按窗口读原像素
+                src_box = list(transform_bounds("EPSG:4326", crs.wkt, *box, densify_pts=16))
+            left = max(min(src_box[0], src_box[2]), b.left)
+            bottom = max(min(src_box[1], src_box[3]), b.bottom)
+            right = min(max(src_box[0], src_box[2]), b.right)
+            top = min(max(src_box[1], src_box[3]), b.top)
+            if left >= right or bottom >= top:
+                return [np.ma.masked_all((1, 1)) for _ in want], box
+            window = window_from_bounds(left, bottom, right, top, transform=src.transform)
+        else:
+            if not geographic and crs is not None:
+                conv = bounds_to_wgs84(crs.wkt, b.left, b.bottom, b.right, b.top, densify=16)
+                geographic = not conv
+                box = conv or box
+            left, bottom, right, top = b.left, b.bottom, b.right, b.top
+
+        win_w = max(1, int(round(window.width))) if window is not None else src.width
+        win_h = max(1, int(round(window.height))) if window is not None else src.height
+        # 视野很小时要放大到 max_side（否则 100 个像素会被拉满屏），
+        # 视野很大时才缩小；两个方向都按长边定比例，避免拉伸
+        scale = max_side / max(1, win_w, win_h)
+        small_w = max(1, int(round(win_w * scale)))
+        small_h = max(1, int(round(win_h * scale)))
+        read_kw = {"window": window} if window is not None else {}
+
+        if geographic:
+            # 地理坐标分支没有重投影这一步，读回来的数组就是窗口本身；
+            # 窗口可能被数据边界截过，所以贴图范围要用截过的框，不能用原视野框，
+            # 否则超出数据的那一侧会被拉伸着铺过去
+            cover = [left, bottom, right, top] if crs is not None else box
+            return [src.read(i, out_shape=(small_h, small_w), masked=True, **read_kw)
+                    for i in want], cover
+
         # 目标网格按 Web 墨卡托算，不按经纬度：地图那边是把一张图线性铺在四角点
         # 围成的墨卡托矩形里，转到经纬度会在中高纬被拉偏，影像和底图还是对不上
         mb = transform_bounds("EPSG:4326", "EPSG:3857", box[0], max(box[1], -84.9),
                               box[2], min(box[3], 84.9), densify_pts=2)
+        out_w = max_side
         out_h = max(1, round(out_w * (mb[3] - mb[1]) / max(1e-9, mb[2] - mb[0])))
+        if out_h > max_side:
+            out_h = max_side
+            out_w = max(1, round(out_h * (mb[2] - mb[0]) / max(1e-9, mb[3] - mb[1])))
         dst_tf = from_bounds(mb[0], mb[1], mb[2], mb[3], out_w, out_h)
         # 降采样之后像元已经变大，源变换必须按小网格重算，
         # 接着用原分辨率的 transform 会让重投影只读到数组的一个角
-        src_tf = from_bounds(b.left, b.bottom, b.right, b.top, small_w, small_h)
+        src_tf = from_bounds(left, bottom, right, top, small_w, small_h)
         res = Resampling[resampling]
         arrays = []
         for i in want:
-            raw = src.read(i, out_shape=(small_h, small_w), masked=True)
+            raw = src.read(i, out_shape=(small_h, small_w), masked=True, **read_kw)
             buf = np.full((out_h, out_w), np.nan, dtype="float64")
             reproject(source=raw.filled(np.nan).astype("float64"), destination=buf,
                       src_transform=src_tf, src_crs=src.crs,
@@ -669,13 +707,13 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear"):
         return arrays, box
 
 
-def thumbnail(target, band_count, max_side=512):
-    """降采样出一张给界面铺底的小图，返回 PNG 字节。"""
+def thumbnail(target, band_count, max_side=512, bbox=None):
+    """降采样出一张给界面铺底的小图，返回 PNG 字节。bbox 给定时只出这块视野。"""
     import numpy as np  # pyright: ignore[reportMissingImports]
     from rasterio.io import MemoryFile  # pyright: ignore[reportMissingImports]
 
     want = min(band_count or 1, 3)
-    arrays_in = raster_grid(target, range(1, want + 1), max_side)[0]
+    arrays_in = raster_grid(target, range(1, want + 1), max_side, bbox=bbox)[0]
     out_h, out_w = arrays_in[0].shape
     arrays = []
     # NoData 处给透明，底图才透得出来，不会糊成一片黑
@@ -715,7 +753,7 @@ def thumbnail(target, band_count, max_side=512):
         return mem.read(), out_w, out_h
 
 
-def class_image(target, band_index, edges, colors, max_side=512, fill=None):
+def class_image(target, band_index, edges, colors, max_side=512, fill=None, bbox=None):
     """按分级界给单个波道上色，输出 RGBA 的 PNG：图例和影像用的是同一套分级。
 
     fill 给定时，无数据处涂这个颜色而不是留透明。
@@ -724,7 +762,7 @@ def class_image(target, band_index, edges, colors, max_side=512, fill=None):
     from rasterio.io import MemoryFile  # pyright: ignore[reportMissingImports]
 
     # 分类栅格必须最近邻重采样，插值会造出文件里根本不存在的类别
-    arr = raster_grid(target, [band_index], max_side, "nearest")[0][0]
+    arr = raster_grid(target, [band_index], max_side, "nearest", bbox=bbox)[0][0]
     out_h, out_w = arr.shape
     cuts = np.asarray(edges[1:-1], dtype="float64")
     index = np.digitize(arr.data, cuts)
@@ -1292,24 +1330,40 @@ class Handler(BaseHTTPRequestHandler):
                     "title": "分级断点不是数字", "detail": raw.strip()[:30]}})
             edges.append(value)
         colors = [v.strip() for v in (query.get("colors") or [""])[0].split(",") if v.strip()]
-        cacheable = _cacheable(path)
+        bbox = None
+        raw_bbox = (query.get("bbox") or [""])[0].strip()
+        if raw_bbox:
+            vals = [_as_float(v) for v in raw_bbox.split(",")]
+            if len(vals) != 4:
+                return self._send(400, {"ok": False, "error": {
+                    "title": "视野范围不是四个数字", "detail": raw_bbox[:60]}})
+            bbox = []
+            for v in vals:
+                if v is None:
+                    return self._send(400, {"ok": False, "error": {
+                        "title": "视野范围不是四个数字", "detail": raw_bbox[:60]}})
+                bbox.append(float(v))
+        max_side = min(2048, max(256, _as_int((query.get("max") or ["512"])[0], 512)))
+        # 视野图每次拖动都不同，不往磁盘缓存里塞；整幅缩略图照旧缓存
+        cacheable = _cacheable(path) and bbox is None
         try:
             if edges and len(edges) >= 3 and len(colors) == len(edges) - 1:
                 band_index = int((query.get("band") or ["1"])[0])
                 fill = view_prefs()["nodata"]
                 label = (f"class;band={band_index};edges={','.join(str(e) for e in edges)};"
-                         f"colors={','.join(colors)};fill={fill}")
+                         f"colors={','.join(colors)};fill={fill};max={max_side}")
                 k = cache.key("thumb", path, label) if cacheable else None
                 png = cache.load_blob("thumb", k)
                 if png is None:
-                    png, _w, _h = class_image(path, band_index, edges, colors, fill=fill)
+                    png, _w, _h = class_image(path, band_index, edges, colors, fill=fill,
+                                              max_side=max_side, bbox=bbox)
                     cache.save_blob("thumb", k, png)
             else:
                 band_count = int((query.get("bands") or ["1"])[0])
-                k = cache.key("thumb", path, f"bands={band_count}") if cacheable else None
+                k = cache.key("thumb", path, f"bands={band_count};max={max_side}") if cacheable else None
                 png = cache.load_blob("thumb", k)
                 if png is None:
-                    png, _w, _h = thumbnail(path, band_count)
+                    png, _w, _h = thumbnail(path, band_count, max_side=max_side, bbox=bbox)
                     cache.save_blob("thumb", k, png)
         except Exception as exc:  # noqa: BLE001
             return self._send(200, {"ok": False, "error": {

@@ -4,12 +4,12 @@
 # 用法：
 #   pwsh -File tools\regress.ps1                全部
 #   pwsh -File tools\regress.ps1 -SkipShell     不编译 C#（没装 .NET Framework 的机器）
-#   pwsh -File tools\regress.ps1 -Only sweep    只跑某一节：syntax / shell / sweep / cache / vindex / api
+#   pwsh -File tools\regress.ps1 -Only sweep    只跑某一节：syntax / shell / sweep / cache / vindex / auth / raster / api
 #   pwsh -File tools\regress.ps1 -Offline       引擎和接口都跳过，只做静态检查
 param(
   [switch]$SkipShell,
   [switch]$Offline,
-  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'api', 'ui')]
+  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'api', 'ui')]
   [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Stop'
@@ -184,6 +184,13 @@ if (Want 'vindex') {
   Section '索引生命周期'
   & $py (Join-Path $root 'tests/vindex_test.py')
   Record '索引生命周期' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4bb. 栅格按视野重采样 ----------
+if ((Want 'raster') -and (-not $Offline)) {
+  Section '栅格按视野重采样'
+  & $py (Join-Path $root 'tests/raster_view.py')
+  Record '栅格视野重采样' ($LASTEXITCODE -eq 0) '见上方逐条结果'
 }
 
 # ---------- 4c. 本地接口鉴权 ----------

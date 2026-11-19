@@ -27,6 +27,8 @@
   let token = 0;
   let debounce = null;
   let lastVec = null;
+  let rasterTarget = null;   // 当前贴在地图上的栅格：拖动/缩放后按新视野重采样
+  let rasterTimer = null;
   /* 相机指纹：中心点、缩放、朝向、俯仰。窗口还原时画布尺寸会变，但相机没动，
      拿它就能分辨"只是画布变大了"和"用户真的动过地图"——前者不该重取要素 */
   let resizeCam = '';
@@ -282,16 +284,57 @@
   }
 
   function removeImage() {
+    rasterTarget = null;
+    if (rasterTimer) { clearTimeout(rasterTimer); rasterTimer = null; }
     if (map.getLayer('gis-raster')) map.removeLayer('gis-raster');
     if (map.getSource('gis-image')) map.removeSource('gis-image');
   }
 
-  function setImage(url, corners) {
+  function setImage(url, corners, target) {
     removeImage();
+    rasterTarget = target || null;
     map.addSource('gis-image', { type: 'image', url, coordinates: corners });
     if (!map.getLayer('gis-raster')) {
       map.addLayer({ id: 'gis-raster', type: 'raster', source: 'gis-image',
         paint: { 'raster-opacity': 0.94 } });
+    }
+  }
+
+  /* 栅格不是瓦片，是一张贴图。缩放到比“整幅图 / 512”更细时，贴图就成了
+     512 个像素被拉满屏。这里按当前视野向引擎再要一张（最多 2048），
+     只读视野窗口里的原像素；视野没离开整幅图时不重取。 */
+  function scheduleRasterRefresh() {
+    if (!rasterTarget || !rasterTarget.wgs) return;
+    if (rasterTimer) clearTimeout(rasterTimer);
+    rasterTimer = setTimeout(refreshRaster, 180);
+  }
+
+  function refreshRaster() {
+    rasterTimer = null;
+    const t = rasterTarget;
+    if (!t || !t.wgs || !map || !map.getSource('gis-image')) return;
+    const b = map.getBounds();
+    const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    const full = t.wgs;
+    const box = [Math.max(view[0], full[0]), Math.max(view[1], full[1]),
+      Math.min(view[2], full[2]), Math.min(view[3], full[3])];
+    if (!(box[0] < box[2] && box[1] < box[3])) return;
+    const fullW = full[2] - full[0], fullH = full[3] - full[1];
+    const boxW = box[2] - box[0], boxH = box[3] - box[1];
+    if (fullW <= 0 || fullH <= 0) return;
+    if (boxW >= fullW * 0.985 && boxH >= fullH * 0.985) return;
+    const corners = [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]];
+    const cssW = (map.getCanvas() && map.getCanvas().clientWidth) || 1024;
+    const maxSide = Math.max(1024, Math.min(2048,
+      Math.round(cssW * (window.devicePixelRatio || 1))));
+    const url = rasterUrl(t, box, maxSide);
+    const src = map.getSource('gis-image');
+    try {
+      if (src && src.updateImage) src.updateImage({ url, coordinates: corners });
+      else setImage(url, corners, t);
+    } catch (err) {
+      // 样式正在重建时 updateImage 会抛；等下一次 moveend 再试，不打断当前画面
+      if (window.console) console.debug('raster refresh skipped', err);
     }
   }
 
@@ -516,8 +559,12 @@
     debounce = setTimeout(() => loadVector(true), 260);
   }
 
-  function rasterUrl(t) {
-    const base = '/api/thumbnail?path=' + enc(t.target);
+  function rasterUrl(t, box, maxSide) {
+    let base = '/api/thumbnail?path=' + enc(t.target);
+    if (box && box.length === 4) {
+      base += '&bbox=' + box.map((v) => Number(v).toFixed(6)).join(',');
+      if (maxSide) base += '&max=' + Math.round(maxSide);
+    }
     if (t.edges && t.colors && t.edges.length > 2) {
       // 颜色里的 # 不转义会被当成 URL 片段，服务端收到的就是空列表
       return base + '&band=' + (t.band || 1) +
@@ -541,7 +588,7 @@
       emit('gis:drawn', { kind: 'skip' });
       return;
     }
-    setImage(rasterUrl(t), t.corners && t.corners.length === 4 ? t.corners : cornersOf(t));
+    setImage(rasterUrl(t), t.corners && t.corners.length === 4 ? t.corners : cornersOf(t), t);
     setExtentRing(t.ring || null);
     emit('gis:drawn', { kind: 'raster' });
     if (!keepView) fitTo(t.wgs || boxFromRing(t.ring));
@@ -1091,6 +1138,7 @@
         if (resizeCam && cameraKey() === resizeCam) resizeCam = '';
         else { resizeCam = ''; scheduleVector(); }
       }
+      if (data && data.kind === 'raster') scheduleRasterRefresh();
       emitView();
     });
     map.on('move', scheduleView);
