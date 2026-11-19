@@ -599,6 +599,15 @@ def cached_band_stats(target, info, band_index):
     return out
 
 
+def _bbox_label(bbox):
+    """视野框拼成缓存键：按 5 位小数取整。
+
+    拖动停下时算出来的框总是差最后几位，不取整就等于没有缓存；
+    5 位小数在赤道上约 1 米，比屏幕像素粗得多，取整看不出来。
+    """
+    return ",".join(f"{float(v):.5f}" for v in bbox)
+
+
 def _png_size(body):
     """PNG 的宽高就写在文件头第 16-24 字节，不用再存一份侧车文件。"""
     try:
@@ -1344,8 +1353,10 @@ class Handler(BaseHTTPRequestHandler):
                         "title": "视野范围不是四个数字", "detail": raw_bbox[:60]}})
                 bbox.append(float(v))
         max_side = min(2048, max(256, _as_int((query.get("max") or ["512"])[0], 512)))
-        # 视野图每次拖动都不同，不往磁盘缓存里塞；整幅缩略图照旧缓存
+        # 整幅缩略图落盘缓存；视野图每次拖动都不同，只留在内存里热一下，
+        # 免得每拖一次就往 thumb 分片写一张，下次启动又被 prune 清掉
         cacheable = _cacheable(path) and bbox is None
+        hit = False
         try:
             if edges and len(edges) >= 3 and len(colors) == len(edges) - 1:
                 band_index = int((query.get("band") or ["1"])[0])
@@ -1354,7 +1365,16 @@ class Handler(BaseHTTPRequestHandler):
                          f"colors={','.join(colors)};fill={fill};max={max_side}")
                 k = cache.key("thumb", path, label) if cacheable else None
                 png = cache.load_blob("thumb", k)
-                if png is None:
+                hit = png is not None
+                if png is None and bbox is not None:
+                    vk = cache.key("view", path, label + ";bbox=" + _bbox_label(bbox))
+                    png = cache.load_view(vk)
+                    hit = png is not None
+                    if png is None:
+                        png, _w, _h = class_image(path, band_index, edges, colors, fill=fill,
+                                                  max_side=max_side, bbox=bbox)
+                        cache.save_view(vk, png)
+                elif png is None:
                     png, _w, _h = class_image(path, band_index, edges, colors, fill=fill,
                                               max_side=max_side, bbox=bbox)
                     cache.save_blob("thumb", k, png)
@@ -1362,14 +1382,24 @@ class Handler(BaseHTTPRequestHandler):
                 band_count = int((query.get("bands") or ["1"])[0])
                 k = cache.key("thumb", path, f"bands={band_count};max={max_side}") if cacheable else None
                 png = cache.load_blob("thumb", k)
-                if png is None:
+                hit = png is not None
+                if png is None and bbox is not None:
+                    vk = cache.key("view", path, f"bands={band_count};max={max_side};bbox="
+                                   + _bbox_label(bbox))
+                    png = cache.load_view(vk)
+                    hit = png is not None
+                    if png is None:
+                        png, _w, _h = thumbnail(path, band_count, max_side=max_side, bbox=bbox)
+                        cache.save_view(vk, png)
+                elif png is None:
                     png, _w, _h = thumbnail(path, band_count, max_side=max_side, bbox=bbox)
                     cache.save_blob("thumb", k, png)
         except Exception as exc:  # noqa: BLE001
             return self._send(200, {"ok": False, "error": {
                 "title": "影像预览生成失败", "detail": labels.friendly_error(exc)[:200]}})
         w, h = _png_size(png)
-        return self._send(200, png, "image/png", {"X-Image-Width": str(w), "X-Image-Height": str(h)})
+        return self._send(200, png, "image/png", {"X-Image-Width": str(w), "X-Image-Height": str(h),
+                                                 "X-Cache": "hit" if hit else "miss"})
 
     def _identify(self, query):
         """只给栅格用：点一个位置，报出该像元的行列号和数值。

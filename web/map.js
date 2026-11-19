@@ -323,7 +323,9 @@
     const boxW = box[2] - box[0], boxH = box[3] - box[1];
     if (fullW <= 0 || fullH <= 0) return;
     if (boxW >= fullW * 0.985 && boxH >= fullH * 0.985) return;
-    const corners = [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]];
+    /* 顺序必须是「左上、右上、右下、左下」——MapLibre 的 image source 按这个顺序
+       贴四角。写成（西,南）打头就是整张图转了 180°，用户看到的正是倒过来的影像 */
+    const corners = [[box[0], box[3]], [box[2], box[3]], [box[2], box[1]], [box[0], box[1]]];
     const cssW = (map.getCanvas() && map.getCanvas().clientWidth) || 1024;
     const maxSide = Math.max(1024, Math.min(2048,
       Math.round(cssW * (window.devicePixelRatio || 1))));
@@ -332,9 +334,9 @@
     try {
       if (src && src.updateImage) src.updateImage({ url, coordinates: corners });
       else setImage(url, corners, t);
-    } catch (err) {
-      // 样式正在重建时 updateImage 会抛；等下一次 moveend 再试，不打断当前画面
-      if (window.console) console.debug('raster refresh skipped', err);
+    } catch {
+      /* 样式正在重建时 updateImage 会抛：这一帧跳过，下次 moveend 还会再来一次，
+         不必打扰控制台——拖动时每一帧都刷一条日志反而盖住真问题 */
     }
   }
 
@@ -1652,14 +1654,17 @@
       const diff = target - cur;
       if (Math.abs(diff) < 0.0015) { target = null; return; }
       const next = cur + diff * 0.32;
+      /* 鼠标下那一点要钉住不动。先把它的经纬度记下来，缩完看它跑到屏幕哪里，
+         再把相机中心按"屏幕像素"挪同样的差——早先按经纬度差直接加到中心上，
+         墨卡托的纵向不是线性的，缩放级别一多就攒出近十像素的偏移，看着就是
+         "放大的中心不在鼠标上"。像素空间里补才对得上。 */
       const before = anchor ? map.unproject(anchor) : null;
       map.jumpTo({ zoom: next });
       if (anchor && before) {
-        const after = map.unproject(anchor);
-        const c = map.getCenter();
-        map.jumpTo({
-          center: [c.lng + (before.lng - after.lng), c.lat + (before.lat - after.lat)],
-        });
+        const after = map.project(before);
+        const cPx = map.project(map.getCenter());
+        const nc = map.unproject([cPx.x + (after.x - anchor.x), cPx.y + (after.y - anchor.y)]);
+        map.jumpTo({ center: [nc.lng, nc.lat] });
       }
       raf = requestAnimationFrame(tick);
     };

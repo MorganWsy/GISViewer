@@ -34,6 +34,8 @@ from pathlib import Path
 
 MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限（不含 vindex/）
 MEM_ITEMS = 48                  # 进程内热点条数（打开过的文件再接再开就是零等待）
+VIEW_MEM_ITEMS = 24             # 视野贴图：来回拖一下重复率高，20 来张够用
+VIEW_MEM_BYTES = 48 * 1024 * 1024  # 视野贴图内存上限
 VEC_MEM_ITEMS = 8               # 矢量视野响应：条数少，单条大
 VEC_MEM_BYTES = 64 * 1024 * 1024  # 矢量响应内存上限
 SCAN_FILES = 500                # 目录指纹最多数这么多文件，再大就退回目录 mtime
@@ -49,6 +51,8 @@ _lock = threading.Lock()
 _mem = OrderedDict()            # (kind, key) -> 值；只放 JSON 结果，PNG 不进内存
 _vec_mem = OrderedDict()        # key -> (响应, 字节数)；只进内存，不落盘
 _vec_bytes = 0
+_view_mem = OrderedDict()       # key -> PNG 字节；视野贴图同样只进内存
+_view_bytes = 0
 _ROOT: Path | None = None       # server 启动时 init() 一次
 
 
@@ -166,6 +170,41 @@ def save_vec(k, value, size):
             _old_key, (_, old_size) = _vec_mem.popitem(last=False)
             _vec_bytes -= old_size
 
+
+
+def load_view(k):
+    """按视野渲染出来的贴图：只进内存，磁盘上一张不留。
+
+    每次拖动的视野都不同，落盘只会把 thumb 分片灌满，下次启动又被 prune 清掉；
+    可"放大一级再缩回来""来回拖一下"重复率高，留在内存里就够了。
+    """
+    if not k:
+        return None
+    with _lock:
+        png = _view_mem.get(k)
+        if png is None:
+            return None
+        _view_mem.move_to_end(k)
+        return png
+
+
+def save_view(k, png):
+    """存一张视野贴图；按条数与总字节双重淘汰，单张超过 16 MB 的不存。"""
+    global _view_bytes
+    if not k or not png:
+        return
+    size = len(png)
+    if size > 16 * 1024 * 1024:
+        return
+    with _lock:
+        old = _view_mem.pop(k, None)
+        if old is not None:
+            _view_bytes -= len(old)
+        _view_mem[k] = png
+        _view_bytes += size
+        while len(_view_mem) > VIEW_MEM_ITEMS or _view_bytes > VIEW_MEM_BYTES:
+            _old_key, old_png = _view_mem.popitem(last=False)
+            _view_bytes -= len(old_png)
 
 # ---------- 磁盘层 ----------
 
@@ -323,8 +362,10 @@ def clear():
     with _lock:
         _mem.clear()
         _vec_mem.clear()
-    global _vec_bytes
+        _view_mem.clear()
+    global _vec_bytes, _view_bytes
     _vec_bytes = 0
+    _view_bytes = 0
     root = _root()
     try:
         root.mkdir(parents=True, exist_ok=True)

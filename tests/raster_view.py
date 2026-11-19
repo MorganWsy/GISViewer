@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import struct
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from gisviewer import server  # noqa: E402
+from gisviewer import cache, server  # noqa: E402
 
 SAMPLE = ROOT / "data" / "samples" / "pre_2000_01.tif"
 CHECKS: list[str] = []
@@ -90,6 +91,18 @@ def main() -> int:
         _ga, gcover = server.raster_grid(geo, [1], 512, bbox=gview)
         check("经纬度数据越界时贴图框被截到数据边界", gcover[2] <= ge + 1e-9,
               f"cover.right={gcover[2]:.4f} <= data.right={ge:.4f}")
+
+    # 视野贴图的内存缓存：同一块视野再要一次不该重算，超大图不硬塞进内存
+    cache.init(Path(tempfile.mkdtemp(prefix="tulan-view-cache-")))
+    png1, _pw, _ph = server.thumbnail(SAMPLE, 1, max_side=1024, bbox=view)
+    key = cache.key("view", SAMPLE, "t=1")
+    cache.save_view(key, png1)
+    again = cache.load_view(key)
+    check("视野贴图能进内存缓存", again == png1, f"{len(png1)} B")
+    big = b"x" * (17 * 1024 * 1024)
+    cache.save_view(cache.key("view", SAMPLE, "t=2"), big)
+    check("超过 16 MB 的贴图不进内存",
+          cache.load_view(cache.key("view", SAMPLE, "t=2")) is None, "17 MB 被拒")
 
     # 窗口尺度的读数对不对：取视野中心，源数组里应该不是全 NoData
     arrays, cover2 = server.raster_grid(SAMPLE, [1], 512, bbox=view)
