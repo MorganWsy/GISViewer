@@ -9,7 +9,7 @@
 param(
   [switch]$SkipShell,
   [switch]$Offline,
-  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'api', 'ui')]
+  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'pyramid', 'api', 'ui')]
   [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Stop'
@@ -191,6 +191,13 @@ if ((Want 'raster') -and (-not $Offline)) {
   Section '栅格按视野重采样'
   & $py (Join-Path $root 'tests/raster_view.py')
   Record '栅格视野重采样' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4bc. 金字塔副本 ----------
+if ((Want 'pyramid') -and (-not $Offline)) {
+  Section '金字塔副本'
+  & $py (Join-Path $root 'tests/pyramid_test.py')
+  Record '金字塔副本' ($LASTEXITCODE -eq 0) '见上方逐条结果'
 }
 
 # ---------- 4c. 本地接口鉴权 ----------

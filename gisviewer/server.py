@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import __version__, cache, formats, winpath
+from . import __version__, cache, formats, pyramid, winpath
 from .textutil import clean_text
 
 # GDAL 那一坨导入是启动耗时的大头。先绑上端口、先把界面发出去，
@@ -618,7 +618,8 @@ def _png_size(body):
         return 0, 0
 
 
-def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None):
+def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None,
+                _allow_pyramid=True):
     """出图用的像元网格：投影坐标系的数据先降采样、再转到 Web 墨卡托，返回 (波段数组列表, 经纬度框)。
 
     地图那一侧只能把一张图贴到四个角点上，而圆锥投影里数据的边是弧线：
@@ -672,13 +673,25 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None)
                 box = conv or box
             left, bottom, right, top = b.left, b.bottom, b.right, b.top
 
-        win_w = max(1, int(round(window.width))) if window is not None else src.width
-        win_h = max(1, int(round(window.height))) if window is not None else src.height
+        win_w = max(1, round(window.width)) if window is not None else src.width
+        win_h = max(1, round(window.height)) if window is not None else src.height
         # 视野很小时要放大到 max_side（否则 100 个像素会被拉满屏），
         # 视野很大时才缩小；两个方向都按长边定比例，避免拉伸
         scale = max_side / max(1, win_w, win_h)
-        small_w = max(1, int(round(win_w * scale)))
-        small_h = max(1, int(round(win_h * scale)))
+        small_w = max(1, round(win_w * scale))
+        small_h = max(1, round(win_h * scale))
+
+        # 往外拉、要略读一大片的时候改读金字塔副本：同样的范围，原图要读几千万
+        # 像元，副本只有 1/2~1/4 的行列。分级上色用最近邻，副本里的平均值会造出
+        # 文件里没有的类别，那条路一律读原图。
+        if _allow_pyramid and resampling != "nearest":
+            from . import pyramid  # 局部导入：没建过副本时这个模块不必进内存
+
+            sub = pyramid.pick(target, src.width, win_w / max(1, small_w))
+            if sub is not None:
+                return raster_grid(str(sub), indexes, max_side, resampling, bbox,
+                                   _allow_pyramid=False)
+
         read_kw = {"window": window} if window is not None else {}
 
         if geographic:
@@ -974,6 +987,8 @@ class Handler(BaseHTTPRequestHandler):
                                     "cache_dir": str(cache_root_dir())})
         if route == "/api/dwg/status":
             return self._dwg_status(query)
+        if route == "/api/pyramid/status":
+            return self._pyramid_status(query)
         if route.startswith("/api/tile/"):
             return self._amap_tile(route)
         return self._send(404, {"ok": False, "error": {"title": "没有这个接口"}})
@@ -1008,6 +1023,15 @@ class Handler(BaseHTTPRequestHandler):
             body = self._json_body()
             path = str(body.get("path", "")).strip()
             return self._send(200, {"ok": True, "cancelled": bool(dwg.cancel(path))})
+        if route == "/api/pyramid/build":
+            body = self._json_body()
+            path = str(body.get("path", "")).strip()
+            if not _readable(path):
+                return self._send(404, {"ok": False, "error": {"title": "找不到这个文件"}})
+            return self._send(200, pyramid.build(path, str(body.get("resample") or "average")))
+        if route == "/api/pyramid/cancel":
+            body = self._json_body()
+            return self._send(200, pyramid.cancel(str(body.get("path", "")).strip()))
         if route == "/api/vindex/prebuild":
             body = self._json_body()
             return self._vindex_prebuild(str(body.get("path", "")).strip(),
@@ -1304,6 +1328,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"ok": False, "error": {"title": "这张瓦片读不出来"}})
         return self._send(200, body, TILE_TYPES[ext],
                          {"Cache-Control": "public, max-age=3600"})
+
+    def _pyramid_status(self, query):
+        """界面弹窗问"要不要建金字塔"时用：值不值得建、建过没有、正在建吗。"""
+        path = str((query.get("path") or [""])[0]).strip()
+        if not _readable(path):
+            return self._send(404, {"ok": False, "error": {"title": "找不到这个文件"}})
+        try:
+            return self._send(200, pyramid.status(path))
+        except Exception as exc:  # noqa: BLE001
+            return self._send(200, {"ok": False, "error": {
+                "title": "读不了这份影像", "detail": labels.friendly_error(exc)[:200]}})
 
     def _dwg_status(self, query):
         path = str((query.get("path") or [""])[0]).strip()

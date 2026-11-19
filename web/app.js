@@ -963,7 +963,7 @@ function bandTable(bands) {
     bands.map((b) => [b.index, b.description || '', b.type_label || '',
       b.bits === null || b.bits === undefined ? '' : b.bits,
       b.color_interp && b.color_interp !== 'Undefined' ? (b.color_interp_label || '') : '',
-      nodataText(b)]));
+      nodataText(b)]), 'band-table');
 }
 
 function layerTable(layers) {
@@ -987,13 +987,14 @@ function variableTable(d) {
         (s.type_label || '—') + (phys.unit ? ' · ' + phys.unit : ''),
         physText(phys, st.minimum, dg),
         physText(phys, st.maximum, dg), physText(phys, st.mean, dg)];
-    }));
+    }), 'var-table');
 }
 
 function tileLayerTable(layers) {
   return gridTable(['图层', '几何类型', '字段数', '字段', '单张要素数'],
     layers.map((l) => [l.name || '默认', l.geometry_type_label || '—', [l.field_count, 'num'],
-      (l.fields || []).slice(0, 6).join('、') || '—', [count(l.features_in_tile), 'num']]));
+      (l.fields || []).slice(0, 6).join('、') || '—', [count(l.features_in_tile), 'num']]),
+    'tile-table');
 }
 
 /* ---------- 各格式的分节：只放数据本身的信息，文件级的都在地图胶囊里 ---------- */
@@ -1598,7 +1599,7 @@ async function cancelDwgWatch() {
   if (openAbort) openAbort.abort();
   loadTip(false);
 }
-$('loadCancel').addEventListener('click', cancelDwgWatch);
+$('loadCancel').addEventListener('click', () => { if (pyrPath) cancelPyramid(); else cancelDwgWatch(); });
 
 /* 首屏先把配色算完再画，避免先出一帧灰图再跳成彩色 */
 async function setupRaster(d) {
@@ -3116,6 +3117,8 @@ function noteOpened(path, data) {
   watchStale(path, data);
   syncCheckInput(path);
   schedulePrebuild(path, data);
+  /* 等首屏画完再问：先让人看见图，再问要不要为它多花点时间 */
+  setTimeout(() => { askPyramid(path, data); }, 900);
 }
 
 /* 大文件首屏出来后，趁用户还在看，后台把索引建了；下一次拖动/翻页就是毫秒级。
@@ -3134,6 +3137,119 @@ function schedulePrebuild(path, data) {
     }).catch(() => {});
   }, 1500);
 }
+
+/* ---------- 金字塔：首次打开大影像时问一句 ---------- */
+
+/* 金字塔副本存放在本机缓存里（`pyramid/` 分片），原文件一个字节都不动。
+   建一次之后往外拉视野只读副本，不再把原图整片读一遍。 */
+const PYR_NEVER = 'tulan.pyramid.never';
+let pyrTimer = 0;
+let pyrPath = '';
+
+function pyrNeverAsked() {
+  try { return localStorage.getItem(PYR_NEVER) === '1'; } catch { return false; }
+}
+
+function askPyramid(path, data) {
+  /* 压缩包里的临时副本不建：它下次打开就是另一个路径了，副本白建 */
+  if (!data || !data.ok || data.kind !== 'raster' || data.temp_copy) return Promise.resolve();
+  if (pyrNeverAsked()) return Promise.resolve();
+  return fetch('/api/pyramid/status?path=' + encodeURIComponent(path))
+    .then((r) => r.json())
+    .then((st) => {
+      if (!st || !st.ok || !st.recommend || st.running) return;
+      if (st.pyramid && st.pyramid.exists) return;
+      if (!current || current.path !== path) return;   // 这期间换了文件就别问了
+      pyrPath = path;
+      $('paText').textContent = st.reason + '。';
+      $('paMethod').value = /int|uint/.test(st.dtype || '') ? 'nearest' : 'average';
+      $('paNever').checked = false;
+      $('pyrAsk').hidden = false;
+    })
+    .catch(() => { /* 问不出来就当没这回事，不影响看文件 */ });
+}
+
+function hidePyramidAsk() {
+  $('pyrAsk').hidden = true;
+}
+
+function stopPyramidWatch() {
+  if (pyrTimer) clearInterval(pyrTimer);
+  pyrTimer = 0;
+  pyrPath = '';
+}
+
+async function buildPyramid(path, resample) {
+  try {
+    await fetch('/api/pyramid/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, resample }),
+    });
+  } catch { return; }
+  pyrPath = path;
+  if (pyrTimer) clearInterval(pyrTimer);
+  loadTip(true, '正在建金字塔…');
+  $('loadBar').hidden = false;
+  $('loadCancel').hidden = false;
+  pyrTimer = setInterval(async () => {
+    const target = pyrPath;
+    if (!target) { stopPyramidWatch(); return; }
+    let st = null;
+    try {
+      st = await (await fetch('/api/pyramid/status?path=' + encodeURIComponent(target))).json();
+    } catch { return; }
+    if (!st || !st.ok) return;
+    if (st.running) {
+      $('loadText').textContent = '正在建金字塔… ' + Math.round((st.progress || 0) * 100) + '%';
+      return;
+    }
+    stopPyramidWatch();
+    $('loadBar').hidden = true;
+    $('loadCancel').hidden = true;
+    loadTip(false);
+    if (st.pyramid && st.pyramid.exists) {
+      toastNote('金字塔建好了', '往外拉视野时会快一些；副本在本机缓存里，原文件没动。');
+    } else if (st.error) {
+      toastNote('金字塔没建成', st.error);
+    }
+  }, 500);
+}
+
+async function cancelPyramid() {
+  const target = pyrPath;
+  stopPyramidWatch();
+  $('loadBar').hidden = true;
+  $('loadCancel').hidden = true;
+  loadTip(false);
+  if (!target) return;
+  try {
+    await fetch('/api/pyramid/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: target }),
+    });
+  } catch { /* 服务已经停了也算取消 */ }
+}
+
+$('paSkip').addEventListener('click', () => {
+  if ($('paNever').checked) {
+    try { localStorage.setItem(PYR_NEVER, '1'); } catch { /* 隐私模式就每次都问 */ }
+  }
+  hidePyramidAsk();
+});
+$('paBuild').addEventListener('click', () => {
+  const path = pyrPath;
+  const method = $('paMethod').value || 'average';
+  if ($('paNever').checked) {
+    try { localStorage.setItem(PYR_NEVER, '1'); } catch { /* 同上 */ }
+  }
+  hidePyramidAsk();
+  if (path) buildPyramid(path, method);
+});
+$('pyrAsk').addEventListener('click', (e) => {
+  if (e.target === $('pyrAsk')) hidePyramidAsk();
+});
 
 /* 记住这次打开的是哪个文件：一条给"启动时恢复上次的文件"，
    一份最近的清单给路径框下拉；临时副本两处都不记 */

@@ -601,15 +601,43 @@ table.grid thead th {
 
 table.grid td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-num); }
 
-/* 信息栏的图层表：列宽固定（按内容分配，四个列各自不同），长图层名、长坐标系
-   在格子里自动换行，不再把某一列撑开、挤没别的列 */
-table.grid.layer-table { table-layout: fixed; }
-table.grid.layer-table thead th { white-space: normal; }
+/* 信息栏里的表：列宽固定，长名字在格子里换行。
+   以前用的是自动列宽 + 表头不换行，波段名一长（比如「黄淮海_20240719_8天_站点IDW」）
+   整张表比信息栏还宽，底下就多出一条横向滚动条，右边几列直接被推出视野。 */
+table.grid.layer-table, table.grid.band-table, table.grid.var-table,
+table.grid.tile-table { table-layout: fixed; }
+table.grid.layer-table thead th, table.grid.band-table thead th,
+table.grid.var-table thead th, table.grid.tile-table thead th { white-space: normal; }
+table.grid.layer-table td, table.grid.band-table td, table.grid.var-table td,
+table.grid.tile-table td { overflow-wrap: anywhere; }
+
 table.grid.layer-table th:nth-child(1), table.grid.layer-table td:nth-child(1) { width: 34%; }
 table.grid.layer-table th:nth-child(2), table.grid.layer-table td:nth-child(2) { width: 18%; }
 table.grid.layer-table th:nth-child(3), table.grid.layer-table td:nth-child(3) { width: 20%; }
 table.grid.layer-table th:nth-child(4), table.grid.layer-table td:nth-child(4) { width: 28%; }
-table.grid.layer-table td { overflow-wrap: anywhere; }
+
+table.grid.band-table th:nth-child(1), table.grid.band-table td:nth-child(1) { width: 8%; }
+table.grid.band-table th:nth-child(2), table.grid.band-table td:nth-child(2) { width: 32%; }
+table.grid.band-table th:nth-child(3), table.grid.band-table td:nth-child(3) { width: 18%; }
+table.grid.band-table th:nth-child(4), table.grid.band-table td:nth-child(4) { width: 8%; }
+table.grid.band-table th:nth-child(5), table.grid.band-table td:nth-child(5) { width: 15%; }
+table.grid.band-table th:nth-child(6), table.grid.band-table td:nth-child(6) { width: 19%; }
+
+table.grid.var-table th:nth-child(1), table.grid.var-table td:nth-child(1) { width: 22%; }
+table.grid.var-table th:nth-child(2), table.grid.var-table td:nth-child(2) { width: 20%; }
+table.grid.var-table th:nth-child(3), table.grid.var-table td:nth-child(3) { width: 18%; }
+table.grid.var-table th:nth-child(4), table.grid.var-table td:nth-child(4) { width: 13%; }
+table.grid.var-table th:nth-child(5), table.grid.var-table td:nth-child(5) { width: 13%; }
+table.grid.var-table th:nth-child(6), table.grid.var-table td:nth-child(6) { width: 14%; }
+
+table.grid.tile-table th:nth-child(1), table.grid.tile-table td:nth-child(1) { width: 30%; }
+table.grid.tile-table th:nth-child(2), table.grid.tile-table td:nth-child(2) { width: 22%; }
+table.grid.tile-table th:nth-child(3), table.grid.tile-table td:nth-child(3) { width: 12%; }
+table.grid.tile-table th:nth-child(4), table.grid.tile-table td:nth-child(4) { width: 24%; }
+table.grid.tile-table th:nth-child(5), table.grid.tile-table td:nth-child(5) { width: 12%; }
+
+/* 信息栏本身不出横向滚动条：表都按栏宽排了，真要有漏网的宽内容也是折行而不是推出去 */
+.rail { overflow-x: hidden; }
 
 .tag {
   display: inline-block;
@@ -2778,6 +2806,29 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .close-card .ca-remember input:checked { background: var(--accent); border-color: var(--accent); }
 .close-card .ca-remember input:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+/* 金字塔弹窗里那一行"采样方法 + 下拉"：和"不再询问"同一套排版，只是右边换成 select */
+.close-card .ca-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: var(--ca-fs);
+  color: var(--text-dim);
+}
+.close-card .ca-field .ca-label { flex: none; }
+.close-card .ca-field select {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  font-size: var(--ca-fs);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+/* 这行比正文更淡：是补充说明，不是必须读的条件 */
+.close-card .ca-text.ca-dim { margin-top: 2px; color: var(--text-faint, var(--text-dim)); opacity: 0.85; }
 .close-card .ca-actions {
   display: flex;
   justify-content: flex-end;

@@ -32,7 +32,10 @@ from collections import OrderedDict
 from contextlib import suppress
 from pathlib import Path
 
-MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限（不含 vindex/）
+MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限（不含 vindex/pyramid）
+# 金字塔副本单独一份预算：建一次要几秒到几十秒，按“最旧”删掉很浪费，
+# 只在总量超过这条线时从最久没用的开始删
+PYRAMID_BYTES = 2 * 1024 * 1024 * 1024
 MEM_ITEMS = 48                  # 进程内热点条数（打开过的文件再接再开就是零等待）
 VIEW_MEM_ITEMS = 24             # 视野贴图：来回拖一下重复率高，20 来张够用
 VIEW_MEM_BYTES = 48 * 1024 * 1024  # 视野贴图内存上限
@@ -45,7 +48,7 @@ SCAN_FILES = 500                # 目录指纹最多数这么多文件，再大�
 SCHEMA = 2
 # 缓存根下只认这几种子目录。clear()/切换目录时按白名单删，绝不整个 rmtree——
 # 用户可能把缓存位置指到一个已经有资料的文件夹，根目录本身不是我们的。
-KINDS = ("inspect", "hist", "gtypes", "vec", "thumb", "vindex", "tiles")
+KINDS = ("inspect", "hist", "gtypes", "vec", "thumb", "vindex", "tiles", "pyramid")
 
 _lock = threading.Lock()
 _mem = OrderedDict()            # (kind, key) -> 值；只放 JSON 结果，PNG 不进内存
@@ -320,6 +323,8 @@ def prune(max_bytes=MAX_BYTES):
     entries = []
     total = 0
     index_bytes = 0
+    pyramid_entries = []
+    pyramid_bytes = 0
     for path in root.rglob("*"):
         try:
             if not path.is_file():
@@ -329,8 +334,23 @@ def prune(max_bytes=MAX_BYTES):
             if rel.parts and rel.parts[0] == "vindex":
                 index_bytes += st.st_size
                 continue
+            if rel.parts and rel.parts[0] == "pyramid":
+                # 金字塔副本按自己的预算单独收（见 PYRAMID_BYTES），
+                # 和索引一样不能按“最旧”删：刚用过才读过，mtime 只反映启动时的触碰
+                pyramid_entries.append((st.st_mtime, st.st_size, path))
+                pyramid_bytes += st.st_size
+                continue
             entries.append((st.st_mtime, st.st_size, path))
             total += st.st_size
+        except OSError:
+            continue
+    pyramid_entries.sort(key=lambda item: item[0])
+    for _mtime, size, path in pyramid_entries:
+        if pyramid_bytes <= PYRAMID_BYTES:
+            break
+        try:
+            path.unlink()
+            pyramid_bytes -= size
         except OSError:
             continue
     if total <= max_bytes:

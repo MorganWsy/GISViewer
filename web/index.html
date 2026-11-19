@@ -350,6 +350,31 @@
   </div>
 </div>
 
+<div id="pyrAsk" class="modal" hidden>
+  <div class="modal-card close-card" role="dialog" aria-modal="true" aria-labelledby="paTitle">
+    <h3 id="paTitle">给这份影像建金字塔吗？</h3>
+    <p class="ca-text" id="paText"></p>
+    <p class="ca-text ca-dim">副本存在本机缓存里，不写进你的文件夹；建的这几秒是后台在做，可以取消。</p>
+    <label class="ca-field">
+      <span class="ca-label">采样方法</span>
+      <select id="paMethod">
+        <option value="average">平均值（连续值，默认）</option>
+        <option value="nearest">最近邻（分类、离散值）</option>
+        <option value="bilinear">双线性</option>
+        <option value="cubic">三次卷积</option>
+      </select>
+    </label>
+    <label class="ca-remember">
+      <input type="checkbox" id="paNever">
+      <span>以后不再询问</span>
+    </label>
+    <div class="ca-actions">
+      <button id="paSkip" class="btn ghost" type="button">不建</button>
+      <button id="paBuild" class="btn" type="button">建一份</button>
+    </div>
+  </div>
+</div>
+
 <div id="settings" class="modal" hidden>
   <div class="modal-card set-card">
     <div class="card-title">设置
