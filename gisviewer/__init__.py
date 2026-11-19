@@ -5,7 +5,7 @@ import time as _time
 # 引擎的计时起点；GISVIEWER_TIMING=1 时各阶段按这个报耗时
 T_START = _time.perf_counter()
 
-__version__ = "0.15"
+__version__ = "0.16"
 
 # GDAL 一家的导入是启动耗时的大头，谁真正要用数据接口了再导
 _HEAVY = {"configure", "inspect_file", "safe_inspect", "InspectError"}
@@ -13,7 +13,7 @@ _HEAVY = {"configure", "inspect_file", "safe_inspect", "InspectError"}
 
 def __getattr__(name):
     if name not in _HEAVY:
-        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from .bootstrap import configure
     from .inspect import InspectError, inspect_file, safe_inspect
     found = {"configure": configure, "InspectError": InspectError,

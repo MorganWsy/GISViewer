@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """TopoJSON 写出。
 
 GDAL 3.10 的 TopoJSON 驱动只读不写（驱动元数据里没有 DCAP_CREATE），
@@ -9,6 +8,7 @@ GDAL 3.10 的 TopoJSON 驱动只读不写（驱动元数据里没有 DCAP_CREATE
 需要一次把图层读进内存（弧段要全部收齐才知道哪些重复），百万级要素的数据不适合转这个格式。
 """
 
+import contextlib
 import json
 import math
 
@@ -32,11 +32,9 @@ def _fmt_num(v):
 
 
 def _value(feat, i, ftype):
-    try:
+    with contextlib.suppress(Exception):
         if feat.IsFieldNull(i):
             return None
-    except Exception:
-        pass
     try:
         if ftype == ogr.OFTInteger:
             return int(feat.GetFieldAsInteger(i))
@@ -50,10 +48,10 @@ def _value(feat, i, ftype):
         if ftype in (ogr.OFTDate, ogr.OFTTime, ogr.OFTDateTime):
             y, mo, d, hh, mi, ss, _tz = feat.GetFieldAsDateTime(i)
             if ftype == ogr.OFTDate:
-                return "%04d-%02d-%02d" % (y, mo, d)
+                return f"{y:04d}-{mo:02d}-{d:02d}"
             if ftype == ogr.OFTTime:
-                return "%02d:%02d:%02d" % (hh, mi, ss)
-            return "%04d-%02d-%02dT%02d:%02d:%02d" % (y, mo, d, hh, mi, ss)
+                return f"{hh:02d}:{mi:02d}:{ss:02d}"
+            return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mi:02d}:{ss:02d}"
         if ftype == ogr.OFTStringList:
             return list(feat.GetFieldAsStringList(i) or [])
         if ftype == ogr.OFTIntegerList:
@@ -118,6 +116,8 @@ class _Builder:
             return None
         t = g.get("type")
         c = g.get("coordinates")
+        if not isinstance(c, list):
+            return None
         if t == "Point" and c:
             return ("Point", self.q(c))
         if t == "MultiPoint" and c:
@@ -158,7 +158,7 @@ class _Builder:
     def build_arcs(self):
         seg = {}
         for ln in self.lines:
-            for a, b in zip(ln.pts, ln.pts[1:]):
+            for a, b in zip(ln.pts, ln.pts[1:], strict=False):
                 key = (a, b) if a <= b else (b, a)
                 seg[key] = seg.get(key, 0) + 1
         deg = {}
@@ -279,7 +279,7 @@ def write(lyr, out_path, layer_name, xf=None):
                 skipped += 1
                 continue
             env = geom.GetEnvelope()   # (minx, maxx, miny, maxy)
-            if not raw:
+            if not raw or ext is None:
                 ext = (env[0], env[1], env[2], env[3])
             else:
                 ext = (min(ext[0], env[0]), max(ext[1], env[1]),

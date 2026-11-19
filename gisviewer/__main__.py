@@ -1,16 +1,13 @@
 """命令行入口。同时充当界面文案的样稿。"""
 
 import argparse
+import contextlib
 import json
 import os
 import sys
-import time
 
-from . import __version__
+from . import __version__, labels, report, verdict
 from . import inspect as engine
-from . import labels
-from . import report
-from . import verdict
 
 
 def _row(label, value):
@@ -116,7 +113,8 @@ def _hist_line(hist, width=32):
     counts = hist["counts"]
     peak = max(counts) or 1
     step = max(1, len(counts) // width)
-    bar = "".join(LEVELS[min(7, int(c / peak * 7.99))] for c in counts[::step][:width])
+    # counts 来自 numpy 直方图，元素一定是有限数值，这里不必再兜一层解析失败
+    bar = "".join(LEVELS[min(7, int(c / peak * 7.99))] for c in counts[::step][:width])  # pi-lens-ignore: unchecked-numeric-parse-python -- numpy 直方图计数
     note = (f"{hist['bins']} 箱 · 范围 {_num(hist['min'], 4)} ~ {_num(hist['max'], 4)}"
             f" · 箱宽 {_num(hist['bin_width'], 4)}"
             + (" · 降采样估算" if hist.get("approximate") else "")
@@ -342,14 +340,15 @@ def main(argv=None):
                         help="生成诊断包（环境 + 体检结果），默认放在第一个文件旁边")
     args = parser.parse_args(argv)
 
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        # 控制台不支持就照原样输出，不改行为
+        with contextlib.suppress(Exception):
+            reconfigure(encoding="utf-8", errors="replace")
 
     targets, truncated = report.expand_paths(args.paths) if args.check else (args.paths, False)
     if truncated:
-        print("文件夹里的数据超过 %d 个，先体检前 %d 个" % (report.DIR_LIMIT, report.DIR_LIMIT))
+        print(f"文件夹里的数据超过 {report.DIR_LIMIT} 个，先体检前 {report.DIR_LIMIT} 个")
     results = [engine.safe_inspect(raw, compute_stats=not args.no_stats)
                for raw in targets]
 
@@ -391,7 +390,7 @@ def main(argv=None):
         if args.json:
             files = []
             summary = {"bad": 0, "warn": 0, "ok": 0}
-            for result, v in zip(results, said):
+            for result, v in zip(results, said, strict=False):
                 summary[v["level"]] = summary.get(v["level"], 0) + 1
                 files.append({"path": (result.get("file") or {}).get("path")
                               or result.get("input"),

@@ -399,9 +399,28 @@
   }
 
   /* 抽稀容差按屏幕像素走：1.5 个像素，放大到多少级都一样细，
-     不再留 0.00002°（约 2 米）的底——那个底在十六级以后会粗到看得见 */
+     不再留 0.00002°（约 2 米）的底：那个底在十六级以后会粗到看得见。
+     注意容差一旦随缩放变，同一条边界每次放大缩小都会跟着变形。 */
   function zoomTolerance(z) {
     return 1.5 * 360 / Math.pow(2, z) / 256;
+  }
+
+  /* 小数据全精度：边界只画一次，之后放大缩小都是同一批顶点。
+     判断分两步，先按文件大小赌一把，再按实测耗时确认，退回来就永久记住：
+       12 MB 是实测的安全线。22 MB 的省界（35 个要素、顶点极密）全精度要 22 秒，
+       而十几兆以内常见的县界、管网点线，一个视野几百毫秒就够。 */
+  const vecFull = {};                 // 文件#图层 -> true 全精度 / false 按缩放抽稀
+  const VEC_FULL_MAX = 12 * 1024 * 1024;
+  const VEC_FULL_BUDGET = 1200;       // 毫秒，超过就认为这份数据不适合全精度
+  let vecDenseNoteShown = false;
+
+  function vecTolerance(key, data, count, z) {
+    const known = vecFull[key];
+    if (known === true) return 0;
+    const coarse = zoomTolerance(z) * (count != null && count > 20000 ? 1 : 1 / 3);
+    if (known === false) return coarse;
+    const size = data.size || 0;
+    return size && size <= VEC_FULL_MAX ? 0 : coarse;
   }
 
   function baseNote() {
@@ -448,12 +467,12 @@
        或非有限的框。这种框发给服务端只会换回一句"转不到经纬度"，连要素都不给；
        宁可这一趟不带框、按全量取，回来再按需补 */
     const boxOk = bbox.every((v) => isFinite(v)) && bbox[0] < bbox[2] && bbox[1] < bbox[3];
-    // 容差按图层规模分档：大图层照旧；两万要素以内给 1/3 容差（0.5 像素级，
-    // 肉眼看不出损失）。完全不抽稀不行——实测 China2019（35 个要素但顶点极密）
-    // 全精度一次视野要 22 秒，1/3 容差 3 秒
+    // 容差：小数据一律全精度（0），边界不会随缩放变形；大数据按屏幕像素抽稀。
+    // 判断与"退回来"的记忆见 vecTolerance
     const cur = targets && targets[activeTarget];
-    const big = !(cur && cur.count != null) || cur.count > 20000;
-    const tol = zoomTolerance(map.getZoom()) * (big ? 1 : 1 / 3);
+    const vecKey = String(data.target) + '#' + (data.layerIndex || 0);
+    const tol = vecTolerance(vecKey, data, cur ? cur.count : null, map.getZoom());
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const url = '/api/vector?path=' + enc(data.target) +
       '&layer=' + (data.layerIndex || 0) +
       '&limit=' + drawLimit +
@@ -474,6 +493,26 @@
     fetch(url).then((r) => r.json()).then((res) => {
       settle();
       if (mine !== token || data !== wanted) return;
+      /* 第一次全精度试水：超时就退回按缩放抽稀，并且只退这一次。
+         退回后按新容差立刻重取，别让用户盯着 22 秒的等待 */
+      /* 用服务端自己报的耗时，别用前端从发出到拿到的墙钟时间：
+         第一次请求还要等引擎预热、GDAL 初始化，那几秒不算这份数据的账 */
+      const spent = typeof res.elapsed_ms === 'number'
+        ? res.elapsed_ms
+        : (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+      if (vecFull[vecKey] === undefined && tol === 0 && res.ok) {
+        if (spent > VEC_FULL_BUDGET) {
+          vecFull[vecKey] = false;
+          if (!vecDenseNoteShown) {
+            vecDenseNoteShown = true;
+            toast('这份数据顶点很密',
+              '为了拖动跟得上，缩放时会按当前视野简化边界；**量算**仍然按原始几何算。');
+          }
+          loadVector(data, fromMove);
+          return;
+        }
+        vecFull[vecKey] = true;
+      }
       if (!res.ok) {
         toast('要素读取失败', (res.error || {}).title || '');
         // 取数失败也算这一轮画完：等定位的提示得有个着落，不能一直挂着
@@ -779,6 +818,8 @@
           layerName: p.L.name || ('图层 ' + (p.index + 1)),
           layerIndex: p.index,
           target: path, count: p.L.feature_count, wgs: p.L.extent_wgs84, warning: p.L.warning,
+          // 文件字节数：决定这份数据要不要全精度画（见 vecTolerance）
+          size: file.size_bytes || 0,
           reserveAttr: !!d.reserveAttr,
         }));
     }
