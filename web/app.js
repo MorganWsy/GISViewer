@@ -3178,13 +3178,12 @@ function askPyramid(path, data) {
       if (st.pyramid && st.pyramid.exists) return;
       if (!current || current.path !== path) return;   // 这期间换了文件就别问了
       pyrPath = path;
-      $('paText').textContent = st.reason;
       $('paSize').textContent = st.width ? st.width.toLocaleString() + '×' + st.height.toLocaleString() : '—';
       $('paBytes').textContent = st.size ? fmtBytes(st.size) : '—';
       $('paLevels').textContent = (st.levels || []).length ? (st.levels || []).length + ' 级（1/' + (st.levels || [])[(st.levels || []).length - 1] + '）' : '—';
       /* 默认值按数据类型定：带调色板的就是分类图，必须最近邻；
          其余按连续数据处理，给平均值（ArcGIS Pro、QGIS 对连续数据的建议） */
-      pyrRecommend = st.colortable ? 'nearest' : 'average';
+      pyrRecommend = (st.colortable || st.categorical) ? 'nearest' : 'average';
       setPyramidMethod(pyrRecommend);
       $('paNever').checked = false;
       $('pyrAsk').hidden = false;
@@ -6523,6 +6522,13 @@ function init() {
       fullBusyOn = false;
       loadTip(false);
     }
+  });
+  /* 贴图没取回来：地图还在，底图也还在，只这一张影像缺了。
+     给一句话就够，别把界面压成错误页 */
+  $('map').addEventListener('gis:rasterfail', (e) => {
+    const msg = (e.detail && e.detail.message) || '';
+    toastNote('影像没能取回来',
+      (msg ? msg + '。' : '') + '可以再平移或缩放一次重试；如果一直这样，检查文件是否还能读到。');
   });
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);

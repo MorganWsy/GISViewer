@@ -32,6 +32,37 @@
   /* 贴在样式里的那张图现在盖着哪块经纬度框。窗口变大、从托盘回来时视野会变宽，
      贴图还是旧的小框，屏幕上就只剩一部分有影像；靠它判断该不该换。 */
   let rasterBox = null;
+  /* 贴图换图的序号：慢的那张回来了不能盖掉新的那张。窗口大、没有金字塔时
+     引擎要十几秒才出图，中途再拖一次就会有两条请求在飞，先发后到的那张
+     盖上去，屏幕上就是"影像只出来一部分、位置还不对" */
+  let rasterSeq = 0;
+  let rasterBusyTimer = 0;
+  /* 气泡：等了半秒还没回来才亮，正常情况下看不见 */
+  function rasterBusy(on) {
+    const el = document.getElementById('rasterBusy');
+    if (el) el.hidden = !on;
+  }
+  function rasterDone() {
+    if (rasterBusyTimer) { clearTimeout(rasterBusyTimer); rasterBusyTimer = 0; }
+    rasterBusy(false);
+  }
+  /* 先把图取到浏览器缓存，再交给 image source。
+     好处是能在图真的到齐之后才换上去，也能把迟到的旧图丢掉 */
+  function applyImage(t, url, corners, boxFor) {
+    const seq = ++rasterSeq;
+    if (rasterBusyTimer) clearTimeout(rasterBusyTimer);
+    rasterBusyTimer = setTimeout(() => { if (seq === rasterSeq) rasterBusy(true); }, 450);
+    const src = map.getSource('gis-image');
+    if (!src || !src.updateImage) { rasterDone(); return; }
+    try {
+      /* 换图这一步交给 MapLibre：同一条 image source 上后发的请求会取消前一条，
+         所以迟到的旧图不会盖掉新图。完成信号看 sourcedata，见下面那段 */
+      src.updateImage({ url, coordinates: corners });
+      rasterBox = boxFor;
+    } catch {
+      rasterDone();   /* 样式正在重建，等下一次 moveend */
+    }
+  }
   /* 相机指纹：中心点、缩放、朝向、俯仰。窗口还原时画布尺寸会变，但相机没动，
      拿它就能分辨"只是画布变大了"和"用户真的动过地图"——前者不该重取要素 */
   let resizeCam = '';
@@ -354,6 +385,8 @@
 
   function removeImage() {
     rasterTarget = null;
+    rasterSeq += 1;
+    rasterDone();
     if (rasterTimer) { clearTimeout(rasterTimer); rasterTimer = null; }
     if (map.getLayer('gis-raster')) map.removeLayer('gis-raster');
     if (map.getSource('gis-image')) map.removeSource('gis-image');
@@ -391,6 +424,8 @@
     rasterTimer = null;
     const t = rasterTarget;
     if (!t || !t.wgs || !map || !map.getSource('gis-image')) return;
+    /* 还在拖：等松手后的 moveend 再来。拖动途中发请求只会白排一次队 */
+    if (map.isMoving && map.isMoving()) { scheduleRasterRefresh(); return; }
     const b = map.getBounds();
     const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
     const full = t.wgs;
@@ -409,14 +444,11 @@
         Math.abs(rasterBox[2] - full[2]) < fullW * 0.01;
       if (shown) return;
       const whole = t.corners && t.corners.length === 4 ? t.corners : cornersOf(t);
-      try {
-        if (src && src.updateImage) {
-          src.updateImage({ url: rasterUrl(t), coordinates: whole });
-          rasterBox = boxOfCorners(whole) || full.slice();
-        } else {
-          setImage(rasterUrl(t), whole, t);
-        }
-      } catch { /* 样式正在重建，等下一次 moveend */ }
+      if (src && src.updateImage) {
+        applyImage(t, rasterUrl(t), whole, boxOfCorners(whole) || full.slice());
+      } else {
+        setImage(rasterUrl(t), whole, t);
+      }
       return;
     }
     /* 顺序必须是「左上、右上、右下、左下」——MapLibre 的 image source 按这个顺序
@@ -426,13 +458,11 @@
     const maxSide = Math.max(1024, Math.min(2048,
       Math.round(cssW * (window.devicePixelRatio || 1))));
     const url = rasterUrl(t, box, maxSide);
-    try {
-      if (src && src.updateImage) src.updateImage({ url, coordinates: corners });
-      else setImage(url, corners, t);
+    if (src && src.updateImage) {
+      applyImage(t, url, corners, box.slice());
+    } else {
+      try { setImage(url, corners, t); } catch { /* 样式重建中 */ }
       rasterBox = box.slice();
-    } catch {
-      /* 样式正在重建时 updateImage 会抛：这一帧跳过，下次 moveend 还会再来一次，
-         不必打扰控制台——拖动时每一帧都刷一条日志反而盖住真问题 */
     }
   }
 
@@ -747,20 +777,30 @@
     debounce = setTimeout(() => loadVector(true), 260);
   }
 
+  function rasterToken() {
+    try { return sessionStorage.getItem('tulan.token') || ''; } catch { return ''; }
+  }
+
   function rasterUrl(t, box, maxSide) {
     let base = '/api/thumbnail?path=' + enc(t.target);
     if (box && box.length === 4) {
       base += '&bbox=' + box.map((v) => Number(v).toFixed(6)).join(',');
       if (maxSide) base += '&max=' + Math.round(maxSide);
     }
+    let out;
     if (t.edges && t.colors && t.edges.length > 2) {
       // 颜色里的 # 不转义会被当成 URL 片段，服务端收到的就是空列表
-      return base + '&band=' + (t.band || 1) +
+      out = base + '&band=' + (t.band || 1) +
         '&edges=' + enc(t.edges.map((v) => Number(v).toFixed(6)).join(',')) +
         '&colors=' + enc(t.colors.join(',')) +
         '&fill=' + enc(t.fill || 'transparent');
+    } else {
+      out = base + '&bands=' + (t.bands || 1);
     }
-    return base + '&bands=' + (t.bands || 1);
+    /* 贴图是浏览器按 URL 自己取的，走不了首页给 fetch 加令牌那一层，
+       所以令牌挂在查询串上（服务端两种都认） */
+    const tk = rasterToken();
+    return tk ? out + '&t=' + enc(tk) : out;
   }
 
   function drawRaster(t, keepView) {
@@ -1309,6 +1349,11 @@
         quick = Date.now() + 600;
         if (settle) { clearTimeout(settle); settle = 0; }
         apply();
+        /* 从最小化回来时，WebView2 会先把上一帧按旧尺寸合成一次，看上去就是
+           "整幅影像先放大一下再缩回"。尺寸没变，JS 这边改不了合成器，只能
+           立刻要它重画一帧，让刷新后的画面尽早盖掉那帧旧的 */
+        if (map) map.triggerRepaint();
+        setTimeout(() => { if (live()) map.triggerRepaint(); }, 80);
       };
       const onResize = () => {
         const r = box.getBoundingClientRect();
@@ -1343,7 +1388,21 @@
       const err = e && e.error;
       if (!err) return;
       if (e.sourceId !== undefined && e.tile !== undefined) return;
+      /* 贴图没取回来不是地图坏了：收掉转圈，给一句人话就行，
+         别把整个界面压成「初始化失败」 */
+      if (e.sourceId === 'gis-image') {
+        rasterDone();
+        rasterSeq += 1;
+        emit('gis:rasterfail', { message: String((err && err.message) || err).slice(0, 120) });
+        return;
+      }
       fail('初始化', err);
+    });
+
+    /* image source 换图成功后会发一次 sourceDataType=metadata 的 sourcedata，
+       这就是「新贴图已经换上去」的信号 */
+    map.on('sourcedata', (e) => {
+      if (e && e.sourceId === 'gis-image' && e.sourceDataType === 'metadata') rasterDone();
     });
     map.on('dragstart', () => { userMoved = true; });
     map.on('wheel', () => { userMoved = true; });

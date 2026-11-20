@@ -112,6 +112,37 @@ def _levels_of(path):
         return [int(f) for f in (ds.overviews(1) or [])]  # pi-lens-ignore: unchecked-numeric-parse-python
 
 
+def _looks_categorical(ds):
+    """按一小块原始像元猜是不是分类图：整型、取值少、数值小，三者都满足才算。
+
+    只看 dtype 不够：高程也是 int16，但它不是分类数据，缩小时用最近邻会出
+    台阶。分类图的取值是离散编号（0、1、2 或者 11、12、13），取中间一小块
+    通常只有几个到几十个不同值；连续数据在同一块里动辄几百个不同值。
+    读一块原始尺寸的 160×160 像元，几十毫秒，代价可以接受。
+    """
+    import numpy as np  # pyright: ignore[reportMissingImports]
+
+    with contextlib.suppress(Exception):
+        dtype = (ds.dtypes[0] if ds.dtypes else "").lower()
+        if not dtype.startswith(("int", "uint")):
+            return False
+        w = min(160, ds.width)
+        h = min(160, ds.height)
+        if w < 2 or h < 2:
+            return False
+        x0 = max(0, (ds.width - w) // 2)
+        y0 = max(0, (ds.height - h) // 2)
+        arr = ds.read(1, window=((y0, y0 + h), (x0, x0 + w)), masked=True)
+        vals = arr.compressed()
+        if vals.size == 0:
+            return False
+        uniq = np.unique(vals)
+        if uniq.size > 64:
+            return False
+        return bool(np.abs(uniq).max() <= 4096)
+    return False
+
+
 def status(target):
     """界面弹窗要的信息：值不值得建、建了没有、有多大、正在建吗。"""
     info = {
@@ -141,6 +172,8 @@ def status(target):
             with contextlib.suppress(Exception):
                 ds.colormap(1)
                 info["colortable"] = True
+            # 没有调色板也要认得出分类图：土地利用、掩膜这类数据常常是裸的整型
+            info["categorical"] = bool(info.get("colortable")) or _looks_categorical(ds)
     except Exception as exc:  # noqa: BLE001
         info["recommend"] = False
         info["reason"] = f"读不了这个文件：{exc}"[:120]

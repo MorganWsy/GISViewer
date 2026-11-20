@@ -314,6 +314,7 @@
       <!-- 取数胶囊挂在地图区块里：它要贴着右下角那排读数走，
            挂到 map-pane 上就跟着整个面板（含下方那行说明）定位，位置对不准 -->
       <div id="vecBusy" hidden>正在更新要素…</div>
+      <div id="rasterBusy" hidden>正在读取影像…</div>
       </div>
       <div class="map-note" id="mapNote"></div>
     </div>
@@ -360,7 +361,6 @@
         <p class="pyr-sub">为影像生成一组逐级降采样的显示副本</p>
       </div>
     </div>
-    <p class="pyr-reason" id="paText"></p>
     <dl class="pyr-table">
       <div><dt>原始尺寸</dt><dd id="paSize">—</dd></div>
       <div><dt>文件大小</dt><dd id="paBytes">—</dd></div>
@@ -400,7 +400,7 @@
         </label>
       </div>
     </div>
-    <p class="pyr-hint" id="paHint"></p>
+    <p class="pyr-hint"><b class="pyr-hint-k">说明：</b><span id="paHint"></span></p>
     <p class="pyr-note">副本保存在本机缓存目录，不会改动原文件及其所在文件夹。创建过程在后台进行，可以随时取消。</p>
     <label class="pyr-remember">
       <input type="checkbox" id="paNever">
