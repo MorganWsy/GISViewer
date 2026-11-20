@@ -43,6 +43,7 @@ let config = {
   vector_color: '#d9781f', max_features: 500, restore_last: false, cache_dir: '', keep_hours: 12,
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
   key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000, vec_precision: 'auto',
+  always_on_top: false,
   hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32, hk3_mods: 3, hk3_vk: 68,
   upd_freq: 'open', close_act: 'min', close_ask: true, recent: [], recent_max: 5,
 };
@@ -2732,6 +2733,10 @@ function wireChrome() {
   $('winMin').addEventListener('click', () => toShell('win:min'));
   $('winMax').addEventListener('click', () => toShell('win:max'));
   $('winClose').addEventListener('click', () => toShell('win:close'));
+  /* 窗口置顶：顶栏那颗按钮和设置里那个勾选是同一件事的两种入口，
+     值只存在 config.always_on_top 里，两边都照着它画 */
+  applyTopMost(config.always_on_top, false);
+  $('winTop').addEventListener('click', () => applyTopMost(!config.always_on_top, true));
   const bar = $('bar');
   /* 顶栏空白处：按住能拖窗口，连点两下最大化/还原。
      双击不能等 dblclick——第一次按下就把窗口交给了系统拖动循环，
@@ -3150,6 +3155,18 @@ function pyrNeverAsked() {
   try { return localStorage.getItem(PYR_NEVER) === '1'; } catch { return false; }
 }
 
+/* 「以后不再询问」是全局开关，勾了就不再问任何文件。
+   所以设置页要有一个同名的开关，否则勾完就再没有入口能打开它 */
+function paintPyrAskTip() {
+  const ico = $('tipPyrAsk');
+  if (!ico) return;
+  ico.setAttribute('data-tip', [
+    '打开大影像时，如果原文件还没有金字塔，会先问一次要不要建。',
+    '当前：' + (pyrNeverAsked() ? '不再询问（可在上面勾选恢复）' : '每次询问'),
+    '金字塔是缓存里的显示副本，原文件不会被改动。',
+  ].join(String.fromCharCode(10)));
+}
+
 function askPyramid(path, data) {
   /* 压缩包里的临时副本不建：它下次打开就是另一个路径了，副本白建 */
   if (!data || !data.ok || data.kind !== 'raster' || data.temp_copy) return Promise.resolve();
@@ -3165,27 +3182,54 @@ function askPyramid(path, data) {
       $('paSize').textContent = st.width ? st.width.toLocaleString() + '×' + st.height.toLocaleString() : '—';
       $('paBytes').textContent = st.size ? fmtBytes(st.size) : '—';
       $('paLevels').textContent = (st.levels || []).length ? (st.levels || []).length + ' 级（1/' + (st.levels || [])[(st.levels || []).length - 1] + '）' : '—';
-      /* 默认值按数据类型定：带调色板的、整数型的分类图必须最近邻；
-         连续值给平均值，和 ArcGIS Pro、QGIS 对连续数据的建议一致 */
-      $('paMethod').value = st.colortable ? 'nearest' : 'average';
-      paintPyramidHint();
+      /* 默认值按数据类型定：带调色板的就是分类图，必须最近邻；
+         其余按连续数据处理，给平均值（ArcGIS Pro、QGIS 对连续数据的建议） */
+      pyrRecommend = st.colortable ? 'nearest' : 'average';
+      setPyramidMethod(pyrRecommend);
       $('paNever').checked = false;
       $('pyrAsk').hidden = false;
     })
     .catch(() => { /* 问不出来就当没这回事，不影响看文件 */ });
 }
 
-/* 采样方法下面那行说明：换一项就换一句，讲清适用数据与选错的后果 */
+/* 采样方法下面那段说明：换一项就换一段，只讲这一步具体怎么做、代价是什么。
+   哪类数据用哪张卡片，卡片上的标签已经写了，这里不再重复 */
 const PYR_HINTS = {
-  average: '连续数据：取邻域像元平均值，缩放后画面平滑、噪声不被放大。影像、高程、气象栅格都用它。',
-  bilinear: '连续数据：按距离加权平均，比平均值更柔和，代价是边缘略糊。适合平滑的连续场。',
-  cubic: '连续数据：三次卷积，边缘更锐利，但可能产生原数据范围之外的值。适合需要细节的影像。',
-  nearest: '离散数据：只取最近的像元值，不产生新值。分类图、土地利用、掩膜与带调色板的影像必须用它，否则会凭空出现原本不存在的类别。ArcGIS Pro 建金字塔的默认方法也是最近邻。',
+  average: '按参与降采样的全部像元求算术平均，等权汇总。副本中的数值不会超出原文件的取值范围，'
+    + '区域均值与总量保持稳定；代价是细节被抹平，纹理显得柔和。',
+  bilinear: '以 2×2 邻域像元按距离加权插值。过渡带比等权平均更连续，降采样后仍能保留较多的'
+    + '位置关系；边缘会被平滑，极值也会被轻微拉低。',
+  cubic: '以 4×4 邻域像元作三次多项式拟合，锐度与细节保留最好。代价是边缘两侧可能出现振铃，'
+    + '副本中会生成原文件里并不存在的数值。',
+  nearest: '直接取距离中心最近的像元原值，不参与任何加权运算。副本中的每个数值都来自原文件，'
+    + '位置对应关系严格一致，不会产生新的取值。',
 };
+
+let pyrRecommend = 'average';
+
+function pyramidMethod() {
+  const el = document.querySelector('input[name="paMethod"]:checked');
+  return (el && el.value) || 'average';
+}
+
+function setPyramidMethod(v) {
+  document.querySelectorAll('input[name="paMethod"]').forEach((el) => {
+    el.checked = el.value === v;
+    const card = el.closest('.pyr-m');
+    if (card) card.classList.toggle('on', el.checked);
+  });
+  paintPyramidHint();
+}
 
 function paintPyramidHint() {
   const el = $('paHint');
-  if (el) el.textContent = PYR_HINTS[$('paMethod').value] || '';
+  if (el) el.textContent = PYR_HINTS[pyramidMethod()] || '';
+  /* 「推荐」只挂在按数据类型选出来的那一张上：分类图是最近邻，其余是平均值 */
+  document.querySelectorAll('.pyr-m').forEach((card) => {
+    const input = card.querySelector('input[name="paMethod"]');
+    const rec = card.querySelector('.pyr-rec');
+    if (rec) rec.hidden = !input || input.value !== pyrRecommend;
+  });
 }
 
 function fmtBytes(n) {
@@ -3198,13 +3242,21 @@ function fmtBytes(n) {
 
 const VEC_PREC_HINTS = {
   auto: '小于 12 MB 的数据按原始顶点绘制，更大的数据按当前缩放简化，保证拖动跟得上。某一层想临时看全精度，点底栏那枚「看全精度」即可。',
-  accurate: '一律先按原始顶点绘制。数据大时这一屏会明显变慢，超过约 1.2 秒会自动退回简化，并在底栏说明。',
+  accurate: '一律按原始顶点绘制，不自动退回简化。数据大时这一屏会明显变慢，底栏会在重画期间给出提示。',
   fast: '一律按当前缩放简化几何，平移缩放最快。边界会随缩放略有变化，量测仍按原始几何计算。',
 };
 
 function paintVecPrecHint() {
-  const el = $('vecPrecHint');
-  if (el) el.textContent = VEC_PREC_HINTS[$('cfgVecPrecision').value] || '';
+  const ico = $('tipVecPrecision');
+  if (!ico) return;
+  const pick = ($('cfgVecPrecision') || {}).value || 'auto';
+  ico.setAttribute('data-tip', [
+    '几何精度决定边界要不要按当前缩放抽稀：',
+    '· 自动：小文件按原始顶点，大文件抽稀；',
+    '· 精确优先：一律原始顶点，不自动退回；',
+    '· 速度优先：一律抽稀，拖动最快。',
+    '当前：' + (VEC_PREC_HINTS[pick] || ''),
+  ].join('\n'));
 }
 
 function hidePyramidAsk() {
@@ -3271,7 +3323,16 @@ async function cancelPyramid() {
 }
 
 $('cfgVecPrecision').addEventListener('change', paintVecPrecHint);
-$('paMethod').addEventListener('change', paintPyramidHint);
+$('cfgTopMost').addEventListener('change', () => applyTopMost($('cfgTopMost').checked, true));
+if ($('cfgPyrAsk')) {
+  $('cfgPyrAsk').addEventListener('change', () => {
+    try { localStorage.setItem(PYR_NEVER, $('cfgPyrAsk').checked ? '0' : '1'); } catch { /* 隐私模式 */ }
+    paintPyrAskTip();
+  });
+}
+document.querySelectorAll('input[name="paMethod"]').forEach((el) => {
+  el.addEventListener('change', paintPyramidHint);
+});
 
 $('paSkip').addEventListener('click', () => {
   if ($('paNever').checked) {
@@ -3281,7 +3342,7 @@ $('paSkip').addEventListener('click', () => {
 });
 $('paBuild').addEventListener('click', () => {
   const path = pyrPath;
-  const method = $('paMethod').value || 'average';
+  const method = pyramidMethod();
   if ($('paNever').checked) {
     try { localStorage.setItem(PYR_NEVER, '1'); } catch { /* 同上 */ }
   }
@@ -4128,6 +4189,8 @@ function fillSettings() {
   $('cfgDrawLimit').value = String(config.draw_limit || 5000);
   $('cfgVecPrecision').value = config.vec_precision || 'auto';
   paintVecPrecHint();
+  $('cfgTopMost').checked = !!config.always_on_top;
+  if ($('cfgPyrAsk')) $('cfgPyrAsk').checked = !pyrNeverAsked();
   $('cfgRestore').checked = !!config.restore_last;
   $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
@@ -5088,6 +5151,24 @@ function toShell(msg) {
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(msg);
 }
 
+/* 置顶只有一个来源：config.always_on_top。
+   顶栏那颗按钮、设置里那个勾选、壳的窗口状态，三处都照它画。
+   改完要告诉壳（tell=true），开机读配置那次也要告诉，否则壳不知道要置顶 */
+function applyTopMost(on, tell) {
+  config.always_on_top = !!on;
+  const btn = $('winTop');
+  const box = $('cfgTopMost');
+  if (btn) {
+    btn.classList.toggle('on', !!on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const tip = on ? '窗口已置顶：再点一下取消' : '窗口置顶：始终显示在其他窗口之上';
+    btn.setAttribute('data-tip', tip);
+    btn.setAttribute('aria-label', tip);
+  }
+  if (box) box.checked = !!on;
+  if (tell) toShell('ontop:' + (on ? '1' : '0'));
+}
+
 /* 字体、自启状态、快捷键、有没有新版，这四件事只有壳知道 */
 const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2: '', hotkey3: '', menuExt: [] };
 let hkSynced = false;
@@ -5674,6 +5755,10 @@ async function applySettings() {
   config.max_features = Number($('cfgMaxFeatures').value);
   config.vec_precision = $('cfgVecPrecision').value || 'auto';
   if (window.GisMap) GisMap.setVecPrecision(config.vec_precision);
+  applyTopMost($('cfgTopMost').checked, true);
+  if ($('cfgPyrAsk')) {
+    try { localStorage.setItem(PYR_NEVER, $('cfgPyrAsk').checked ? '0' : '1'); } catch { /* 同上 */ }
+  }
   config.draw_limit = Number($('cfgDrawLimit').value);
   if (window.GisMap) GisMap.setDrawLimit(config.draw_limit);
   config.ui_font = $('cfgFontUi').value;
@@ -6179,6 +6264,28 @@ function init() {
     ].join('\n'));
     setSVG(cpTip, HINT_ICO);
   }
+  /* 设置页里那几颗说明图标：正文都是常驻的，不随数据变。
+     几何精度那颗的文案由 paintVecPrecHint 现写，这里只补图标 */
+  const cfgTips = {
+    tipTopMost: '开启后窗口始终显示在其他程序之上：切到大纲、表格或其他软件时不会被盖住。'
+      + '顶栏最小化按钮左边那枚置顶按钮和这里同一个开关，两边同步。',
+    tipPyrAsk: '打开大影像时，如果原文件还没有金字塔，会先问一次要不要建。'
+      + '选过「以后不再询问」之后开关会自动关闭，在这里重新打开即可恢复询问。'
+      + '金字塔只是缓存里的显示副本，原文件不会被改动。',
+  };
+  Object.keys(cfgTips).forEach((id) => {
+    const ico = $(id);
+    if (!ico) return;
+    ico.setAttribute('data-tip', cfgTips[id]);
+    setSVG(ico, HINT_ICO);
+  });
+  const tipPrec = $('tipVecPrecision');
+  if (tipPrec) setSVG(tipPrec, HINT_ICO);
+  paintVecPrecHint();
+  const tipPyr = $('tipPyrAsk');
+  if (tipPyr) setSVG(tipPyr, HINT_ICO);
+  paintPyrAskTip();
+  applyTopMost(config.always_on_top, true);
   $('diagBtn').addEventListener('click', runDiagnose);
   // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。
   // 开和关都带同一份清单，取消时壳照着删才删得干净
@@ -6403,6 +6510,19 @@ function init() {
       if (at >= 0 && c.tbody) row = c.tbody.children[at] || null;
     }
     markLocateRow(row);
+  });
+  /* 全精度重画：进度放在地图正中。底栏那行小字位置太偏，
+     数据大时用户会以为没反应，跑到地图中央盯着看 */
+  let fullBusyOn = false;
+  $('map').addEventListener('gis:full', (e) => {
+    const on = !!(e.detail && e.detail.on);
+    if (on) {
+      fullBusyOn = true;
+      loadTip(true, (e.detail && e.detail.text) || '正在按原始顶点重画…');
+    } else if (fullBusyOn) {
+      fullBusyOn = false;
+      loadTip(false);
+    }
   });
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);

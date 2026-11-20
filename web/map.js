@@ -29,6 +29,9 @@
   let lastVec = null;
   let rasterTarget = null;   // 当前贴在地图上的栅格：拖动/缩放后按新视野重采样
   let rasterTimer = null;
+  /* 贴在样式里的那张图现在盖着哪块经纬度框。窗口变大、从托盘回来时视野会变宽，
+     贴图还是旧的小框，屏幕上就只剩一部分有影像；靠它判断该不该换。 */
+  let rasterBox = null;
   /* 相机指纹：中心点、缩放、朝向、俯仰。窗口还原时画布尺寸会变，但相机没动，
      拿它就能分辨"只是画布变大了"和"用户真的动过地图"——前者不该重取要素 */
   let resizeCam = '';
@@ -141,6 +144,9 @@
       vecForceFull[key] = true;
       vecFull[key] = true;
       vecDrawing[key] = true;
+      /* 重画全精度可能要好几秒，地图正中给一枚转圈加一句话，
+         不然用户只能看着底栏那行小字猜是不是卡住了 */
+      emit('gis:full', { on: true, text: '正在按原始顶点重画…' });
       toast('按原始顶点重画', '这一屏会慢一些，数据越大越久；底栏可以点「回到快速显示」切回去。');
     }
     vecShot[key] = Object.assign({}, vecShot[key] || {}, { forced: !!vecForceFull[key] });
@@ -353,9 +359,18 @@
     if (map.getSource('gis-image')) map.removeSource('gis-image');
   }
 
+  function boxOfCorners(corners) {
+    if (!corners || corners.length !== 4) return null;
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    return [Math.min.apply(null, xs), Math.min.apply(null, ys),
+      Math.max.apply(null, xs), Math.max.apply(null, ys)];
+  }
+
   function setImage(url, corners, target) {
     removeImage();
     rasterTarget = target || null;
+    rasterBox = boxOfCorners(corners);
     map.addSource('gis-image', { type: 'image', url, coordinates: corners });
     if (!map.getLayer('gis-raster')) {
       map.addLayer({ id: 'gis-raster', type: 'raster', source: 'gis-image',
@@ -385,7 +400,25 @@
     const fullW = full[2] - full[0], fullH = full[3] - full[1];
     const boxW = box[2] - box[0], boxH = box[3] - box[1];
     if (fullW <= 0 || fullH <= 0) return;
-    if (boxW >= fullW * 0.985 && boxH >= fullH * 0.985) return;
+    const src = map.getSource('gis-image');
+    /* 盖上整幅图的判断。已经贴着整幅（512 缩略图或整幅大图）就不用再取；
+       贴的是更小的框（放大过又缩回来、或者窗口从小还原变大）就得换回整幅，
+       否则屏幕上只有中间一块有影像。 */
+    if (boxW >= fullW * 0.985 && boxH >= fullH * 0.985) {
+      const shown = rasterBox && Math.abs(rasterBox[0] - full[0]) < fullW * 0.01 &&
+        Math.abs(rasterBox[2] - full[2]) < fullW * 0.01;
+      if (shown) return;
+      const whole = t.corners && t.corners.length === 4 ? t.corners : cornersOf(t);
+      try {
+        if (src && src.updateImage) {
+          src.updateImage({ url: rasterUrl(t), coordinates: whole });
+          rasterBox = boxOfCorners(whole) || full.slice();
+        } else {
+          setImage(rasterUrl(t), whole, t);
+        }
+      } catch { /* 样式正在重建，等下一次 moveend */ }
+      return;
+    }
     /* 顺序必须是「左上、右上、右下、左下」——MapLibre 的 image source 按这个顺序
        贴四角。写成（西,南）打头就是整张图转了 180°，用户看到的正是倒过来的影像 */
     const corners = [[box[0], box[3]], [box[2], box[3]], [box[2], box[1]], [box[0], box[1]]];
@@ -393,10 +426,10 @@
     const maxSide = Math.max(1024, Math.min(2048,
       Math.round(cssW * (window.devicePixelRatio || 1))));
     const url = rasterUrl(t, box, maxSide);
-    const src = map.getSource('gis-image');
     try {
       if (src && src.updateImage) src.updateImage({ url, coordinates: corners });
       else setImage(url, corners, t);
+      rasterBox = box.slice();
     } catch {
       /* 样式正在重建时 updateImage 会抛：这一帧跳过，下次 moveend 还会再来一次，
          不必打扰控制台——拖动时每一帧都刷一条日志反而盖住真问题 */
@@ -495,7 +528,7 @@
     const coarse = zoomTolerance(z) * (count != null && count > 20000 ? 1 : 1 / 3);
     if (known === false) return coarse;
     if (vecPrecision === 'fast') return coarse;
-    if (vecPrecision === 'accurate') return 0;   // 先给全精度，超预算会自动退回
+    if (vecPrecision === 'accurate') return 0;   // 这一档只给全精度，不再自动退回
     const size = data.size || 0;
     return size && size <= VEC_FULL_MAX ? 0 : coarse;
   }
@@ -575,7 +608,8 @@
     const mine = ++token;
     const wanted = data;
     const busy = document.getElementById('vecBusy');
-    if (busy) busy.hidden = !fromMove;   // 初次绘制有遮罩，别再叠一个胶囊
+    // 初次绘制有遮罩，别再叠一个胶囊；全精度重画时中间已经有转圈，也不再叠
+    if (busy) busy.hidden = !fromMove || !!vecDrawing[vecKey];
     vecInFlight = true;
     const settle = () => {
       vecInFlight = false;
@@ -594,7 +628,10 @@
       const spent = typeof engineMs === 'number'
         ? engineMs
         : (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
-      if (vecFull[vecKey] === undefined && tol === 0 && res.ok && !vecForceFull[vecKey]) {
+      /* 设置成「精确优先」就不再自动退回：那一档的意思本来就是宁可等，
+         也要按原始顶点画，偷偷替他抽稀等于把设置项作废 */
+      if (vecFull[vecKey] === undefined && tol === 0 && res.ok && !vecForceFull[vecKey]
+        && vecPrecision !== 'accurate') {
         if (spent > VEC_FULL_BUDGET) {
           vecFull[vecKey] = false;
           if (!vecDenseNoteShown) {
@@ -633,6 +670,7 @@
         assumedLocal: !!m.assumed_local,
       };
       const parts0 = [];
+      if (vecDrawing[vecKey]) emit('gis:full', { on: false });
       delete vecDrawing[vecKey];
       vecShot[vecKey] = {
         simplified: !!m.simplified,
@@ -695,6 +733,7 @@
       if (pendingFocus) flushFocus();
       emit('gis:drawn', { kind: 'vector' });
     }).catch((err) => {
+      if (vecDrawing[vecKey]) emit('gis:full', { on: false });
       delete vecDrawing[vecKey];
       settle();
       if (mine === token) toast('要素读取失败', err.message);
@@ -1246,20 +1285,32 @@
     if (window.ResizeObserver) {
       const box = document.getElementById('map');
       const TINY = 8;          // 最小化时容器只剩两像素
-      let lastW = 0, lastH = 0, settle = 0;
+      let lastW = 0, lastH = 0, settle = 0, wasTiny = false, quick = 0;
       const apply = () => {
         settle = 0;
         box.classList.remove('resizing');
         if (!live()) return;
         const r = box.getBoundingClientRect();
         if (r.width < TINY || r.height < TINY) return;   // 还是最小着，别动
+        const same = Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1;
         lastW = r.width; lastH = r.height;
         resizeCam = cameraKey();
-        map.resize();
+        if (!same) map.resize();
+        /* map.resize() 只改视口，不发 moveend；栅格贴图还盖着旧视野那块框，
+           屏幕上就剩一部分有影像。画布尺寸真的变了就按新视野补一张。 */
+        if (data && data.kind === 'raster') scheduleRasterRefresh();
       };
-      // 拖动过程中一次都不 resize，只让画布跟着容器拉伸（.resizing 那条样式），
-      // 等尺寸稳住 140 毫秒再补一次真重绘
-      new ResizeObserver(() => {
+      /* 从最小化、托盘藏起来这类状态回来：浏览器往往先给一版小尺寸，
+         隔一两帧才还原成真尺寸。这一段要是还按 140 毫秒防抖走，中间那段
+         画布被 .resizing 拉到新容器大小，里面的内容却还是按小视口画的，
+         看上去就是图层先被放大，过一下才跳回正常范围。
+         所以还原后的半秒内不给防抖，每次尺寸变化都当场重排。 */
+      const restoreSoon = () => {
+        quick = Date.now() + 600;
+        if (settle) { clearTimeout(settle); settle = 0; }
+        apply();
+      };
+      const onResize = () => {
         const r = box.getBoundingClientRect();
         if (r.width < TINY || r.height < TINY) {
           /* 最小化：连 .resizing 都不能加——那条样式会把画布拉成 100%，
@@ -1267,13 +1318,24 @@
           if (settle) { clearTimeout(settle); settle = 0; }
           box.classList.remove('resizing');
           lastW = r.width; lastH = r.height;
+          wasTiny = true;
           return;
         }
+        if (wasTiny) { wasTiny = false; restoreSoon(); return; }
+        if (quick && Date.now() < quick) { apply(); return; }
         if (!settle && Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1) return;
         box.classList.add('resizing');
         if (settle) clearTimeout(settle);
         settle = setTimeout(apply, 140);
-      }).observe(box);
+      };
+      new ResizeObserver(onResize).observe(box);
+      /* 有的宿主把窗口藏起来时不改容器尺寸，只把页面标成隐藏。
+         回到可见时也补一次，免得画布还按旧尺寸贴着 */
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        wasTiny = true;
+        onResize();
+      });
     }
     map.on('styledata', wire);
     map.on('load', wire);

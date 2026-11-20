@@ -627,6 +627,15 @@ namespace GISViewer
                 return;
             }
             if (msg == "win:min") { WindowState = FormWindowState.Minimized; return; }
+            /* 置顶：界面上的按钮与设置项共用一个值，两边都把结果告诉壳，
+               壳只管把窗口属性照着设，不自己记 */
+            if (msg == "ontop:1" || msg == "ontop:0")
+            {
+                bool on = msg.EndsWith("1");
+                if (TopMost != on) TopMost = on;
+                Log("窗口置顶 " + (on ? "开" : "关"));
+                return;
+            }
             if (msg == "win:max") { ToggleMax(); return; }
             if (msg == "win:close")
             {

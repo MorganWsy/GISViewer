@@ -456,7 +456,8 @@ def _write_config(data):
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "hk3_mods", "hk3_vk",
                "upd_freq", "close_act", "close_ask",
                "open_dir", "toast_sec", "set_sec",
-               "key_close", "key_fit", "key_find", "draw_limit", "vec_precision"}
+               "key_close", "key_fit", "key_find", "draw_limit", "vec_precision",
+               "always_on_top"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:
@@ -640,7 +641,9 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None,
         reproject,
         transform_bounds,
     )
-    from rasterio.windows import from_bounds as window_from_bounds  # pyright: ignore[reportMissingImports]
+    from rasterio.windows import (
+        from_bounds as window_from_bounds,  # pyright: ignore[reportMissingImports]
+    )
 
     from .crs import bounds_to_wgs84
 

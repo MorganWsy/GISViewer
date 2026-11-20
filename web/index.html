@@ -190,6 +190,7 @@
   </div>
   <div class="bar-sep"></div>
   <div class="winbtns no-drag" id="winBtns" hidden>
+    <button id="winTop" class="win-btn" type="button" aria-label="窗口置顶" aria-pressed="false"><svg viewBox="0 0 24 24" class="ico-top"><g fill="currentColor" stroke="none"><rect x="7" y="2.6" width="10" height="2.3" rx="0.6"/><rect x="8.6" y="5.2" width="6.8" height="6.4" rx="0.5"/><rect x="5.2" y="11.9" width="13.6" height="2.3" rx="0.6"/><rect x="11" y="14.5" width="2" height="6.6" rx="0.5"/></g></svg></button>
     <button id="winMin" class="win-btn" aria-label="最小化"><svg viewBox="0 0 12 12" class="ico-min"><path d="M1.5 6h9"/></svg></button>
     <button id="winMax" class="win-btn" aria-label="最大化"><svg viewBox="0 0 12 12" class="ico-max-a"><rect x="2.4" y="2.4" width="7.2" height="7.2" rx="1"/></svg><svg viewBox="0 0 12 12" class="ico-max-b"><path d="M3.6 4.8h5.6v5.6H3.6zM6.6 4.8V2.6H2.4v5.6h2.2"/></svg></button>
     <button id="winClose" class="win-btn close" aria-label="关闭"><svg viewBox="0 0 12 12" class="ico-close"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8"/></svg></button>
@@ -360,29 +361,50 @@
       </div>
     </div>
     <p class="pyr-reason" id="paText"></p>
-    <dl class="pyr-facts">
+    <dl class="pyr-table">
       <div><dt>原始尺寸</dt><dd id="paSize">—</dd></div>
       <div><dt>文件大小</dt><dd id="paBytes">—</dd></div>
       <div><dt>副本层级</dt><dd id="paLevels">—</dd></div>
+      <div><dt>保存位置</dt><dd>本机缓存目录</dd></div>
     </dl>
-    <div class="pyr-field">
-      <label class="pyr-label" for="paMethod">采样方法</label>
-      <select id="paMethod">
-        <optgroup label="连续数据：影像、高程、气象、NDVI 等">
-          <option value="average">平均值</option>
-          <option value="bilinear">双线性</option>
-          <option value="cubic">三次卷积</option>
-        </optgroup>
-        <optgroup label="离散数据：分类、土地利用、掩膜、调色板影像">
-          <option value="nearest">最近邻</option>
-        </optgroup>
-      </select>
+    <div class="pyr-methods">
+      <span class="pyr-label" id="paMethodLabel">采样方法</span>
+      <div class="pyr-grid" role="radiogroup" aria-labelledby="paMethodLabel">
+        <label class="pyr-m">
+          <input type="radio" name="paMethod" value="average" checked>
+          <span class="pyr-m-body">
+            <span class="pyr-m-top"><b>平均值</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
+            <span class="pyr-m-sub">区域等权汇总，取值不越界</span>
+          </span>
+        </label>
+        <label class="pyr-m">
+          <input type="radio" name="paMethod" value="bilinear">
+          <span class="pyr-m-body">
+            <span class="pyr-m-top"><b>双线性</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
+            <span class="pyr-m-sub">邻域加权插值，过渡更连续</span>
+          </span>
+        </label>
+        <label class="pyr-m">
+          <input type="radio" name="paMethod" value="cubic">
+          <span class="pyr-m-body">
+            <span class="pyr-m-top"><b>三次卷积</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
+            <span class="pyr-m-sub">锐度最好，边缘可能过冲</span>
+          </span>
+        </label>
+        <label class="pyr-m">
+          <input type="radio" name="paMethod" value="nearest">
+          <span class="pyr-m-body">
+            <span class="pyr-m-top"><b>最近邻</b><em class="pyr-tag cat">分类数据</em><i class="pyr-rec" hidden>推荐</i></span>
+            <span class="pyr-m-sub">只取原值，不生成新的类别</span>
+          </span>
+        </label>
+      </div>
     </div>
     <p class="pyr-hint" id="paHint"></p>
     <p class="pyr-note">副本保存在本机缓存目录，不会改动原文件及其所在文件夹。创建过程在后台进行，可以随时取消。</p>
     <label class="pyr-remember">
       <input type="checkbox" id="paNever">
-      <span>以后不再提示</span>
+      <span>以后不再询问</span>
     </label>
     <div class="pyr-actions">
       <button id="paSkip" class="btn ghost" type="button">暂不创建</button>
@@ -502,14 +524,13 @@
         </select>
       </div>
       <div class="field">
-        <label for="cfgVecPrecision">几何精度</label>
+        <label for="cfgVecPrecision">几何精度<i class="tip-ico" id="tipVecPrecision"></i></label>
         <select id="cfgVecPrecision">
           <option value="auto">自动（推荐）</option>
           <option value="accurate">精确优先</option>
           <option value="fast">速度优先</option>
         </select>
       </div>
-      <p class="set-hint" id="vecPrecHint"></p>
       <div class="field">
         <label for="cfgMaxFeatures">属性表每批条数</label>
         <select id="cfgMaxFeatures">
@@ -651,6 +672,14 @@
       <div class="field inline">
         <label for="cfgAutoStart">开机自启动</label>
         <input id="cfgAutoStart" type="checkbox">
+      </div>
+      <div class="field inline">
+        <label for="cfgTopMost">窗口置顶<i class="tip-ico" id="tipTopMost"></i></label>
+        <input id="cfgTopMost" type="checkbox">
+      </div>
+      <div class="field inline">
+        <label for="cfgPyrAsk">打开大影像时询问创建金字塔<i class="tip-ico" id="tipPyrAsk"></i></label>
+        <input id="cfgPyrAsk" type="checkbox">
       </div>
       <div class="field inline">
         <label for="cfgDeskLnk">桌面快捷方式</label>

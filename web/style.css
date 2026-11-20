@@ -395,6 +395,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .win-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .win-btn:hover { color: var(--text); background: var(--panel-alt); }
 .win-btn.close:hover { color: #fff; background: #e05c4b; }
+/* 置顶按下时是开着，不是悬停，底色和主色都得留得住 */
+.win-btn.on, .win-btn.on:hover { color: var(--accent); background: var(--accent-soft); }
+.win-btn .ico-top { width: 15px; height: 15px; }
 .win-btn .ico-max-b { display: none; }
 body.maxed .win-btn .ico-max-a { display: none; }
 body.maxed .win-btn .ico-max-b { display: block; }
@@ -2856,46 +2859,67 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
    不复用 close-card 的紧凑排版——那里是"要不要关掉"的一句话确认，
    这里要先让人看清数据有多大、副本是什么、选哪种采样 */
 .pyr-card {
-  width: 400px;
+  width: 520px;
   max-width: calc(100vw - 40px);
-  padding: 15px 17px 13px;
+  padding: 16px 18px 14px;
   gap: 0;
 }
-.pyr-head { display: flex; align-items: flex-start; gap: 10px; }
+.pyr-head { display: flex; align-items: flex-start; gap: 11px; }
 .pyr-ico {
-  flex: none; width: 30px; height: 30px; padding: 5px; box-sizing: border-box;
+  flex: none; width: 32px; height: 32px; padding: 5px; box-sizing: border-box;
   color: var(--accent); background: var(--accent-soft); border-radius: 8px;
 }
 .pyr-titles { min-width: 0; }
-.pyr-card h3 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.3; color: var(--text); }
+.pyr-card h3 { margin: 0; font-size: 15.5px; font-weight: 700; line-height: 1.3; color: var(--text); }
 .pyr-sub { margin: 2px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .pyr-reason {
-  margin: 11px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.6;
+  margin: 12px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.6;
   color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
 }
-/* 三列数据概况：等宽、标签在上，像一张小标签表 */
-.pyr-facts {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
-  margin: 10px 0 0; padding: 0;
+/* 数据概况走表格：一行一项，标签在左、数值右对齐，像设置页里的清单 */
+.pyr-table { margin: 12px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.pyr-table > div {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 6px 2px; border-bottom: 1px solid var(--line);
 }
-.pyr-facts div { min-width: 0; }
-.pyr-facts dt { font-size: 11.5px; color: var(--text-dim); }
-.pyr-facts dd {
-  margin: 1px 0 0; font-size: 12.5px; font-variant-numeric: tabular-nums;
-  color: var(--text); overflow-wrap: anywhere;
+.pyr-table dt { flex: none; font-size: 12.5px; color: var(--text-dim); }
+.pyr-table dd {
+  margin: 0; min-width: 0; font-size: 12.5px; color: var(--text);
+  font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere;
 }
-.pyr-field { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
-.pyr-label { flex: none; font-size: 12.5px; color: var(--text-dim); }
-.pyr-field select {
-  flex: 1; min-width: 0; height: 28px; padding: 0 7px;
-  font-size: 12.5px; color: var(--text); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 6px;
+/* 采样方法：四张等宽卡片，选中项用主色描边；连续/分类各给一种标签色 */
+.pyr-methods { margin-top: 14px; }
+.pyr-label { font-size: 12.5px; color: var(--text-dim); }
+.pyr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 7px; }
+.pyr-m {
+  position: relative; display: block; padding: 9px 11px 10px;
+  border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
+  transition: border-color 0.14s, background 0.14s, box-shadow 0.14s;
 }
-/* 方法说明：换选项就跟着换一句，讲清这种数据该用哪种、选错了会怎样 */
-.pyr-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-dim); }
+.pyr-m:hover { border-color: var(--text-dim); }
+.pyr-m.on { border-color: var(--accent); background: var(--accent-soft); }
+.pyr-m input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.pyr-m input:focus-visible + .pyr-m-body { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.pyr-m-body { display: block; min-width: 0; }
+.pyr-m-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pyr-m-top b { flex: none; font-size: 13px; font-weight: 600; color: var(--text); }
+.pyr-tag {
+  flex: none; padding: 1px 6px; font-style: normal; font-size: 10.5px; line-height: 1.5;
+  border-radius: 999px;
+}
+.pyr-tag.cont { color: #2f6fa8; background: rgba(47, 111, 168, 0.12); }
+.pyr-tag.cat { color: #96601b; background: rgba(150, 96, 27, 0.14); }
+.pyr-rec { margin-left: auto; font-style: normal; font-weight: 700; font-size: 10.5px; color: var(--accent); }
+.pyr-rec[hidden] { display: none; }
+.pyr-m-sub { display: block; margin-top: 3px; font-size: 11.5px; line-height: 1.45; color: var(--text-dim); }
+/* 选中项的方法说明：整段正式文字，换一项就换一段 */
+.pyr-hint {
+  margin: 10px 0 0; padding: 8px 10px; font-size: 12.5px; line-height: 1.65;
+  color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+}
 .pyr-note { margin: 9px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-dim); opacity: 0.9; }
 .pyr-remember {
-  display: flex; align-items: center; gap: 6px; margin-top: 9px;
+  display: flex; align-items: center; gap: 6px; margin-top: 10px;
   font-size: 12.5px; line-height: 1.2; color: var(--text-dim); cursor: pointer;
 }
 .pyr-remember input {
@@ -2912,7 +2936,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .pyr-remember input:checked { background: var(--accent); border-color: var(--accent); }
 .pyr-remember input:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
 .pyr-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.pyr-actions .btn { min-width: 78px; padding: 4px 12px; font-size: 12.5px; }
+.pyr-actions .btn { min-width: 84px; padding: 5px 14px; font-size: 12.5px; }
 
 /* 底栏按钮里的转圈：和文字同高，颜色跟着按钮走 */
 .mn-spin {
