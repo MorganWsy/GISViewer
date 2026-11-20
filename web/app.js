@@ -42,7 +42,7 @@ let config = {
   ramp: 'viridis', class_count: 5, nodata_view: 'transparent', raster_default: 'composite',
   vector_color: '#d9781f', max_features: 500, restore_last: false, cache_dir: '', keep_hours: 12,
   ui_font: '', num_font: '', ui_zoom: 100, panel_alpha: 93, unit_lang: 'en',
-  key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000,
+  key_close: 'Esc', key_fit: 'F', key_find: 'Ctrl+F', draw_limit: 5000, vec_precision: 'auto',
   hk_mods: 3, hk_vk: 71, hk2_mods: 3, hk2_vk: 32, hk3_mods: 3, hk3_vk: 68,
   upd_freq: 'open', close_act: 'min', close_ask: true, recent: [], recent_max: 5,
 };
@@ -3161,12 +3161,50 @@ function askPyramid(path, data) {
       if (st.pyramid && st.pyramid.exists) return;
       if (!current || current.path !== path) return;   // 这期间换了文件就别问了
       pyrPath = path;
-      $('paText').textContent = st.reason + '。';
-      $('paMethod').value = /int|uint/.test(st.dtype || '') ? 'nearest' : 'average';
+      $('paText').textContent = st.reason;
+      $('paSize').textContent = st.width ? st.width.toLocaleString() + '×' + st.height.toLocaleString() : '—';
+      $('paBytes').textContent = st.size ? fmtBytes(st.size) : '—';
+      $('paLevels').textContent = (st.levels || []).length ? (st.levels || []).length + ' 级（1/' + (st.levels || [])[(st.levels || []).length - 1] + '）' : '—';
+      /* 默认值按数据类型定：带调色板的、整数型的分类图必须最近邻；
+         连续值给平均值，和 ArcGIS Pro、QGIS 对连续数据的建议一致 */
+      $('paMethod').value = st.colortable ? 'nearest' : 'average';
+      paintPyramidHint();
       $('paNever').checked = false;
       $('pyrAsk').hidden = false;
     })
     .catch(() => { /* 问不出来就当没这回事，不影响看文件 */ });
+}
+
+/* 采样方法下面那行说明：换一项就换一句，讲清适用数据与选错的后果 */
+const PYR_HINTS = {
+  average: '连续数据：取邻域像元平均值，缩放后画面平滑、噪声不被放大。影像、高程、气象栅格都用它。',
+  bilinear: '连续数据：按距离加权平均，比平均值更柔和，代价是边缘略糊。适合平滑的连续场。',
+  cubic: '连续数据：三次卷积，边缘更锐利，但可能产生原数据范围之外的值。适合需要细节的影像。',
+  nearest: '离散数据：只取最近的像元值，不产生新值。分类图、土地利用、掩膜与带调色板的影像必须用它，否则会凭空出现原本不存在的类别。ArcGIS Pro 建金字塔的默认方法也是最近邻。',
+};
+
+function paintPyramidHint() {
+  const el = $('paHint');
+  if (el) el.textContent = PYR_HINTS[$('paMethod').value] || '';
+}
+
+function fmtBytes(n) {
+  if (!n) return '—';
+  if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+  if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+  return n + ' 字节';
+}
+
+const VEC_PREC_HINTS = {
+  auto: '小于 12 MB 的数据按原始顶点绘制，更大的数据按当前缩放简化，保证拖动跟得上。某一层想临时看全精度，点底栏那枚「看全精度」即可。',
+  accurate: '一律先按原始顶点绘制。数据大时这一屏会明显变慢，超过约 1.2 秒会自动退回简化，并在底栏说明。',
+  fast: '一律按当前缩放简化几何，平移缩放最快。边界会随缩放略有变化，量测仍按原始几何计算。',
+};
+
+function paintVecPrecHint() {
+  const el = $('vecPrecHint');
+  if (el) el.textContent = VEC_PREC_HINTS[$('cfgVecPrecision').value] || '';
 }
 
 function hidePyramidAsk() {
@@ -3231,6 +3269,9 @@ async function cancelPyramid() {
     });
   } catch { /* 服务已经停了也算取消 */ }
 }
+
+$('cfgVecPrecision').addEventListener('change', paintVecPrecHint);
+$('paMethod').addEventListener('change', paintPyramidHint);
 
 $('paSkip').addEventListener('click', () => {
   if ($('paNever').checked) {
@@ -4085,6 +4126,8 @@ function fillSettings() {
   $('cfgVectorColor').value = config.vector_color;
   $('cfgMaxFeatures').value = String(config.max_features || 500);
   $('cfgDrawLimit').value = String(config.draw_limit || 5000);
+  $('cfgVecPrecision').value = config.vec_precision || 'auto';
+  paintVecPrecHint();
   $('cfgRestore').checked = !!config.restore_last;
   $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
@@ -5629,6 +5672,8 @@ async function applySettings() {
   config.raster_default = $('cfgRasterDefault').value;
   config.vector_color = $('cfgVectorColor').value;
   config.max_features = Number($('cfgMaxFeatures').value);
+  config.vec_precision = $('cfgVecPrecision').value || 'auto';
+  if (window.GisMap) GisMap.setVecPrecision(config.vec_precision);
   config.draw_limit = Number($('cfgDrawLimit').value);
   if (window.GisMap) GisMap.setDrawLimit(config.draw_limit);
   config.ui_font = $('cfgFontUi').value;
@@ -6143,6 +6188,7 @@ function init() {
     toShell('ctxmenu:' + (on ? 'on' : 'off') + ',' + ctxExt());
   });
   if (window.GisMap && config.draw_limit) GisMap.setDrawLimit(config.draw_limit);
+  if (window.GisMap) GisMap.setVecPrecision(config.vec_precision || 'auto');
   wireSettingNav();
   // 页内快捷键：点键帽进入捕获状态，恢复默认写回出厂组合
   ['Close', 'Fit', 'Find'].forEach((name) => {

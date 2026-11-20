@@ -351,26 +351,42 @@
 </div>
 
 <div id="pyrAsk" class="modal" hidden>
-  <div class="modal-card close-card" role="dialog" aria-modal="true" aria-labelledby="paTitle">
-    <h3 id="paTitle">给这份影像建金字塔吗？</h3>
-    <p class="ca-text" id="paText"></p>
-    <p class="ca-text ca-dim">副本存在本机缓存里，不写进你的文件夹；建的这几秒是后台在做，可以取消。</p>
-    <label class="ca-field">
-      <span class="ca-label">采样方法</span>
+  <div class="modal-card pyr-card" role="dialog" aria-modal="true" aria-labelledby="paTitle">
+    <div class="pyr-head">
+      <svg class="pyr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2 21 7.6 12 12 3 7.6z"/><path d="M3.4 12.2 12 16.4l8.6-4.2M3.4 16.6 12 20.8l8.6-4.2"/></svg>
+      <div class="pyr-titles">
+        <h3 id="paTitle">创建金字塔</h3>
+        <p class="pyr-sub">为影像生成一组逐级降采样的显示副本</p>
+      </div>
+    </div>
+    <p class="pyr-reason" id="paText"></p>
+    <dl class="pyr-facts">
+      <div><dt>原始尺寸</dt><dd id="paSize">—</dd></div>
+      <div><dt>文件大小</dt><dd id="paBytes">—</dd></div>
+      <div><dt>副本层级</dt><dd id="paLevels">—</dd></div>
+    </dl>
+    <div class="pyr-field">
+      <label class="pyr-label" for="paMethod">采样方法</label>
       <select id="paMethod">
-        <option value="average">平均值（连续值，默认）</option>
-        <option value="nearest">最近邻（分类、离散值）</option>
-        <option value="bilinear">双线性</option>
-        <option value="cubic">三次卷积</option>
+        <optgroup label="连续数据：影像、高程、气象、NDVI 等">
+          <option value="average">平均值</option>
+          <option value="bilinear">双线性</option>
+          <option value="cubic">三次卷积</option>
+        </optgroup>
+        <optgroup label="离散数据：分类、土地利用、掩膜、调色板影像">
+          <option value="nearest">最近邻</option>
+        </optgroup>
       </select>
-    </label>
-    <label class="ca-remember">
+    </div>
+    <p class="pyr-hint" id="paHint"></p>
+    <p class="pyr-note">副本保存在本机缓存目录，不会改动原文件及其所在文件夹。创建过程在后台进行，可以随时取消。</p>
+    <label class="pyr-remember">
       <input type="checkbox" id="paNever">
-      <span>以后不再询问</span>
+      <span>以后不再提示</span>
     </label>
-    <div class="ca-actions">
-      <button id="paSkip" class="btn ghost" type="button">不建</button>
-      <button id="paBuild" class="btn" type="button">建一份</button>
+    <div class="pyr-actions">
+      <button id="paSkip" class="btn ghost" type="button">暂不创建</button>
+      <button id="paBuild" class="btn" type="button">创建</button>
     </div>
   </div>
 </div>
@@ -485,6 +501,15 @@
           <option value="20000">20000 个（大图层会慢）</option>
         </select>
       </div>
+      <div class="field">
+        <label for="cfgVecPrecision">几何精度</label>
+        <select id="cfgVecPrecision">
+          <option value="auto">自动（推荐）</option>
+          <option value="accurate">精确优先</option>
+          <option value="fast">速度优先</option>
+        </select>
+      </div>
+      <p class="set-hint" id="vecPrecHint"></p>
       <div class="field">
         <label for="cfgMaxFeatures">属性表每批条数</label>
         <select id="cfgMaxFeatures">

@@ -456,7 +456,7 @@ def _write_config(data):
                "hk_mods", "hk_vk", "hk2_mods", "hk2_vk", "hk3_mods", "hk3_vk",
                "upd_freq", "close_act", "close_ask",
                "open_dir", "toast_sec", "set_sec",
-               "key_close", "key_fit", "key_find", "draw_limit"}
+               "key_close", "key_fit", "key_find", "draw_limit", "vec_precision"}
     payload = read_config()
     for key, value in data.items():
         if key in allowed:

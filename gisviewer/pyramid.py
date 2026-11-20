@@ -136,6 +136,11 @@ def status(target):
             info["has_overviews"] = bool(ds.overviews(1))
             info["bands"] = ds.count
             info["dtype"] = ds.dtypes[0] if ds.dtypes else ""
+            # 带调色板的多半是分类图（土地利用、掩膜）：副本只能用最近邻，
+            # 否则平均值会造出原数据里不存在的类别
+            with contextlib.suppress(Exception):
+                ds.colormap(1)
+                info["colortable"] = True
     except Exception as exc:  # noqa: BLE001
         info["recommend"] = False
         info["reason"] = f"读不了这个文件：{exc}"[:120]
@@ -158,14 +163,20 @@ def status(target):
                            "levels": _levels_of(kept)}
 
     pixels = info["width"] * info["height"]
+    info["levels"] = list(LEVELS)
     if info["has_overviews"]:
-        info["reason"] = "原文件自带金字塔，不用再建"
+        info["reason"] = "原文件已包含金字塔，无需重复创建。"
     elif pixels < MIN_PIXELS and info["size"] < MIN_BYTES:
-        info["reason"] = "这份影像不大，读一次不到半秒，建金字塔省不下什么"
+        info["reason"] = ("该影像尺寸较小，读取一次耗时不长，创建金字塔带来的提升有限。"
+                          if not info["width"] else
+                          f"该影像为 {info['width']:,}×{info['height']:,} 像素、"
+                          f"{info['size'] / 1024 / 1024:.1f} MB，尺寸较小，"
+                          "创建金字塔带来的提升有限。")
     else:
         info["recommend"] = True
-        info["reason"] = (f"{info['width']:,}×{info['height']:,} 像素，"
-                          f"{info['size'] / 1024 / 1024:.0f} MB；建一份副本后往外拉视野不再读原图")
+        info["reason"] = (f"该影像为 {info['width']:,}×{info['height']:,} 像素、"
+                          f"{info['size'] / 1024 / 1024:.0f} MB，尚未建立金字塔。"
+                          "创建后在缩放浏览时只需读取相应级别的副本，不再重复读取原始像元。")
     return info
 
 

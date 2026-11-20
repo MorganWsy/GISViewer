@@ -98,19 +98,32 @@
     const key = String(t.target) + '#' + (t.layerIndex || 0);
     const shot = vecShot[key];
     if (!shot) return;
-    if (!shot.simplified && !shot.forced) return;   // 本来就没抽稀，没什么可点
+    const busy = !!vecDrawing[key];
+    if (!busy && !shot.simplified && !shot.forced) return;   // 本来就没抽稀，没什么可点
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'mn-act';
-    btn.textContent = shot.forced ? '回到快速显示' : '看全精度';
-    btn.setAttribute('data-tip', shot.forced
-      ? '按当前缩放抽稀重画，平移缩放更快'
-      : '按原始顶点重画这一屏，数据大时要等几秒');
-    btn.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      toggleFullPrecision();
-    });
+    if (busy) {
+      /* 重画期间按钮就是进度条：一句话加一枚转圈，画完自动变成"回到快速显示"。
+         这一屏可能要十几秒，不给反馈会让人以为点了没反应 */
+      btn.disabled = true;
+      btn.classList.add('busy');
+      const spin = document.createElement('i');
+      spin.className = 'mn-spin';
+      btn.appendChild(spin);
+      btn.appendChild(document.createTextNode('正在按原始顶点重画…'));
+      btn.setAttribute('data-tip', '这一屏要扫完整幅几何，数据越大越久');
+    } else {
+      btn.textContent = shot.forced ? '回到快速显示' : '看全精度';
+      btn.setAttribute('data-tip', shot.forced
+        ? '按当前缩放抽稀重画，平移缩放更快'
+        : '按原始顶点重画这一屏，数据大时要等几秒');
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleFullPrecision();
+      });
+    }
     box.appendChild(btn);
   }
 
@@ -127,6 +140,7 @@
     } else {
       vecForceFull[key] = true;
       vecFull[key] = true;
+      vecDrawing[key] = true;
       toast('按原始顶点重画', '这一屏会慢一些，数据越大越久；底栏可以点「回到快速显示」切回去。');
     }
     vecShot[key] = Object.assign({}, vecShot[key] || {}, { forced: !!vecForceFull[key] });
@@ -458,10 +472,19 @@
      判断分两步，先按文件大小赌一把，再按实测耗时确认，退回来就永久记住：
        12 MB 是实测的安全线。22 MB 的省界（35 个要素、顶点极密）全精度要 22 秒，
        而十几兆以内常见的县界、管网点线，一个视野几百毫秒就够。 */
+  /* 设置里的「几何精度」：这是默认策略，单层的临时切换走 vecForceFull 与底栏按钮。
+     auto = 小文件原样，大文件按屏幕抽稀（默认）；accurate = 一律先试全精度，
+     实测超出预算会自动退回；fast = 一律按屏幕抽稀，不试 */
+  let vecPrecision = 'auto';
   const vecFull = {};                 // 文件#图层 -> true 全精度 / false 按缩放抽稀
   const vecForceFull = {};            // 文件#图层 -> true 用户明确点了"看全精度"
   const vecShot = {};                 // 文件#图层 -> 这一屏的实况，底栏按钮要读它
+  const vecDrawing = {};              // 文件#图层 -> true 正在按全精度重画，按钮要显示进度
   const VEC_FULL_MAX = 12 * 1024 * 1024;
+  /* 上一次真正画出来的是哪一块：程序化对镜头之后会触发一次 moveend，
+     如果新的框还落在这一块里面、精度也没变细，就没必要再取一遍——
+     重取会让同一批要素重新切片，看上去就是"图层闪一下" */
+  let vecCover = null;                // {key, bbox, tol, truncated}
   const VEC_FULL_BUDGET = 1200;       // 毫秒，超过就认为这份数据不适合全精度
   let vecDenseNoteShown = false;
 
@@ -471,6 +494,8 @@
     if (known === true) return 0;
     const coarse = zoomTolerance(z) * (count != null && count > 20000 ? 1 : 1 / 3);
     if (known === false) return coarse;
+    if (vecPrecision === 'fast') return coarse;
+    if (vecPrecision === 'accurate') return 0;   // 先给全精度，超预算会自动退回
     const size = data.size || 0;
     return size && size <= VEC_FULL_MAX ? 0 : coarse;
   }
@@ -483,6 +508,15 @@
   const vecLocalFit = {};
 
   /* 一屏要素的经纬度外包框：无坐标系图层打开时用它把视图对上去 */
+  /* a 是否完整落在 b 里（带一点余量，浮点抖动不算超出） */
+  function bboxInside(a, b) {
+    if (!a || !b) return false;
+    const mx = (b[2] - b[0]) * 1e-6;
+    const my = (b[3] - b[1]) * 1e-6;
+    return a[0] >= b[0] - mx && a[2] <= b[2] + mx &&
+           a[1] >= b[1] - my && a[3] <= b[3] + my;
+  }
+
   function featsBBox(feats) {
     let minX = Infinity;
     let minY = Infinity;
@@ -524,6 +558,13 @@
     const cur = targets && targets[activeTarget];
     const vecKey = String(data.target) + '#' + (data.layerIndex || 0);
     const tol = vecTolerance(vecKey, data, cur ? cur.count : null, map.getZoom());
+    /* 这一屏已经被上一次取回来的要素完整盖住、精度也不比上次细：
+       直接留着，不再问一遍服务端。缩放（精度变细）和平移（超出上次范围）都照常重取 */
+    if (fromMove && boxOk && vecCover && vecCover.key === vecKey &&
+        !vecCover.truncated && tol >= vecCover.tol * 0.98 &&
+        bboxInside(bbox, vecCover.bbox)) {
+      return;
+    }
     const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const url = '/api/vector?path=' + enc(data.target) +
       '&layer=' + (data.layerIndex || 0) +
@@ -592,6 +633,7 @@
         assumedLocal: !!m.assumed_local,
       };
       const parts0 = [];
+      delete vecDrawing[vecKey];
       vecShot[vecKey] = {
         simplified: !!m.simplified,
         forced: !!vecForceFull[vecKey],
@@ -631,6 +673,11 @@
             '已绘制 ' + feats.length + ' 个，移动或缩放后会继续加载。', 'info');
         }
       }
+      if (boxOk) {
+        vecCover = { key: vecKey, bbox: bbox, tol: tol, truncated: !!m.truncated };
+      } else {
+        vecCover = null;                // 没带框取的全量：盖住哪儿说不清，下次照常问
+      }
       const src = map.getSource('gis-data');
       if (src) src.setData({ type: 'FeatureCollection', features: feats });
       /* 没有经纬度范围可框（无坐标系的本地坐标文件）：用第一屏要素自己的
@@ -648,6 +695,7 @@
       if (pendingFocus) flushFocus();
       emit('gis:drawn', { kind: 'vector' });
     }).catch((err) => {
+      delete vecDrawing[vecKey];
       settle();
       if (mine === token) toast('要素读取失败', err.message);
       if (pendingFocus) flushFocus();
@@ -953,6 +1001,8 @@
       // 换文件就清账：上一份数据的全精度选择不该跟到下一份
       for (const k of Object.keys(vecForceFull)) delete vecForceFull[k];
       for (const k of Object.keys(vecShot)) delete vecShot[k];
+      for (const k of Object.keys(vecDrawing)) delete vecDrawing[k];
+      vecCover = null;
       if (!list.length) {
         clear();
         if (d.kind === 'json') toast('这份 JSON 里没有可定位的地理要素', '信息栏里仍可查看它的结构与字段。');
@@ -1836,8 +1886,12 @@
   }
 
   function init(cfg) {
+    /* 几何精度在这里一并落位：设置页那行在地图初始化之前就会调 setVecPrecision，
+       那会儿还没有数据，设进去也没人用 */
     // 只记配置；容器真正可见时再建图，避免在隐藏容器里初始化
     if (cfg) config = Object.assign(config, cfg);
+    const pref = (cfg && cfg.vec_precision) || vecPrecision;
+    vecPrecision = ['auto', 'accurate', 'fast'].indexOf(String(pref)) >= 0 ? String(pref) : 'auto';
   }
 
   function resize() {
@@ -1870,6 +1924,14 @@
     /* 调试与自动化测试用的地图句柄：CDP 里能直接查渲染状态 */
     __map() { return map; },
     /* 设置页改"视野内单次绘制要素数"时调用 */
+    /* 设置页改「几何精度」时调用：清掉逐层的记忆，让新策略立刻生效 */
+    setVecPrecision(mode) {
+      const v = ['auto', 'accurate', 'fast'].indexOf(String(mode)) >= 0 ? String(mode) : 'auto';
+      if (v === vecPrecision) return;
+      vecPrecision = v;
+      for (const k of Object.keys(vecFull)) delete vecFull[k];
+      loadVector(false);
+    },
     setDrawLimit(n) {
       const v = Number(n);
       if (Number.isFinite(v) && v >= 500) drawLimit = Math.min(v, 200000);
