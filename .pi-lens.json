@@ -1,6 +1,7 @@
 {
   "rules": {
     "no-important": { "ignorePaths": ["web/style.css"] },
-    "no-console-except-error-js": { "ignorePaths": ["tools/**"] }
+    "no-console-except-error-js": { "ignorePaths": ["tools/**"] },
+    "no-unused-vars": { "ignorePaths": ["web/app-view.js", "web/app-attr.js", "web/app-open.js", "web/app-settings.js", "web/app-host.js"] }
   }
 }
