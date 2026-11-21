@@ -96,7 +96,8 @@ def norm(path):
 
 def save(report, path):
     text = json.dumps(report, ensure_ascii=False, indent=2, default=str)
-    with open(path, "w", encoding="utf-8") as fh:  # pi-lens-ignore: unchecked-throwing-call-python -- 写不进去要让调用方看到
+    # 这里写的是用户自己指定的报告路径（--out 或设置里的目录），不对外来输入放行别处
+    with open(path, "w", encoding="utf-8") as fh:  # pi-lens-ignore: unchecked-throwing-call-python, python-path-traversal -- 写不进去要让调用方看到
         fh.write(clean_text(text))
     return path
 
@@ -104,7 +105,7 @@ def save(report, path):
 def load(path):
     """读一份报告的全文；文件不存在或坏了返回 None。"""
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:  # pi-lens-ignore: python-path-traversal -- 读的也是用户自己存的报告
             return json.load(fh)
     except (OSError, ValueError):
         return None

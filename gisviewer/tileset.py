@@ -122,7 +122,7 @@ def describe(path):
     counts, tiles = _scan(path)
     if not counts or tiles < 4:
         return None
-    ext = max(counts, key=counts.get)
+    ext = max(counts, key=lambda k: counts[k])
     zoom_min, zoom_max = zooms[0], zooms[-1]
     bounds = _zoom_extent(path, zoom_min, ext) or _zoom_extent(path, zoom_max, ext)
     sample = _sample_tile(path, zoom_min if bounds else zoom_max, ext)

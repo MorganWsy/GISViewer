@@ -148,7 +148,7 @@ def describe(source):
 
     geo = None
     try:
-        g = srs.GetGeogCS()
+        g = srs.CloneGeogCS()
         if g is not None:
             gcode = None
             try:

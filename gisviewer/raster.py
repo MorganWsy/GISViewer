@@ -800,7 +800,7 @@ def identify_value(target, lon, lat):
             scaled = (scale is not None and float(scale) != 1) or \
                      (offset is not None and float(offset) != 0)
             shown = None
-            if not dead:
+            if not dead and value is not None:
                 shown = float(value)
                 if scaled:
                     shown = shown * float(scale or 1) + float(offset or 0)

@@ -34,6 +34,14 @@
 - **顶栏的置顶按钮换成图钉**：实心图钉，未置顶是常规灰，置顶后整颗变主色并加浅色底，与最小化、最大化、关闭同一套尺寸；点它和设置里那个勾选是同一个开关。
 - **小份矢量数据不再随缩放改边界**：以前每次换视野都按当前层级给几何做一次抽稀，同一片省界在概览时和后拉近时长得不一样，想一次性看全貌时很别扭。现在文件小于 12 MB 一律按原样画，一个顶点都不删，缩放、平移、换视野都是同一副图形。数据大、顶点密的时候仍然要抽稀，否则一次要扫十几秒（实测 22 MB 的省级面，全精度 13.9 秒、抽稀后 3.2 秒），判断依据是引擎报的转换耗时，不是网络等待时间；第一次万一判错了会自己退回抽稀并在底栏说明一次，不会反复来回换。
 
+### 代码结构
+
+- **界面启动函数拆成 24 个**：`init()` 原来一个人装了约 40 个事件回调和整段启动流程，每个回调里的分支都记在同一个函数名下，长到 588 行、177 个分支，读的时候没法一眼看出「启动到底做了哪几件事」。现在按职责拆成 `wireShellAndPath`、`wireSettingsPanel`、`wireCacheSettings`、`wireCheckPopover`、`wireConvertPopover`、`wireToolTips`、`wireSettingTips`、`wireSettingSections`、`wireSettingInputs`、`wireGlobalKeys`、`wireMapTools`、`wireStaleBanner`、`wireLayerChip`、`wireChromeGlue`、`wireRecentMenu`、`wirePopoverDismiss`、`wireAttrSearch`、`wireMapDataEvents`、`wireMapFocusEvents`、`wireMapRasterEvents`、`wireAttrTable`、`wireMapDrawDone`、`boot`，`init()` 本身只剩 25 行、按顺序调用它们，没有分支。
+- **壳消息改成查表**：桌面壳发来的二十几种消息原来是一条 51 个分支的 `if` 长链，加一种消息就得再插一段。现在拆成「处理函数表 + 快捷键正则」两部分，分派只剩一行：先看是不是快捷键消息，再查表调用；目录类消息（体检、互转、缓存）统一走 `hostDirInput` 映射。行为不变。
+- **打开文件的主流程拆成 9 段**：`inspectPath` 原来 40 个分支，现在只做编排，具体动作各有一个函数：`prepareOpen`（收浮窗、交还焦点、重置状态、挂遮罩）、`fetchInspect`（问一次服务端）、`dropStaleRecent`（把已经不存在的路径从最近打开里删掉）、`rollbackOpen`（读不出来时保住眼前图层）、`finishDeferred`（大矢量的全量统计后台补齐）、`openFailed`、`stageVeil`、`endOpen`、`needsDeferredMap`。
+- **新增界面接线回归测试**：`tests/ui_wiring.py` 起真实服务与 Edge，把设置面板、分栏、主题、体检与互转浮层、图例与文件卡收起、图层切换、属性表开关连点 16 处并断言结果，用来保证拆分只动结构、不动行为。
+- **修掉三个真的类型错误**：地理坐标系克隆（`GetGeogCS` 在 GDAL 3.10 的 Python 绑定里已不存在，改用 `CloneGeogCS`）、栅格缩略图里一个可能为 `None` 的取值、瓦片集里按字典取值做键的写法（`max(counts, key=counts.get)` 改成 `lambda`）。以自带运行时的解释器跑 `pyright`，三个文件均为 0 错误 0 警告。
+
 ## 0.15（2026-11-18）
 
 ### 新增

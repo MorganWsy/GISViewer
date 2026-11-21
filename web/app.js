@@ -2947,11 +2947,9 @@ function releaseVeil() {
   openFrom = 0;
 }
 
-async function inspectPath(path) {
-  const prev = current;
-  const hadLayer = !!prev && !!prev.data && prev.data.ok;
-  /* 开始打开新文件就把浮窗收掉：快捷键/拖放/最近打开都会走到这里，
-     路径框那边不该还挂着一块"最近打开"盖在地图上 */
+/* 打开一个文件前把浮窗、焦点、状态收干净：快捷方式、拖放、最近打开都走这一条 */
+function prepareOpen(path) {
+  /* 开始打开新文件就把浮窗收掉：路径框那边不该还挂着一块"最近打开"盖在地图上 */
   hideRecent();
   hidePickPop();
   hideCheckPop();
@@ -2970,91 +2968,131 @@ async function inspectPath(path) {
   loadTip(true, '正在读取…');
   if (/\.dwg$/i.test(String(path))) startDwgWatch(String(path));
   skeleton(String(path).split(/[\\/]/).pop());
-  let data;
-  try {
-    const res = await fetch('/api/path', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, fast: true }),   // 先立界面，个数范围后台补
-      signal: openAbort.signal,
-    });
-    data = await res.json();
-  } catch (err) {
-    stopDwgWatch();
-    loadTip(false);
-    if (err && err.name === 'AbortError') return;   // 用户取消 DWG 转换
-    renderError('本地服务没有响应', err.message, '请确认服务已启动。');
+}
+
+/* 问一次服务端：这个路径是什么。fast 为真时只要头部那点信息，慢的统计后台补 */
+async function fetchInspect(path, fast) {
+  const res = await fetch('/api/path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, fast }),
+    signal: openAbort ? openAbort.signal : undefined,
+  });
+  return res.json();
+}
+
+/* 最近打开里的路径可能已经不在（文件被移走、改名）：顺手从清单里删掉，
+   否则这一条以后每次点都会失败一次 */
+function dropStaleRecent(path, data) {
+  if (data.ok) return false;
+  if ((config.recent || []).indexOf(path) < 0) return false;
+  if (!/找不到|不存在/.test((data.error && data.error.title) || '')) return false;
+  config.recent = config.recent.filter((x) => x !== path);
+  renderRecent();
+  commitConfig();
+  return true;
+}
+
+/* 已经开着图层时又拖进来一个读不出来的东西（比如文件夹）：
+   浮层卡片说明原因，眼前这块原样留着，不能顺手把人正在看的东西清了 */
+function rollbackOpen(prev, data) {
+  const err = data.error || {};
+  loadTip(false);
+  showErrToast(err.title || '这个文件打不开', err.detail, err.hint);
+  current = prev;
+  /* 回滚重画走的是正常渲染路径，没有 finally 管它：栅格首屏算配色时
+     会把加载指示重新挂起来，收尾必须自己收，否则屏幕上一直转圈、看着像还在读 */
+  renderResult(prev.data, prev.path, { quiet: true })
+    .catch(() => { /* 回滚渲染不出来也就算了，浮层已经说明原因 */ })
+    .finally(() => { loadTip(false); });
+}
+
+/* 大矢量的后半程：先出图，再把全量统计补进右栏。
+   统计会拿 GDAL 读锁，和首屏取数抢锁会把首屏拖慢，所以等这一批要素画完
+   （gis:drawn）再发请求；取数失败也会发这个事件，15 秒兜底，避免统计永远不补 */
+async function finishDeferred(data, path) {
+  const drawn = new Promise((resolve) => {
+    const mapEl = $('map');
+    const timer = setTimeout(done, 15000);
+    function done() {
+      clearTimeout(timer);
+      mapEl.removeEventListener('gis:drawn', done);
+      resolve();
+    }
+    mapEl.addEventListener('gis:drawn', done);
+  });
+  loadTip(true, '补齐要素数量与范围…');
+  await renderResult(data, path);   // 先出图（范围由取数响应补）
+  await drawn;
+  const full = await fetchInspect(path, false).catch(() => null);
+  if (!(current && current.data === data && full && full.ok)) {
+    if (data.ok) noteOpened(path, data);
     return;
   }
-  /* 已经开着图层时又拖进来一个读不出来的东西（比如文件夹）：
-     浮层卡片说明原因，眼前这块原样留着，不能顺手把人正在看的东西清了 */
-  /* 最近打开里的路径可能已经不在（文件被移走、改名）：顺手从清单里删掉，
-     否则这一条以后每次点都会失败一次 */
-  if (!data.ok && (config.recent || []).indexOf(path) >= 0 &&
-      /找不到|不存在/.test((data.error && data.error.title) || '')) {
-    config.recent = config.recent.filter((x) => x !== path);
-    renderRecent();
-    commitConfig();
+  current.data = full;
+  const ly = (full.layers || [])[full.layerIndex || 0];
+  if (ly && ly.extent_wgs84 && window.GisMap) {
+    /* 首屏是拿这一批要素的包围盒临时对上的；全量范围到了，
+       用户还没动过地图就补一次真正的全图 */
+    GisMap.setExtent(ly.extent_wgs84);
   }
+  renderRail(full, false);          // 只换右栏，地图保持已画好的状态
+  setChip(full);                    // 左上角文件卡片也要从"0"补成真实数量
+  if (window.GisMap) GisMap.setElapsed(dur(full.elapsed_ms));
+  noteOpened(path, full);
+}
+
+/* 打开失败：DWG 被用户取消时静默收手，其余情况把原因写在浮层上 */
+function openFailed(err) {
+  stopDwgWatch();
+  loadTip(false);
+  if (err && err.name === 'AbortError') return;   // 用户取消 DWG 转换
+  renderError('本地服务没有响应', err.message, '请确认服务已启动。');
+}
+
+/* 画之前先挂遮罩：栅格是同步画完的，等渲染返回时完成事件早发过了 */
+function stageVeil(data) {
+  const staged = !!data.ok && VEIL_KINDS.indexOf(data.kind) >= 0;
+  if (staged) holdVeil('正在画图层…');
+  return staged;
+}
+
+function endOpen(staged) {
+  stopDwgWatch();
+  openAbort = null;
+  if (!staged) { releaseVeil(); loadTip(false); }
+}
+
+/* 大矢量走快速元数据：信息栏立刻立起来，地图等全量检查（带范围）到了再画 */
+function needsDeferredMap(data) {
+  return !!data.ok && !!data.quick && data.kind === 'vector';
+}
+
+async function inspectPath(path) {
+  const prev = current;
+  const hadLayer = !!(prev && prev.data && prev.data.ok);
+  prepareOpen(path);
+  let data;
+  try {
+    data = await fetchInspect(path, true);   // 先立界面，个数范围后台补
+  } catch (err) {
+    openFailed(err);
+    return;
+  }
+  dropStaleRecent(path, data);
   if (!data.ok && hadLayer) {
-    const err = data.error || {};
-    loadTip(false);
-    showErrToast(err.title || '这个文件打不开', err.detail, err.hint);
-    current = prev;
-    /* 回滚重画走的是正常渲染路径，没有下面那个 finally 管它：栅格首屏算配色时
-       会把加载指示重新挂起来，收尾必须自己收，否则屏幕上一直转圈、看着像还在读 */
-    renderResult(prev.data, prev.path, { quiet: true })
-      .catch(() => { /* 回滚渲染不出来也就算了，浮层已经说明原因 */ })
-      .finally(() => { loadTip(false); });
+    rollbackOpen(prev, data);
     return;
   }
   current = { path, data };
   /* 地图换了数据，格式互转的输入文件跟着换（用户没手填过才跟） */
   syncConvSource();
-  const staged = !!data.ok && VEIL_KINDS.indexOf(data.kind) >= 0;
-  /* 先挂遮罩再渲染：栅格是同步画完的，等渲染返回时完成事件早发过了 */
-  if (staged) holdVeil('正在画图层…');
-  /* 大矢量走快速元数据：信息栏立刻立起来，地图等全量检查（带范围）到了再画 */
-  const deferMap = !!data.ok && data.quick && data.kind === 'vector';
+  const staged = stageVeil(data);
+  const deferMap = needsDeferredMap(data);
   try {
     await renderResult(data, path, { deferMap });
-    if (deferMap && data.ok) {
-      /* 先出图，再补统计：统计会拿 GDAL 读锁，和首屏取数抢锁会把首屏拖慢。
-         等这一批要素画完（gis:drawn）再发全量请求；取数失败也会发这个事件，
-         15 秒兜底，避免统计永远不补 */
-      const drawn = new Promise((resolve) => {
-        const mapEl = $('map');
-        const timer = setTimeout(done, 15000);
-        function done() {
-          clearTimeout(timer);
-          mapEl.removeEventListener('gis:drawn', done);
-          resolve();
-        }
-        mapEl.addEventListener('gis:drawn', done);
-      });
-      loadTip(true, '补齐要素数量与范围…');
-      await renderResult(data, path);   // 先出图（范围由取数响应补）
-      await drawn;
-      const fullPromise = fetch('/api/path', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, fast: false }),
-      }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      const full = await fullPromise;
-      if (current && current.data === data && full && full.ok) {
-        current.data = full;
-        data = full;
-        const ly = (full.layers || [])[data.layerIndex || 0];
-        if (ly && ly.extent_wgs84 && window.GisMap) {
-          /* 首屏是拿这一批要素的包围盒临时对上的；全量范围到了，
-             用户还没动过地图就补一次真正的全图 */
-          GisMap.setExtent(ly.extent_wgs84);
-        }
-        renderRail(data, false);        // 只换右栏，地图保持已画好的状态
-        setChip(data);                  // 左上角文件卡片也要从“0”补成真实数量
-        if (window.GisMap) GisMap.setElapsed(dur(data.elapsed_ms));
-      }
-      if (data.ok) noteOpened(path, data);
+    if (deferMap) {
+      await finishDeferred(data, path);
       return;
     }
     if (data.ok) noteOpened(path, data);
@@ -3062,9 +3100,7 @@ async function inspectPath(path) {
     releaseVeil();
     renderError('界面渲染出错', (err && err.message) || String(err));
   } finally {
-    stopDwgWatch();
-    openAbort = null;
-    if (!staged) { releaseVeil(); loadTip(false); }
+    endOpen(staged);
   }
 }
 
@@ -5222,95 +5258,121 @@ const host = { fonts: null, autoStart: null, deskLnk: null, hotkey: '', hotkey2:
 let hkSynced = false;
 let configLoaded = false;
 
-window.GisHost = function (name, value) {
-  if (name === 'fonts') {
+/* 壳发来的消息按名字分派：一张表一件事，比一长串 if (name === 'x') 好读，
+   加一条新消息只要往表里添一行，不用再找"该插在哪个 if 后面" */
+const hostDirInput = {
+  check: 'checkPath',
+  conv: 'convOut',
+  cache: 'cfgCache',
+  cachedir: 'cachePath',
+};
+
+const hostHandlers = {
+  fonts(value) {
     host.fonts = String(value || '').split(',').map((s) => s.trim()).filter(Boolean);
     fillFontSelects();
-    return;
-  }
-  if (name === 'dir') {
-    // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
-    const where = dirPickTarget === 'check' ? $('checkPath')
-      : dirPickTarget === 'conv' ? $('convOut')
-      : dirPickTarget === 'cache' ? $('cfgCache')
-      : dirPickTarget === 'cachedir' ? $('cachePath') : $('cfgOpenDir');
+  },
+
+  // 壳那边选完文件夹回传的路径：看是谁发起的，填进对应的输入框
+  dir(value) {
+    const id = hostDirInput[dirPickTarget] || 'cfgOpenDir';
+    const where = $(id);
     const fromCheck = dirPickTarget === 'check';
     dirPickTarget = '';
-    if (where) {
-      where.value = String(value || '');
-      if (where.id === 'cfgOpenDir' || where.id === 'cfgCache' || where.id === 'cachePath') {
-        if (where.id === 'cachePath') cachePickIntent = where.value.trim();
-        applySettings();
-        if (where.id === 'cfgOpenDir') paintOpenDirStatus();
-        else if (where.id === 'cfgCache') paintCacheDirStatus();
-        else paintCachePathStatus();
-        syncDirClearBtns();
-      }
+    if (!where) return;
+    where.value = String(value || '');
+    if (id === 'cfgOpenDir' || id === 'cfgCache' || id === 'cachePath') {
+      if (id === 'cachePath') cachePickIntent = where.value.trim();
+      applySettings();
+      if (id === 'cfgOpenDir') paintOpenDirStatus();
+      else if (id === 'cfgCache') paintCacheDirStatus();
+      else paintCachePathStatus();
+      syncDirClearBtns();
     }
-    if (fromCheck && where && where.value.trim()) runCheck();
-    return;
-  }
+    if (fromCheck && where.value.trim()) runCheck();
+  },
+
   // 体检里"选择文件"回传：填进路径框，接着就查。互转的选文件共用这一条回传，
   // 按谁发起的分路（pickcheck 只是"挑一个数据文件"，跟用途无关）
-  if (name === 'checkpath') {
+  checkpath(value) {
     const toConv = filePickTarget === 'conv';
     filePickTarget = '';
     const where = toConv ? $('convPath') : $('checkPath');
-    if (where) {
-      where.value = String(value || '');
-      if (toConv) { convLoadLayers(); }
-      else if (where.value.trim()) runCheck();
-    }
-    return;
-  }
-  if (name === 'autoStart') { host.autoStart = value === 'on'; $('cfgAutoStart').checked = host.autoStart; return; }
-  if (name === 'deskLnk') { host.deskLnk = value === 'on'; $('cfgDeskLnk').checked = host.deskLnk; return; }
+    if (!where) return;
+    where.value = String(value || '');
+    if (toConv) convLoadLayers();
+    else if (where.value.trim()) runCheck();
+  },
+
+  autoStart(value) {
+    host.autoStart = value === 'on';
+    $('cfgAutoStart').checked = host.autoStart;
+  },
+
+  deskLnk(value) {
+    host.deskLnk = value === 'on';
+    $('cfgDeskLnk').checked = host.deskLnk;
+  },
+
   // 壳回报右键菜单现在是不是挂着：开关要跟着注册表走，不能只信本地配置
-  if (name === 'ctxmenu') {
-    const on = value === 'on';
+  ctxmenu(value) {
     const box = $('cfgCtxMenu');
-    if (box) box.checked = on;
-    return;
-  }
-  /* 三套全局快捷键的回报：hotkey / hotkey2 / hotkey3 是当前值，
-     带 Ok 是刚改成功，带 Failed 是新组合键被占了、壳已经退回旧的 */
-  const hotNo = { hotkey: 1, hotkeyOk: 1, hotkeyFailed: 1,
-    hotkey2: 2, hotkey2Ok: 2, hotkey2Failed: 2,
-    hotkey3: 3, hotkey3Ok: 3, hotkey3Failed: 3 }[name];
-  if (hotNo) {
-    const row = HK_ROWS[hotNo];
-    if (name.indexOf('Ok') > 0) {
-      host[row.host] = String(value || '');
-      paintHotkey(hotNo);
-      $(row.hint).textContent = row.ok.replace('%s', host[row.host]);
-      return;
-    }
-    if (name.indexOf('Failed') > 0) {
-      $(row.hint).textContent = value + ' 被别的软件占着，已经退回 ' +
-        host[row.host] + '，换一组试试。';
-      return;
-    }
+    if (box) box.checked = value === 'on';
+  },
+
+  autoStartState(value) {
+    switchState('cfgAutoStart', 'autoStart', value, '开机自启没改成：');
+  },
+
+  deskLnkState(value) {
+    switchState('cfgDeskLnk', 'deskLnk', value, '桌面上的快捷方式没改成：');
+  },
+
+  update(value) { onUpdateMessage(value); },
+  notice(value) { showErrToast((value && value.title) || '提示', (value && value.detail) || '', '', 'info'); },
+  askClose() { showCloseAsk(); },
+  drag(value) { showDropVeil(value === 'true'); },
+  maximized(value) { document.body.classList.toggle('maxed', value === 'on'); },
+};
+
+/* 开关类回报统一处理：value 是 on/off，出错时是 error:原因 */
+function switchState(boxId, hostKey, value, failPrefix) {
+  const bad = String(value).indexOf('error') === 0;
+  const on = !bad && value === 'on';
+  const box = $(boxId);
+  if (box) box.checked = on;
+  host[hostKey] = on;
+  sysNote(bad ? failPrefix + (String(value).slice(6) || '系统不让写这个位置') : '');
+}
+
+/* 三套全局快捷键的回报：hotkey / hotkey2 / hotkey3 是当前值，
+   带 Ok 是刚改成功，带 Failed 是新组合键被占了、壳已经退回旧的 */
+function hostHotkey(name, value) {
+  const m = /^(hotkey|hotkey2|hotkey3)(Ok|Failed)?$/.exec(name);
+  if (!m) return false;
+  const no = m[1] === 'hotkey' ? 1 : m[1] === 'hotkey2' ? 2 : 3;
+  const row = HK_ROWS[no];
+  if (m[2] === 'Ok') {
     host[row.host] = String(value || '');
-    paintHotkey(hotNo);
-    trySyncHotkey();
-    return;
+    paintHotkey(no);
+    $(row.hint).textContent = row.ok.replace('%s', host[row.host]);
+    return true;
   }
-  if (name === 'autoStartState' || name === 'deskLnkState') {
-    const auto = name === 'autoStartState';
-    const box = auto ? $('cfgAutoStart') : $('cfgDeskLnk');
-    const bad = String(value).indexOf('error') === 0;
-    const on = !bad && value === 'on';
-    box.checked = on;
-    if (auto) host.autoStart = on; else host.deskLnk = on;
-    sysNote(bad ? (auto ? '开机自启没改成：' : '桌面上的快捷方式没改成：') +
-      (String(value).slice(6) || '系统不让写这个位置') : '');
-    return;
+  if (m[2] === 'Failed') {
+    $(row.hint).textContent = value + ' 被别的软件占着，已经退回 ' +
+      host[row.host] + '，换一组试试。';
+    return true;
   }
-  if (name === 'update') { onUpdateMessage(value); return; }
-  if (name === 'notice') { showErrToast((value && value.title) || '提示', (value && value.detail) || '', '', 'info'); return; }
-  if (name === 'askClose') { showCloseAsk(); return; }
-  if (name === 'drag') { showDropVeil(value === 'true'); return; }
-  if (name === 'maximized') { document.body.classList.toggle('maxed', value === 'on'); return; }
+  host[row.host] = String(value || '');
+  paintHotkey(no);
+  trySyncHotkey();
+  return true;
+}
+
+window.GisHost = function (name, value) {
+  if (hostHotkey(name, value)) return;
+  const fn = hostHandlers[name];
+  if (fn) fn(value);
 };
 
 /* 浏览器里没有壳来报字体，给一份常见名单顶住 */
@@ -6113,7 +6175,11 @@ function wireSettingNav() {
   });
 }
 
-function init() {
+/* 设置页“边打边存”的定时器：关面板时要能清掉，所以放在模块里 */
+let keySaveTimer = 0;
+
+/* 顶栏路径框、打开按钮、主题与更新入口 */
+function wireShellAndPath() {
   wireSplitter();
   wireDrop();
   wireEdgeResize();
@@ -6164,6 +6230,10 @@ function init() {
   });
   try { updLater = sessionStorage.getItem('gisviewer.upd_later') || ''; } catch { /* 存不了就只在本次生效 */ }
 
+}
+
+/* 设置面板的打开、关闭与拖动 */
+function wireSettingsPanel() {
   $('settingsBtn').addEventListener('click', () => {
     settleHotkey();
     /* 弹窗一开，顶栏那两块浮层就收掉：否则两个按钮同时亮着，
@@ -6198,6 +6268,10 @@ function init() {
 /* 设置页每项标签挂提示图标：只挂一次，图标里说的话见 SETTING_TIPS */
 
   mountSettingTips();
+}
+
+/* 设置页里的缓存位置、目录选择与清空 */
+function wireCacheSettings() {
   $('cacheClearBtn').addEventListener('click', () => {
     const where = cacheDirShown || '缓存目录';
     if (!window.confirm('将清空 ' + where + ' 里本软件生成的缓存，不会动其他文件。\n\n继续？')) return;
@@ -6243,6 +6317,10 @@ function init() {
   });
   $('cfgOpenDir').addEventListener('input', paintOpenDirStatus);
   $('cfgCache').addEventListener('input', paintCacheDirStatus);
+}
+
+/* 顶栏数据体检浮层 */
+function wireCheckPopover() {
   // 数据体检：顶栏那颗按钮开浮层，选文件/文件夹、看结论都在这一块里
   $('checkBtn').addEventListener('click', toggleCheckPop);
   // 选完就查：没有"开始体检"按钮之后，选择动作本身就是触发条件
@@ -6252,6 +6330,10 @@ function init() {
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
+}
+
+/* 顶栏格式互转浮层 */
+function wireConvertPopover() {
   // 格式互转：顶栏那颗按钮开浮层，四个输入加预检、转换都在这一块里
   $('convBtn').addEventListener('click', toggleConvPop);
   $('convFilePick').addEventListener('click', () => { filePickTarget = 'conv'; toShell('pickcheck'); });
@@ -6284,6 +6366,10 @@ function init() {
   $('convOver').addEventListener('change', () => { convScheduleDry(); });
   $('convOut').addEventListener('change', () => { clearConvResult(); convScheduleDry(); });
   $('convRun').addEventListener('click', runConv);
+}
+
+/* 体检与互转标题旁的说明气泡 */
+function wireToolTips() {
   /* 标题旁那颗说明：讲清互转搬什么、不搬什么、输出到哪 */
   const cvTip = $('cvTip');
   if (cvTip) {
@@ -6312,6 +6398,10 @@ function init() {
     ].join('\n'));
     setSVG(cpTip, HINT_ICO);
   }
+}
+
+/* 设置页的说明图标、置顶同步、体检入口 */
+function wireSettingTips() {
   /* 设置页里那几颗说明图标：正文都是常驻的，不随数据变。
      几何精度那颗的文案由 paintVecPrecHint 现写，这里只补图标 */
   const cfgTips = {
@@ -6335,6 +6425,10 @@ function init() {
   paintPyrAskTip();
   applyTopMost(config.always_on_top, true);
   $('diagBtn').addEventListener('click', runDiagnose);
+}
+
+/* 设置页的分栏、右键菜单与页内快捷键 */
+function wireSettingSections() {
   // 资源管理器右键"用图览打开"：扩展名清单问引擎，开关交给壳写注册表。
   // 开和关都带同一份清单，取消时壳照着删才删得干净
   const ctxExt = () => (host.menuExt || []).join(',');
@@ -6358,6 +6452,10 @@ function init() {
     });
   });
   paintPageKeys();
+}
+
+/* 设置页各项输入改一下生效一下 */
+function wireSettingInputs() {
   /* 没有保存按钮：改一下生效一下。令牌那一栏不落盘，所以不参与 */
   document.querySelectorAll('#settings select, #settings input').forEach((node) => {
     if (node.id === 'cfgAutoStart' || node.id === 'cfgDeskLnk') return;
@@ -6365,7 +6463,6 @@ function init() {
   });
   /* 密钥这类长文本只靠 change（失焦）会丢：打完直接按 Esc 或点右上角关闭，
      焦点还没离开输入框，值就没落盘。改成边打边存，离开输入框再补一次 */
-  let keySaveTimer = 0;
   $('cfgKey').addEventListener('input', () => {
     keyTouched = true;   // 只有用户真动过这一栏，才允许把空值写进配置
     const v = ($('cfgKey').value || '').trim();
@@ -6404,6 +6501,10 @@ function init() {
     paintRange($('cfgAlpha'));
     applyLook();
   });
+}
+
+/* 全局快捷键、开机自启、桌面快捷方式、更新 */
+function wireGlobalKeys() {
   [1, 2, 3].forEach((no) => {
     const row = HK_ROWS[no];
     const btn = $(row.btn);
@@ -6437,10 +6538,18 @@ function init() {
     $('keyPeek').setAttribute('aria-label', peekTip);
     if (show) box.focus();
   });
+}
+
+/* 地图右上角的底图、值分布、属性表按钮 */
+function wireMapTools() {
   $('baseBtn').addEventListener('click', toggleBasemap);
   $('histBtn').addEventListener('click', toggleHist);
   $('attrBtn').addEventListener('click', () => { attrAuto = false; toggleAttr(); });
   $('chipClose').addEventListener('click', () => { hideLayerPop(); closeLayer(); });
+}
+
+/* 文件被外部改过时的那条横幅 */
+function wireStaleBanner() {
   /* 文件被外部改过的那条横幅：重读一次，或者这次先不管 */
   $('staleReload').addEventListener('click', () => {
     if (!stalePath) return;
@@ -6455,6 +6564,10 @@ function init() {
   });
   /* 从后台切回来补查一次：这期间可能刚在别的软件里存过盘 */
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkStale(); });
+}
+
+/* 文件卡上的图层切换与图例收起 */
+function wireLayerChip() {
   $('chipLayerBtn').addEventListener('click', (e) => {
     e.stopPropagation();
     if (layerItems.length < 2) return;
@@ -6471,10 +6584,18 @@ function init() {
   wireFold($('chipFold'), $('chipTab'), 'fileChip', '收起文件信息', '展开文件信息');
   $('chipFold').addEventListener('click', hideLayerPop);
   $('chipTab').addEventListener('click', hideLayerPop);
+}
+
+/* 分栏、属性表接缝与页内快键 */
+function wireChromeGlue() {
   wireChrome();
   wireAttrGrip();
   wireAttrBody();
   wireQuickKeys();
+}
+
+/* 最近打开列表的弹出与收起 */
+function wireRecentMenu() {
   renderRecent();
   /* 只有用户真的点进来、或用键盘切进来才弹"最近打开"：快捷键把窗口唤到前台时，
      WebView 也会把焦点还给输入框，那种被动聚焦不该弹出一块列表 */
@@ -6491,6 +6612,10 @@ function init() {
     if (pop.contains(e.target) || e.target === $('pathInput')) return;
     hideRecent();
   });
+}
+
+/* 打开、体检、互转三块浮层点外面收起 */
+function wirePopoverDismiss() {
   // "打开"菜单点到别处就收掉；点按钮自身除外（它自己负责开/关）
   document.addEventListener('click', (e) => {
     const pop = $('pickPop');
@@ -6517,11 +6642,19 @@ function init() {
     if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hideConvPop();
   });
+}
+
+/* 属性表里的搜索框 */
+function wireAttrSearch() {
   let findTimer = 0;
   $('attrFind').addEventListener('input', () => {
     clearTimeout(findTimer);
     findTimer = setTimeout(applyAttrFind, 140);
   });
+}
+
+/* 地图取数与鼠标位置 */
+function wireMapDataEvents() {
   $('map').addEventListener('gis:vector', (e) => {
     if (attrAuto && e.detail && e.detail.features && e.detail.features.length) {
       attrAuto = false;
@@ -6533,6 +6666,10 @@ function init() {
     localCoords = !!(e.detail && e.detail.assumedLocal);
   });
   $('map').addEventListener('gis:mouse', paintPos);
+}
+
+/* 定位、高亮、全精度重画的反馈 */
+function wireMapFocusEvents() {
   /* 属性表双击的那一行画出来了：把"等绘制"换成结果，用户不用再双击一次。
      这一轮画完仍然没有它（超出单次绘制上限、几何为空）也要说一句，
      否则那条"正在等"会一直挂着 */
@@ -6572,6 +6709,10 @@ function init() {
       loadTip(false);
     }
   });
+}
+
+/* 影像取不回来时的提示与视野刷新 */
+function wireMapRasterEvents() {
   /* 贴图没取回来：地图还在，底图也还在，只这一张影像缺了。
      给一句话就够，别把界面压成错误页 */
   $('map').addEventListener('gis:rasterfail', (e) => {
@@ -6582,6 +6723,10 @@ function init() {
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);
   });
+}
+
+/* 属性表滚动翻页与复制整列 */
+function wireAttrTable() {
   $('attrBody').addEventListener('scroll', () => {
     const c = attrShown;
     if (!c || c.done || c.loading || c.error) return;
@@ -6602,6 +6747,10 @@ function init() {
     e.preventDefault();
     copyAttrCol(attrShown, attrCol);
   });
+}
+
+/* 图层画完后的收尾与主题跟随系统 */
+function wireMapDrawDone() {
   let baseHintShown = false;
   $('map').addEventListener('gis:drawn', (e) => {
     const kind = (e.detail && e.detail.kind) || 'none';
@@ -6637,6 +6786,10 @@ function init() {
      错误提示由地图自己弹，别让遮罩一直转 */
   window.gisMapFail = () => { releaseVeil(); loadTip(false); };
 
+}
+
+/* 读回配置后恢复上次的文件与界面状态 */
+function boot() {
   loadConfig().then(() => {
     configReady = true;
     if (window.GisMap) GisMap.init(config);
@@ -6699,6 +6852,32 @@ function init() {
       }
     }).catch(() => {});
   });
+}
+
+function init() {
+  wireShellAndPath();
+  wireSettingsPanel();
+  wireCacheSettings();
+  wireCheckPopover();
+  wireConvertPopover();
+  wireToolTips();
+  wireSettingTips();
+  wireSettingSections();
+  wireSettingInputs();
+  wireGlobalKeys();
+  wireMapTools();
+  wireStaleBanner();
+  wireLayerChip();
+  wireChromeGlue();
+  wireRecentMenu();
+  wirePopoverDismiss();
+  wireAttrSearch();
+  wireMapDataEvents();
+  wireMapFocusEvents();
+  wireMapRasterEvents();
+  wireAttrTable();
+  wireMapDrawDone();
+  boot();
 }
 
 init();

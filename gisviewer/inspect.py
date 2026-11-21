@@ -98,7 +98,8 @@ def _vsi_exists(path):
 def _file_block(path):
     if _is_vsi(path):
         st = gdal.VSIStatL(path)
-        size = int(st.size) if st is not None and getattr(st, "size", None) else None
+        # 虚拟路径的 size 来自 GDAL，本来就是整数
+        size = int(st.size) if st is not None and getattr(st, "size", None) else None  # pi-lens-ignore: unchecked-numeric-parse-python
         return {
             "path": path,
             "name": os.path.basename(str(path).rstrip("/\\")),
@@ -193,9 +194,10 @@ def _zip_entries(path, limit=500):
             } for i in infos[:limit]]
             return entries, sum(i.file_size for i in infos), len(infos)
     except zipfile.BadZipFile as exc:
-        raise InspectError("压缩包打不开，可能已损坏", str(exc)[:200])
+        raise InspectError("压缩包打不开，可能已损坏", str(exc)[:200]) from None
     except RuntimeError as exc:
-        raise InspectError("这个压缩包有密码", str(exc)[:200], hint="请先解压成文件夹再拖入。")
+        raise InspectError("这个压缩包有密码", str(exc)[:200],
+                           hint="请先解压成文件夹再拖入。") from None
 
 
 def _spatial_members(entries):
@@ -267,7 +269,7 @@ def _inspect_target(target, head_path=None, file_size=None, compute_stats=True,
         phrase = _friendly(raster_error or str(exc))
         hint = ("请在源软件里另存为更早的版本，或转成 Shapefile、GeoPackage 之后再来看。"
                 if "版本" in phrase else "确认文件完整、伴生文件齐全；压缩包可以直接拖进来，不必解压。")
-        raise InspectError("无法读取这个文件", detail=phrase, hint=hint)
+        raise InspectError("无法读取这个文件", detail=phrase, hint=hint) from None
 
 
 _MULTIDRIVERS = {"nc": "netCDF", "nc4": "netCDF", "cdf": "netCDF", "hdf": "HDF4",
@@ -311,7 +313,7 @@ def _preview(data, depth=0):
 def _count_feature_markers(path, chunk=1 << 20):
     """大 GeoJSON 整体解析太贵，按字节流数特征串。"""
     total, tail = 0, b""
-    with open(path, "rb") as fh:
+    with open(path, "rb") as fh:   # pi-lens-ignore: python-path-traversal, unchecked-throwing-call-python -- 用户自己打开的文件，读不了由调用方兜
         while True:
             block = fh.read(chunk)
             if not block:
@@ -325,7 +327,7 @@ def _count_feature_markers(path, chunk=1 << 20):
 def _json_sniff(path):
     """GeoJSON 之外的 JSON：给出结构概要，并说清它是不是地理数据。"""
     size = _stat(path).st_size
-    with open(_long_path(path), "rb") as fh:
+    with open(_long_path(path), "rb") as fh:   # pi-lens-ignore: python-path-traversal, unchecked-throwing-call-python -- 同上
         head = fh.read(4096).decode("utf-8-sig", errors="replace").lstrip()
 
     looks_geo = '"FeatureCollection"' in head or '"Feature"' in head or '"coordinates"' in head
@@ -342,7 +344,7 @@ def _json_sniff(path):
                 "note": f"共 {labels.human_size(size)}，没有 GeoJSON 结构，只读了开头",
                 "head": head[:300]}
     try:
-        with open(path, "r", encoding="utf-8-sig", errors="replace") as fh:
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:   # pi-lens-ignore: python-path-traversal -- 用户自己打开的文件
             data = json.load(fh)
     except Exception as exc:
         return {"kind": "json", "is_geographic": False, "top_level": "文本",
@@ -520,7 +522,7 @@ def inspect_file(raw, compute_stats=True, max_layers=8, histograms=True, quick=F
                 return result
         # 连接串不是磁盘上的文件，open() 会报 Errno 22；这时也没法按 JSON 猜内容了
         if not _is_connection(path):
-            with open(path, "rb") as fh:
+            with open(path, "rb") as fh:   # pi-lens-ignore: python-path-traversal -- 用户自己打开的文件
                 starts_brace = fh.read(1) == b"{"
             if ext in JSON_EXT or starts_brace:
                 result.update(_json_sniff(path))
