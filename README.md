@@ -2,7 +2,7 @@
 
 一款 Windows 桌面端的**本地数据体检工具**：把 GIS 数据拖进来，几秒钟看清坐标系、字段结构、要素数量与几何质量。定位是"打开看看、快速判断"，不是轻量 GIS，也不做编辑。
 
-![版本](https://img.shields.io/badge/版本-0.16-blue) ![协议](https://img.shields.io/badge/协议-Apache--2.0-green) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
+![版本](https://img.shields.io/badge/版本-0.17-blue) ![协议](https://img.shields.io/badge/协议-Apache--2.0-green) ![平台](https://img.shields.io/badge/平台-Windows%2010%2B-blue)
 
 ## 它解决什么问题
 
@@ -20,7 +20,7 @@
 带 ✓ 的已在 `samples/formats` 用真实样例验证过（`tests/verify_formats.py` 可随时重跑）：
 
 | 类别 | 格式 |
-|---|---|
+| --- | --- |
 | 矢量 | Shapefile ✓、GeoJSON/JSONL ✓、KML ✓、GPX ✓、GeoPackage ✓、FlatGeobuf ✓、GDB（文件夹）✓、DXF/DWG ✓、OSM PBF ✓、MapInfo TAB/MIF ✓、CSV ✓（WKT 列或经纬度列自动识别）、XLSX ✓（每张表的经纬度列/WKT 列自动识别，无坐标系时按经纬度成图）、GML ✓ |
 | 栅格 | GeoTIFF ✓、ArcInfo ASCII ✓、ENVI ✓、NITF ✓、VRT ✓、NetCDF ✓、IMG/HDF/GRIB2/JPEG2000 等 GDAL 可读格式（未逐一验证） |
 | 压缩包 | zip ✓（直接拖入，不解压） |
@@ -39,7 +39,7 @@
 ## 使用说明
 
 | 操作 | 方式 |
-|---|---|
+| --- | --- |
 | 打开数据 | 拖进窗口 / 顶栏"打开"菜单 / 粘贴完整路径回车 / 粘贴坐标回车定位 |
 | 选中即开 | 资源管理器里选中文件，按 `Ctrl+空格`（可在设置里改键） |
 | 唤出/收起 | `Ctrl+Alt+G`（可改键） |
@@ -65,7 +65,7 @@ pwsh -File build.ps1 -Pack -Zip   # 出免安装发布包；-Zip 额外打压缩
 
 ## 目录结构
 
-```
+```text
 gisviewer/   引擎（Python + GDAL）：元数据、直方图、取数、量算
 web/         界面（原生 JS + MapLibre GL + Chart.js）
 src/         原生壳（C# + WebView2）：窗口、托盘、快捷键、拖放

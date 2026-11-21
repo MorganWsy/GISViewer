@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import __version__, cache, formats, pyramid, winpath
+from .errors import InspectError
 from .textutil import clean_text
 
 # GDAL 那一坨导入是启动耗时的大头。先绑上端口、先把界面发出去，
@@ -1007,6 +1008,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._identify(query)
         if route == "/api/geomtypes":
             return self._geomtypes(query)
+        if route == "/api/compare":
+            return self._compare(query)
         if route == "/api/convert_formats":
             from . import convert
             return self._send(200, {"ok": True, "formats": convert.formats()})
@@ -1485,6 +1488,36 @@ class Handler(BaseHTTPRequestHandler):
         w, h = _png_size(png)
         return self._send(200, png, "image/png", {"X-Image-Width": str(w), "X-Image-Height": str(h),
                                                  "X-Cache": "hit" if hit else "miss"})
+
+    def _compare(self, query):
+        """两份同类文件的对照。只读：不改任何一侧，也不在磁盘上留东西。
+
+        路径与图层都从查询串来；错误按界面那套 {title, detail, hint} 回，
+        前端直接贴到浮层里，不必再翻译一遍。
+        """
+        from . import compare as cmp  # 会连带把 GDAL 拉进来，按需导入
+
+        a = (query.get("a") or [""])[0].strip()
+        b = (query.get("b") or [""])[0].strip()
+        for path in (a, b):
+            if not path:
+                return self._send(400, {"ok": False, "error": {
+                    "title": "还没有选够两份文件",
+                    "hint": "左边和右边各要一份。"}})
+            if not _readable(path):
+                return self._send(404, {"ok": False, "error": {
+                    "title": "找不到这个文件", "detail": path}})
+        layer_a = _as_int((query.get("layer_a") or ["0"])[0], 0)
+        layer_b = _as_int((query.get("layer_b") or ["0"])[0], 0)
+        try:
+            data = cmp.compare(a, b, layer_a, layer_b)
+        except InspectError as exc:
+            return self._send(200, {"ok": False, "error": {
+                "title": exc.title, "detail": exc.detail, "hint": exc.hint}})
+        except Exception as exc:  # noqa: BLE001
+            return self._send(200, engine.error_block(exc, a))
+        data["ok"] = True
+        return self._send(200, data)
 
     def _identify(self, query):
         """只给栅格用：点一个位置，报出该像元的行列号和数值。

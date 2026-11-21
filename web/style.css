@@ -3421,6 +3421,89 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .upd-pop .up-foot .btn[hidden] { display: none; }
 
+/* ---- 两份文件对比：骨架与体检浮层共用（.cp-head/.cp-field/.cp-result/.cp-busy），
+   上面两行选文件，下面按"表头 / 字段 / 属性"三段列出差异 ---- */
+.cmp-pop { width: 720px; max-height: min(78vh, 620px); }
+.cmp-pick { display: flex; flex-direction: column; gap: 6px; padding-right: 9px; }
+/* 左右两枚小标签跟着输入框走，宽度固定，两行的输入框因此左边对齐 */
+.cmp-tag {
+  flex: none;
+  width: 22px;
+  font-size: 12px;
+  line-height: var(--ctl-h);
+  color: var(--text-dim);
+}
+#cmpPathPick { right: 3px; }
+#cmpPathPick svg { width: 17px; height: auto; }
+.cmp-actions { display: flex; justify-content: flex-end; padding: 2px 0 2px; }
+.cmp-run {
+  height: 28px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cmp-run:hover { filter: brightness(1.06); }
+.cmp-run[disabled] { opacity: .5; cursor: default; filter: none; }
+.cmp-result { overflow: auto; }
+/* 一句话结论：贴着分隔线，下面各段自己带标题，不再重复写"共几处" */
+.cmp-sum {
+  padding: 7px 9px 7px 2px;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--text);
+}
+.cmp-sec { padding: 0 9px 8px 2px; }
+.cmp-sec[hidden] { display: none; }
+.cmp-sec-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0 3px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.cmp-sec-hd .cmp-cnt { font-weight: 400; color: var(--text-dim); }
+/* 表头对照：三列固定宽度，差异行整行浅底色；值用等宽数字字体，位数对得上 */
+.cmp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cmp-table th, .cmp-table td {
+  padding: 3px 6px;
+  font-size: 12.5px;
+  line-height: 17px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line-soft);
+  overflow-wrap: anywhere;
+}
+.cmp-table th { color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+.cmp-table th:nth-child(1), .cmp-table td:nth-child(1) { width: 27%; }
+.cmp-table th:nth-child(2), .cmp-table td:nth-child(2) { width: 36.5%; }
+.cmp-table th:nth-child(3), .cmp-table td:nth-child(3) { width: 36.5%; }
+.cmp-table tr.diff > td { background: var(--warn-bg); }
+.cmp-table td.cmp-empty { color: var(--text-dim); }
+/* 字段与属性差异的清单：一行一条，左边一行字说明位置，右边两列值 */
+.cmp-list { display: flex; flex-direction: column; gap: 2px; }
+.cmp-line {
+  display: flex;
+  gap: 8px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  line-height: 17px;
+  border-radius: 4px;
+}
+.cmp-line:nth-child(odd) { background: var(--panel-alt); }
+.cmp-line .cmp-where { flex: none; width: 34%; color: var(--text-dim); }
+.cmp-line .cmp-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cmp-line .cmp-val b { font-weight: 600; color: var(--text); }
+.cmp-none { padding: 2px 6px; font-size: 12.5px; line-height: 17px; color: var(--text-dim); }
+.cmp-more { padding: 2px 6px; font-size: 12px; color: var(--text-dim); }
+
 /* ---- 格式互转浮层：与体检浮层同一套骨架（.cp-head/.cp-field 复用），
    四项设置按四列网格对齐，下面是预检、结果与主按钮 ---- */
 .conv-pop {

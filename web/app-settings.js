@@ -1312,3 +1312,220 @@ function applyLook() {
   syncMapHeight();   // 界面缩放改了，图例能长多高要按新缩放重算
   paintView();   // 比例尺的条长跟字号有关，改完立刻重画一次
 }
+
+
+/* ---- 两份文件对比 ----
+   左边默认填当前打开的那份，右边自己挑。结果分三段，顺序按"先看结论、再看结构、
+   最后看内容"排：表头（范围/坐标系/个数）、字段结构、前 20 行属性。
+   属性按行号对齐，不按主键配对——真要逐要素比对，得先由用户指定一个唯一字段，
+   那是质检流程，这里不做，也不假装做了。 */
+let cmpBusy = false;
+
+function toggleCmpPop() {
+  const pop = $('cmpPop');
+  if (pop && !pop.hidden) hideCmpPop();
+  else showCmpPop();
+}
+
+function showCmpPop() {
+  const pop = $('cmpPop');
+  if (!pop) return;
+  const a = $('cmpPathA');
+  // 左边跟着当前文件走：换文件后重开浮层就是新那份
+  if (a && (current && current.path) && (!a.value.trim() || a.dataset.auto === '1')) {
+    a.value = current.path;
+    a.dataset.auto = '1';
+  }
+  pop.hidden = false;
+  markBtn('cmpBtn', true);
+  placeCmpPop();
+  syncCmpRun();
+}
+
+function hideCmpPop() {
+  if (cmpBusy) return;
+  const pop = $('cmpPop');
+  if (pop) pop.hidden = true;
+  markBtn('cmpBtn', false);
+}
+
+function placeCmpPop() {
+  const pop = $('cmpPop');
+  const btn = $('cmpBtn');
+  if (!pop || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = pop.offsetWidth || 720;
+  pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))) + 'px';
+  pop.style.top = Math.round(r.bottom + 6) + 'px';
+}
+
+function setCmpBusy(on) {
+  cmpBusy = !!on;
+  const mask = $('cmpBusy');
+  if (mask) mask.hidden = !on;
+  const run = $('cmpRun');
+  if (run) run.disabled = !!on;
+}
+
+function syncCmpRun() {
+  const run = $('cmpRun');
+  if (!run) return;
+  const a = ($('cmpPathA') || {}).value || '';
+  const b = ($('cmpPathB') || {}).value || '';
+  run.disabled = cmpBusy || !a.trim() || !b.trim();
+}
+
+function setCmpHint(text) {
+  const hint = $('cmpHint');
+  if (!hint) return;
+  hint.textContent = text || '';
+}
+
+function clearCmpResult() {
+  const res = $('cmpResult');
+  if (res) res.hidden = true;
+  ['cmpSummary', 'cmpMetaSec', 'cmpFieldSec', 'cmpSampleSec'].forEach((id) => {
+    const node = $(id);
+    if (node) node.textContent = '';
+  });
+}
+
+function runCompare() {
+  const a = (($('cmpPathA') || {}).value || '').trim();
+  const b = (($('cmpPathB') || {}).value || '').trim();
+  if (!a || !b || cmpBusy) return;
+  setCmpHint('');
+  setCmpBusy(true);
+  const url = '/api/compare?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b);
+  fetch(url).then((r) => r.json()).then((d) => {
+    if (!d || !d.ok) {
+      clearCmpResult();
+      const err = (d && d.error) || {};
+      setCmpHint(err.title || '对比失败');
+      if (err.detail || err.hint) showErrToast(err.title || '对比失败', err.detail, err.hint);
+      return;
+    }
+    renderCompare(d);
+  }).catch(() => {
+    clearCmpResult();
+    setCmpHint('对比失败');
+    showErrToast('没能完成对比', null, '检查网络与本机服务是否还在，稍后重试。');
+  }).then(() => setCmpBusy(false));
+}
+
+/* 表头对照：一行一项，两边值并排；不同的整行标注底色 */
+function renderCmpMeta(rows, host) {
+  const table = el('table', 'cmp-table');
+  const head = el('thead');
+  const hr = el('tr');
+  ['项目', '左', '右'].forEach((t) => hr.appendChild(el('th', null, t)));
+  head.appendChild(hr);
+  table.appendChild(head);
+  const body = el('tbody');
+  rows.forEach((row) => {
+    const tr = el('tr');
+    if (!row.same) tr.className = 'diff';
+    tr.appendChild(el('td', null, row.label));
+    const ca = el('td', row.a === '' || row.a === null ? 'cmp-empty' : null, row.a === '' || row.a === null ? '（无）' : row.a);
+    const cb = el('td', row.b === '' || row.b === null ? 'cmp-empty' : null, row.b === '' || row.b === null ? '（无）' : row.b);
+    tr.appendChild(ca);
+    tr.appendChild(cb);
+    body.appendChild(tr);
+  });
+  table.appendChild(body);
+  host.appendChild(table);
+}
+
+/* 字段差异：只在一边有的字段、类型/宽度变了的字段，各占一段 */
+function renderCmpFields(fields, host) {
+  const lines = [];
+  (fields.only_a || []).forEach((n) => lines.push(['只在左边', n]));
+  (fields.only_b || []).forEach((n) => lines.push(['只在右边', n]));
+  (fields.changed || []).forEach((item) => {
+    (item.diffs || []).forEach((d) => {
+      lines.push([item.name + ' · ' + d.what, (d.a === null ? '（无）' : d.a) + ' → ' + (d.b === null ? '（无）' : d.b)]);
+    });
+  });
+  if (!lines.length) {
+    host.appendChild(el('div', 'cmp-none', fields.order_same === false ? '字段集合一致，但两边的排列顺序不同。' : '字段名、类型、宽度都一致。'));
+    return;
+  }
+  const list = el('div', 'cmp-list');
+  lines.slice(0, 40).forEach(([where, what]) => {
+    const line = el('div', 'cmp-line');
+    line.appendChild(el('span', 'cmp-where', where));
+    line.appendChild(el('span', 'cmp-val', what));
+    list.appendChild(line);
+  });
+  host.appendChild(list);
+  if (lines.length > 40) host.appendChild(el('div', 'cmp-more', '还有 ' + (lines.length - 40) + ' 处未列出。'));
+}
+
+/* 属性差异：一条一条写清楚"第几行、哪个字段、两边各是什么" */
+function renderCmpSample(sample, host) {
+  const cells = sample.cells || [];
+  const note = sample.note || '';
+  if (!cells.length) {
+    // 没有同名字段时 note 已经把原因说清楚了，不再补一句"没有可对比的属性行"重复
+    if ((sample.common_fields || 0) > 0 || !note) {
+      host.appendChild(el('div', 'cmp-none', sample.rows_compared ? '对比的 ' + sample.rows_compared + ' 行属性完全一致。' : '没有可对比的属性行。'));
+    }
+    if (note) host.appendChild(el('div', 'cmp-more', note));
+    return;
+  }
+  const list = el('div', 'cmp-list');
+  cells.forEach((cell) => {
+    const line = el('div', 'cmp-line');
+    line.appendChild(el('span', 'cmp-where', '第 ' + cell.row + ' 行 · ' + cell.field));
+    const val = el('span', 'cmp-val');
+    val.appendChild(el('b', null, '左 '));
+    val.appendChild(document.createTextNode(cell.a === '' ? '（空）' : cell.a));
+    val.appendChild(el('b', null, '  · 右 '));
+    val.appendChild(document.createTextNode(cell.b === '' ? '（空）' : cell.b));
+    line.appendChild(val);
+    list.appendChild(line);
+  });
+  host.appendChild(list);
+  if (sample.cells_truncated) host.appendChild(el('div', 'cmp-more', '差异太多，只列前 ' + cells.length + ' 处。'));
+  if (note) host.appendChild(el('div', 'cmp-more', note));
+}
+
+function renderCompare(d) {
+  clearCmpResult();
+  const sum = $('cmpSummary');
+  if (sum) sum.textContent = d.summary || '';
+  const metaSec = $('cmpMetaSec');
+  if (metaSec && (d.rows || []).length) {
+    metaSec.appendChild(cmpSectionHead('表头与元信息', d.diff ? d.diff.meta : 0));
+    renderCmpMeta(d.rows, metaSec);
+  }
+  if (d.kind === 'vector') {
+    const fieldSec = $('cmpFieldSec');
+    if (fieldSec) {
+      fieldSec.appendChild(cmpSectionHead('字段结构', d.diff ? d.diff.fields : 0));
+      renderCmpFields(d.fields || {}, fieldSec);
+    }
+    const sampleSec = $('cmpSampleSec');
+    if (sampleSec) {
+      // 两边一个同名字段都没有时，"0 处不同"会被读成"逐格比过、结果一致"，
+      // 其实压根没得比，标题这里就写明白
+      const common = (d.sample || {}).common_fields || 0;
+      sampleSec.appendChild(common
+        ? cmpSectionHead('属性内容', d.diff ? d.diff.sample_rows : 0)
+        : cmpSectionHead('属性内容', null, '无法对比'));
+      renderCmpSample(d.sample || {}, sampleSec);
+    }
+  } else if ($('cmpSampleSec')) {
+    $('cmpSampleSec').hidden = true;
+  }
+  const res = $('cmpResult');
+  if (res) res.hidden = false;
+}
+
+function cmpSectionHead(title, count, note) {
+  const hd = el('div', 'cmp-sec-hd', title);
+  if (note) hd.appendChild(el('span', 'cmp-cnt', note));
+  else if (count) hd.appendChild(el('span', 'cmp-cnt', count + ' 处不同'));
+  else hd.appendChild(el('span', 'cmp-cnt', '一致'));
+  return hd;
+}

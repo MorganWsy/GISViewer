@@ -9,7 +9,7 @@
 param(
   [switch]$SkipShell,
   [switch]$Offline,
-  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'pyramid', 'api', 'ui')]
+  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'pyramid', 'compare', 'api', 'ui')]
   [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Stop'
@@ -198,6 +198,13 @@ if ((Want 'pyramid') -and (-not $Offline)) {
   Section '金字塔副本'
   & $py (Join-Path $root 'tests/pyramid_test.py')
   Record '金字塔副本' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4bc2. 两份文件对比 ----------
+if (Want 'compare') {
+  Section '两份文件对比'
+  & $py (Join-Path $root 'tests/compare_test.py')
+  Record '两份文件对比' ($LASTEXITCODE -eq 0) '见上方逐条结果'
 }
 
 # ---------- 4c. 本地接口鉴权 ----------

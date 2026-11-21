@@ -159,10 +159,49 @@
       <span class="cp-busy-text">正在转换…</span>
     </div>
   </div>
+  <!-- 两份文件对比：左边默认是当前打开的那份，右边自己挑一份同类文件。
+       只读，两侧都不改动；属性内容按行号对齐，不按主键配对 -->
+  <div id="cmpPop" class="check-pop cmp-pop" hidden>
+    <div class="cp-head">
+      <span class="cp-title">两份文件对比</span>
+      <i class="tip-ico" id="cmpTip" data-tip="比同一份数据的两个版本、或者同一条数据存成的两种格式。表头、字段、前 20 行属性与顶点数逐项并排；属性按行号对齐，不按主键配对"></i>
+      <span class="cp-hint" id="cmpHint"></span>
+    </div>
+    <div class="cmp-pick">
+      <div class="cp-field">
+        <span class="cmp-tag">左</span>
+        <input id="cmpPathA" type="text" spellcheck="false" autocomplete="off" placeholder="当前打开的文件" aria-label="左侧文件">
+      </div>
+      <div class="cp-field">
+        <span class="cmp-tag">右</span>
+        <input id="cmpPathB" type="text" spellcheck="false" autocomplete="off" placeholder="另一份同类文件" aria-label="右侧文件">
+        <button id="cmpPathPick" class="cp-in" type="button" data-tip="选择要对比的文件" aria-label="选择要对比的文件">
+          <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+        </button>
+      </div>
+      <div class="cmp-actions">
+        <button id="cmpRun" class="cmp-run" type="button">开始对比</button>
+      </div>
+    </div>
+    <div class="cp-result" id="cmpResult" hidden>
+      <div class="cmp-sum" id="cmpSummary"></div>
+      <div class="cmp-sec" id="cmpMetaSec"></div>
+      <div class="cmp-sec" id="cmpFieldSec"></div>
+      <div class="cmp-sec" id="cmpSampleSec"></div>
+    </div>
+    <div class="cp-busy" id="cmpBusy" hidden>
+      <span class="cp-spin"></span>
+      <span class="cp-busy-text">正在对比…</span>
+    </div>
+  </div>
   <div class="tools no-drag">
     <!-- 三个操作全部图标化，悬停有说明；文件框在壳里只能拿到假路径，所以点它转给系统打开框 -->
     <button id="filePickBtn" class="ibtn" type="button" data-tip="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件" aria-label="选择文件：从电脑里挑一个数据文件，软件一次只看一个文件">
       <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
+    </button>
+    <!-- 两份对比：一左一右两只面板，左边浅、右边实，表示"拿一份对着另一份看" -->
+    <button id="cmpBtn" class="ibtn" type="button" data-tip="两份文件对比：同一份数据的两个版本，或同一条数据存成的两种格式，逐项并排看差异" aria-label="两份文件对比">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.6" y="4.2" width="7.6" height="15.6" rx="1.6"/><rect x="13.8" y="4.2" width="7.6" height="15.6" rx="1.6"/></g><rect x="4.6" y="6.6" width="3.6" height="1.5" rx=".7" fill="currentColor" opacity=".45"/><rect x="4.6" y="9.4" width="3.6" height="1.5" rx=".7" fill="currentColor" opacity=".45"/><rect x="15.8" y="6.6" width="3.6" height="1.5" rx=".7" fill="currentColor"/><rect x="15.8" y="9.4" width="3.6" height="1.5" rx=".7" fill="currentColor"/><rect x="15.8" y="12.2" width="3.6" height="1.5" rx=".7" fill="currentColor"/></svg>
     </button>
     <button id="checkBtn" class="ibtn" type="button" data-tip="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论" aria-label="数据体检：文件夹里的数据逐个查一遍，按严重程度列出结论">
       <!-- 跟旁边几颗一样是单色图标：加号不做成另一种颜色，而是从卡片上挖空（fill-rule=evenodd），

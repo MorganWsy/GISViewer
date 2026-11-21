@@ -66,7 +66,16 @@ const hostHandlers = {
   // 按谁发起的分路（pickcheck 只是"挑一个数据文件"，跟用途无关）
   checkpath(value) {
     const toConv = filePickTarget === 'conv';
+    const toCmp = filePickTarget === 'cmp';
     filePickTarget = '';
+    if (toCmp) {
+      // 对比浮层：填进右侧，填完就能按"开始对比"
+      const right = $('cmpPathB');
+      if (!right) return;
+      right.value = String(value || '');
+      syncCmpRun();
+      return;
+    }
     const where = toConv ? $('convPath') : $('checkPath');
     if (!where) return;
     where.value = String(value || '');
@@ -1045,6 +1054,7 @@ function wireSettingsPanel() {
        而且浮层压不到弹窗上面，看起来像没关干净 */
     hideCheckPop();
     hideConvPop();
+    hideCmpPop();
     hidePickPop();
     fillSettings();
     $('settings').hidden = false;
@@ -1132,6 +1142,25 @@ function wireCheckPopover() {
   $('checkPath').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); runCheck(); }
   });
+}
+
+/* 顶栏两份文件对比浮层 */
+function wireComparePopover() {
+  $('cmpBtn').addEventListener('click', toggleCmpPop);
+  $('cmpPathPick').addEventListener('click', () => { filePickTarget = 'cmp'; toShell('pickcheck'); });
+  // 左边框一改就不再自动跟随当前文件；清空后重新跟随
+  $('cmpPathA').addEventListener('input', (e) => {
+    e.target.dataset.auto = e.target.value.trim() ? '0' : '1';
+    syncCmpRun();
+  });
+  $('cmpPathB').addEventListener('input', syncCmpRun);
+  // 两个框里回车都直接开始对比，省得再去点按钮
+  [$('cmpPathA'), $('cmpPathB')].forEach((box) => {
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); runCompare(); }
+    });
+  });
+  $('cmpRun').addEventListener('click', runCompare);
 }
 
 /* 顶栏格式互转浮层 */
@@ -1427,6 +1456,14 @@ function wirePopoverDismiss() {
     if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hidePickPop();
   });
+  // 对比浮层同理
+  document.addEventListener('click', (e) => {
+    const pop = $('cmpPop');
+    if (!pop || pop.hidden) return;
+    const onBtn = e.target && e.target.closest ? e.target.closest('#cmpBtn') : null;
+    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
+    hideCmpPop();
+  });
   // 体检浮层同理：点外面收掉，点自己的按钮不算（否则按下去就没了）
   document.addEventListener('click', (e) => {
     const pop = $('checkPop');
@@ -1678,6 +1715,7 @@ function init() {
   wireSettingsPanel();
   wireCacheSettings();
   wireCheckPopover();
+  wireComparePopover();
   wireConvertPopover();
   wireToolTips();
   wireSettingTips();

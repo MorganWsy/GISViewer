@@ -427,6 +427,7 @@ function escapeTopLayer(e, typing) {
   if (!$('pickPop').hidden) { hidePickPop(); return; }
   if (!$('checkPop').hidden) { hideCheckPop(); return; }
   if (!$('convPop').hidden) { hideConvPop(); return; }
+  if (!$('cmpPop').hidden) { hideCmpPop(); return; }
   if (!$('layerPop').hidden) { hideLayerPop(); return; }
   if (!$('settings').hidden) { $('cfgClose').click(); return; }
   if (!$('errToast').hidden) { hideErrToast(); return; }
