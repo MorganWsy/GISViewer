@@ -40,6 +40,8 @@
 - **壳消息改成查表**：桌面壳发来的二十几种消息原来是一条 51 个分支的 `if` 长链，加一种消息就得再插一段。现在拆成「处理函数表 + 快捷键正则」两部分，分派只剩一行：先看是不是快捷键消息，再查表调用；目录类消息（体检、互转、缓存）统一走 `hostDirInput` 映射。行为不变。
 - **打开文件的主流程拆成 9 段**：`inspectPath` 原来 40 个分支，现在只做编排，具体动作各有一个函数：`prepareOpen`（收浮窗、交还焦点、重置状态、挂遮罩）、`fetchInspect`（问一次服务端）、`dropStaleRecent`（把已经不存在的路径从最近打开里删掉）、`rollbackOpen`（读不出来时保住眼前图层）、`finishDeferred`（大矢量的全量统计后台补齐）、`openFailed`、`stageVeil`、`endOpen`、`needsDeferredMap`。
 - **新增界面接线回归测试**：`tests/ui_wiring.py` 起真实服务与 Edge，把设置面板、分栏、主题、体检与互转浮层、图例与文件卡收起、图层切换、属性表开关连点 16 处并断言结果，用来保证拆分只动结构、不动行为。
+- **界面代码再拆一轮**：这轮把右栏、弹窗、快捷键、属性表分页里剩下的长函数按「取数、算行、拼界面」分开，行为不变。右栏的栅格一块拆成 `originRow`／`rasterSpaceRows`／`railRasterBands`／`rasterStorageRows`（后两者里再分出 `scaleRow`、`offsetRow`），矢量一块拆成 `railGeomType`／`vectorExtentRows`；`renderRail` 改成「每种数据一个画法」的表驱动，加格式只添一行。设置页的读写各拆成六小段（底图与渲染、窗口、缓存、外观、系统），`fillSettings` 与 `applySettings` 只剩按顺序调用。图例气泡的定位拆成「方向判断、横向位置、竖向位置、箭头位置」四个纯计算函数。值分布图拆成取配色、算坐标、X 轴刻度、Y 轴标题、提示框五块。属性表翻页拆出 `attrBuildShell`（首次立表头）与 `attrPageArrived`（补行、判断有没有下一页）。键盘快捷键拆出 `escapeTopLayer`、`focusAttrFind`、`fitToLayer`，按位记修饰键的 `modifierBits` 与判定合法组合的 `hotkeyAcceptable`。所有函数的圈复杂度已降到 `eslint` 默认阈值以下（`init()` 现在 0，最大的 `fillGeomTypes` 24）。
+- **顺手修掉两个真 bug（静态扫出来的）**：`pickFrom` 原本声明在「缓存设置」那一段里，但「格式互转」浮层的选目录按钮也调它，点「选择」会抛 `pickFrom is not defined`，框里填不进去；已提到模块级。`railArchive` 在压缩包里某一份读不出来时调用了不存在的 `notice()`，一有坏成员就抛错、右栏那一行也不显示；改成气泡报名字加右栏留一行「读取失败」。
 - **修掉三个真的类型错误**：地理坐标系克隆（`GetGeogCS` 在 GDAL 3.10 的 Python 绑定里已不存在，改用 `CloneGeogCS`）、栅格缩略图里一个可能为 `None` 的取值、瓦片集里按字典取值做键的写法（`max(counts, key=counts.get)` 改成 `lambda`）。以自带运行时的解释器跑 `pyright`，三个文件均为 0 错误 0 警告。
 
 ## 0.15（2026-11-18）

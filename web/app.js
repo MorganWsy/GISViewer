@@ -266,125 +266,152 @@ function fillTipText(node, text) {
   });
 }
 
+const TIP_GAP = 8;
+const TIP_EDGE = 8;
+
+/* 锚点属于哪一类：顶栏、窄卡（文件卡/图例/图层下拉）、标了向上展的 */
+function tipFlags(anchor) {
+  return {
+    inBar: !!(anchor.closest && anchor.closest('#bar')),
+    inCard: !!(anchor.closest && anchor.closest('#fileChip, #legend, .layer-pop')),
+    dirUp: !!(anchor.getAttribute && anchor.getAttribute('data-tip-dir') === 'up')
+  };
+}
+
+/* 一行：以"· "开头画圆点，其余整段排（有的气泡是"一句总述 + 几条清单 + 一句收尾"） */
+function tipLine(line, marked) {
+  const bullet = marked ? line.indexOf('· ') === 0 : true;
+  const row = el('div', 'tip-li' + (bullet ? '' : ' tip-plain'));
+  if (bullet) row.appendChild(el('i', 'tip-dot'));
+  const span = el('span', 'tip-txt');
+  fillTipText(span, bullet && marked ? line.slice(2) : line);
+  row.appendChild(span);
+  return row;
+}
+
+/* 正文：有换行就按行拆，末尾按 data-tip-href 补一条外链 */
+function fillTipBody(box, anchor, text) {
+  const raw = String(text).split('\n').filter((s) => s.length);
+  if (raw.length > 1) {
+    const marked = raw.some((s) => s.indexOf('· ') === 0);
+    box.classList.add('tip-multi');
+    raw.forEach((line) => { box.appendChild(tipLine(line, marked)); });
+  } else {
+    box.classList.remove('tip-multi');
+    fillTipText(box, raw[0] || '');
+  }
+  const href = anchor.getAttribute('data-tip-href');
+  if (!href) return;
+  /* target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走 */
+  const a = document.createElement('a');
+  a.className = 'tip-link';
+  a.href = href;
+  a.target = '_blank';
+  a.rel = 'noreferrer';
+  a.textContent = anchor.getAttribute('data-tip-link') || href;
+  box.appendChild(a);
+}
+
+/* 横向：默认摆右侧，右边放不下翻左边；顶栏、窄卡、上展锚点一律走竖向，返回 null */
+function tipSideX(flags, r, br) {
+  if (flags.inBar || flags.inCard || flags.dirUp) return null;
+  if (br.width <= window.innerWidth - r.right - TIP_GAP - TIP_EDGE) {
+    return { side: 'right', x: r.right + TIP_GAP };
+  }
+  if (br.width <= r.left - TIP_GAP - TIP_EDGE) {
+    return { side: 'left', x: r.left - TIP_GAP - br.width };
+  }
+  return null;
+}
+
+/* 竖向时的水平位置：宽度压到窗口能容下的尺寸，再对准锚点中心 */
+function tipVerticalX(box, r, br) {
+  const fit = Math.max(160, window.innerWidth - TIP_EDGE * 2);
+  if (br.width > fit) box.style.maxWidth = fit + 'px';
+  const b2 = box.getBoundingClientRect();
+  return Math.max(TIP_EDGE,
+    Math.min(window.innerWidth - b2.width - TIP_EDGE, r.left + r.width / 2 - b2.width / 2));
+}
+
+/* 竖向时的竖直位置：上展锚点先试上方，其余先试下方，放不下再翻另一侧。
+   上方还要让开顶栏：紧贴窗口顶的锚点往上展只会压在标题栏上 */
+function tipVerticalY(flags, r, br) {
+  const barEl = document.getElementById('bar');
+  const topSafe = Math.max(TIP_EDGE, (barEl ? barEl.getBoundingClientRect().bottom : 0) + 4);
+  const bottomRoom = window.innerHeight - TIP_EDGE - br.height;
+  let y = r.top + r.height / 2 - br.height / 2;
+  if ((flags.dirUp || flags.inCard) && r.top - TIP_GAP - br.height >= topSafe) {
+    y = r.top - TIP_GAP - br.height;
+  } else if (r.bottom + TIP_GAP + br.height <= window.innerHeight - TIP_EDGE) {
+    y = r.bottom + TIP_GAP;
+  } else if (r.top - TIP_GAP - br.height >= topSafe) {
+    y = r.top - TIP_GAP - br.height;
+  }
+  y = Math.max(topSafe, Math.min(bottomRoom, y));
+  /* 气泡整段落在锚点上沿之上才算 above：被夹回来卡在中间时仍按 below 画箭头 */
+  return { y: y, above: y + br.height < r.top - 2 };
+}
+
+/* 箭头对准锚点中心：横向时按竖直位置定，竖向时按水平位置定，不贴到圆角外面 */
+function tipArrow(box, side, r, br, x, y) {
+  if (side === 'v') {
+    const ax = Math.max(12, Math.min(br.width - 12, r.left + r.width / 2 - x));
+    box.style.setProperty('--tip-arrow-x', Math.round(ax) + 'px');
+    box.style.removeProperty('--tip-arrow-y');
+    return;
+  }
+  const ay = Math.max(12, Math.min(br.height - 12, r.top + r.height / 2 - y));
+  box.style.setProperty('--tip-arrow-y', Math.round(ay) + 'px');
+  box.style.removeProperty('--tip-arrow-x');
+}
+
+/* 方向策略：顶栏里的控件横着排一排，气泡摆左右会盖住旁边的按钮；
+   文件卡、图例、图层下拉这类窄卡同理；标了 data-tip-dir="up" 的锚点
+   （信息窗标题栏、属性表表头这类贴近底部的浮层件）也走上下、且优先向上。
+   其余区域默认摆右侧，右边放不下翻左边，两边都放不下才退回上下方 */
 function showTipBox(anchor, text) {
   const box = tipBubble();
   clearTimeout(tipState.timer);
   tipState.timer = 0;
   box.textContent = '';
-  // 文案里有换行就按行拆开。以"· "开头的行画圆点，其余行整段排：
-  // 有的气泡是"一句总述 + 几条清单 + 一句收尾"，不能每行都挂圆点
-  const raw = String(text).split('\n').filter((s) => s.length);
-  if (raw.length > 1) {
-    const marked = raw.some((s) => s.indexOf('· ') === 0);
-    box.classList.add('tip-multi');
-    raw.forEach((line) => {
-      const bullet = marked ? line.indexOf('· ') === 0 : true;
-      const row = el('div', 'tip-li' + (bullet ? '' : ' tip-plain'));
-      if (bullet) row.appendChild(el('i', 'tip-dot'));
-      const span = el('span', 'tip-txt');
-      fillTipText(span, bullet && marked ? line.slice(2) : line);
-      row.appendChild(span);
-      box.appendChild(row);
-    });
-  } else {
-    box.classList.remove('tip-multi');
-    fillTipText(box, raw[0] || '');
-  }
-  // 提示气泡里可以带一条外链：锚点给 data-tip-href，链接文案给 data-tip-link。
-  // target=_blank 会走壳里的 NewWindowRequested，用系统浏览器打开，不把页面导航走
-  const href = anchor.getAttribute('data-tip-href');
-  if (href) {
-    const a = document.createElement('a');
-    a.className = 'tip-link';
-    a.href = href;
-    a.target = '_blank';
-    a.rel = 'noreferrer';
-    a.textContent = anchor.getAttribute('data-tip-link') || href;
-    box.appendChild(a);
-  }
+  fillTipBody(box, anchor, text);
   box.hidden = false;
   tipState.anchor = anchor;
-  /* 上一次如果压过宽度或高度，这里先还原，否则会带着旧尺寸显示 */
+  /* 上一次如果压过宽度或高度，这里先还原，否则会带着旧尺寸显示。
+     量之前先把 left 归零：气泡是 position:fixed 且只设了 left，宽度按收缩适配算，
+     可用宽度 = 视口宽 - left。上一次若把气泡摆到了右边（left 很大），
+     这里可用宽度会变成负数，浏览器只能收缩到最小内容宽（实测 46px），
+     照着这个宽度定位，气泡就会被甩到窗口外面去 */
   box.style.maxWidth = '';
   box.style.maxHeight = '';
   box.style.overflowY = '';
-  /* 量之前先把 left 归零：气泡是 position:fixed 且只设了 left，宽度按收缩适配算，
-     可用宽度 = 视口宽 - left。上一次若把气泡摆到了右边（left 很大），
-     这里可用宽度会变成负数，浏览器只能收缩到最小内容宽（实测 46px），
-     照着这个宽度定位，气泡就会被甩到窗口外面去。 */
   box.style.left = '0px';
   box.style.top = '0px';
   const r = anchor.getBoundingClientRect();
   const br = box.getBoundingClientRect();
-  /* 方向策略：顶栏（#bar）里的控件横着排一排，气泡摆左右会盖住旁边的按钮，
-     所以顶栏一律上下展示；文件卡、图例、图层下拉这类窄卡里的控件同样横向排布，
-     左右展开会压住邻座那颗按钮，也走上下。标了 data-tip-dir="up" 的锚点
-     （信息窗标题栏、属性表表头这类贴近底部的浮层件）同样走上下、且优先向上；
-     其余区域默认摆右侧，右边放不下翻左边，两边都放不下才退回上下方。
-     箭头跟着方向换边，始终指向锚点。 */
-  const GAP = 8, EDGE = 8;
-  const inBar = !!(anchor.closest && anchor.closest('#bar'));
-  const inCard = !!(anchor.closest && anchor.closest('#fileChip, #legend, .layer-pop'));
-  const dirUp = anchor.getAttribute && anchor.getAttribute('data-tip-dir') === 'up';
-  const spaceRight = window.innerWidth - r.right - GAP - EDGE;
-  const spaceLeft = r.left - GAP - EDGE;
-  let side = (inBar || inCard || dirUp) ? 'v' : 'right';
-  let x;
-  if (side !== 'v' && br.width <= spaceRight) {
-    x = r.right + GAP;
-  } else if (side !== 'v' && br.width <= spaceLeft) {
-    side = 'left';
-    x = r.left - GAP - br.width;
-  } else {
-    /* 竖向：左右放不下（或顶栏/上展锚点），把气泡宽度压到窗口能容下的尺寸，
-       不然还是会溢出 */
-    side = 'v';
-    const fit = Math.max(160, window.innerWidth - EDGE * 2);
-    if (br.width > fit) { box.style.maxWidth = fit + 'px'; }
-    const b2 = box.getBoundingClientRect();
-    x = Math.max(EDGE, Math.min(window.innerWidth - b2.width - EDGE, r.left + r.width / 2 - b2.width / 2));
-  }
-  let y = r.top + r.height / 2 - br.height / 2;
+  const flags = tipFlags(anchor);
+  const horiz = tipSideX(flags, r, br);
+  const side = horiz ? horiz.side : 'v';
+  const x = horiz ? horiz.x : tipVerticalX(box, r, br);
+  let y = Math.max(TIP_EDGE,
+    Math.min(window.innerHeight - br.height - TIP_EDGE, r.top + r.height / 2 - br.height / 2));
   let vert = 'below';
-  if (side === 'v') {
-    /* 竖向时贴着锚点那一侧摆：上展锚点先试上方，其余先试下方；
-       放不下再翻另一侧。锚点自己可能在视口外（长列表里滚到一半的那种），
-       这时不能跟着锚点走，得把气泡夹回窗口里。
-       上方还得让开顶栏：紧贴窗口顶的锚点（文件信息卡的表头）往上展只会压在
-       标题栏上，既难看又挡住拖动区，那种情况直接改走下方 */
-    const barEl = document.getElementById('bar');
-    const topSafe = Math.max(EDGE, (barEl ? barEl.getBoundingClientRect().bottom : 0) + 4);
-    if ((dirUp || inCard) && r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
-    else if (r.bottom + GAP + br.height <= window.innerHeight - EDGE) y = r.bottom + GAP;
-    else if (r.top - GAP - br.height >= topSafe) y = r.top - GAP - br.height;
-    y = Math.max(topSafe, Math.min(window.innerHeight - br.height - EDGE, y));
-    /* 气泡整段落在锚点上沿之上才算 above：被夹回来卡在中间时仍按 below 画箭头 */
-    if (y + br.height < r.top - 2) vert = 'above';
-  } else {
-    /* 横向时竖直居中对齐锚点，但不许顶出窗口 */
-    y = Math.max(EDGE, Math.min(window.innerHeight - br.height - EDGE, y));
+  if (!horiz) {
+    const v = tipVerticalY(flags, r, br);
+    y = v.y;
+    vert = v.above ? 'above' : 'below';
   }
-  /* 气泡比窗口还高时（窄窗口 + 长文案），再怎么夹位置也会溢出。
-     这时把高度压到窗口内，内容超出部分由气泡自己滚动。 */
-  if (br.height > window.innerHeight - EDGE * 2) {
-    box.style.maxHeight = (window.innerHeight - EDGE * 2) + 'px';
+  /* 气泡比窗口还高时（窄窗口 + 长文案），再怎么夹位置也会溢出：
+     这时把高度压到窗口内，内容超出部分由气泡自己滚动 */
+  if (br.height > window.innerHeight - TIP_EDGE * 2) {
+    box.style.maxHeight = (window.innerHeight - TIP_EDGE * 2) + 'px';
     box.style.overflowY = 'auto';
     const b3 = box.getBoundingClientRect();
-    y = Math.max(EDGE, Math.min(window.innerHeight - b3.height - EDGE, y));
+    y = Math.max(TIP_EDGE, Math.min(window.innerHeight - b3.height - TIP_EDGE, y));
   }
   box.classList.remove('below', 'above', 'left', 'right');
-  box.classList.add(side === 'v' ? vert : side);
-  /* 箭头对准锚点中心：横向时按竖直位置定，竖向时按水平位置定，
-     但不许贴到气泡的圆角外面 */
-  if (side === 'v') {
-    const arrow = Math.max(12, Math.min(br.width - 12, r.left + r.width / 2 - x));
-    box.style.setProperty('--tip-arrow-x', Math.round(arrow) + 'px');
-    box.style.removeProperty('--tip-arrow-y');
-  } else {
-    const arrow = Math.max(12, Math.min(br.height - 12, r.top + r.height / 2 - y));
-    box.style.setProperty('--tip-arrow-y', Math.round(arrow) + 'px');
-    box.style.removeProperty('--tip-arrow-x');
-  }
+  box.classList.add(horiz ? side : vert);
+  tipArrow(box, side, r, br, x, y);
   box.style.left = Math.round(x) + 'px';
   box.style.top = Math.round(y) + 'px';
 }
@@ -509,46 +536,57 @@ const LEGEND_MIN = 66;   // 图例至少留三行（每行 22）
 const CHIP_MIN = 72;     // 文件卡至少留标题行加两行
 const LEGEND_GAP = 8;    // 文件卡下沿与图例之间留的空
 
+/* 图例自己那一圈（标题行、内边距、下边距）先让出来，剩下的才是能给卡片与表体的 */
+function legendChrome(sr) {
+  const legend = $('legend');
+  const body = $('legendBody');
+  if (!legend || !body || legend.hidden) return { chrome: 0, lmargin: 0 };
+  const lr = legend.getBoundingClientRect();
+  return {
+    chrome: lr.height - body.getBoundingClientRect().height,
+    lmargin: Math.max(0, sr.bottom - lr.bottom)
+  };
+}
+
+/* 卡片自然高度只能"解开封顶量一次"：封顶值若由封顶后的高度反推，两者会互相追着跑 */
+function chipNatural(sr) {
+  const chip = $('fileChip');
+  const chipBody = $('chipBody');
+  if (!chip || !chipBody || chip.hidden) {
+    return { present: false, natural: 0, chipTop: 0, chipChrome: 0 };
+  }
+  const prev = chipBody.style.maxHeight;
+  chipBody.style.maxHeight = 'none';
+  const cr = chip.getBoundingClientRect();
+  const chipTop = Math.max(0, cr.top - sr.top);
+  const out = {
+    present: true,
+    natural: chipTop + cr.height + LEGEND_GAP,
+    chipTop: chipTop,
+    chipChrome: cr.height - chipBody.getBoundingClientRect().height
+  };
+  chipBody.style.maxHeight = prev;
+  return out;
+}
+
 function syncMapHeight() {
   const stage = document.querySelector('.map-stage');
   if (!stage) return;
   const sr = stage.getBoundingClientRect();
   if (!sr.height) return;
   const z = uiZoom() || 1;
-  const legend = $('legend');
-  const body = $('legendBody');
-  const chip = $('fileChip');
+  const chrome = legendChrome(sr);
+  const base = sr.height - chrome.chrome - chrome.lmargin;
+  const chip = chipNatural(sr);
   const chipBody = $('chipBody');
-  /* 图例自己那一圈（标题行、内边距、下边距）先让出来，剩下的才是能给卡片与表体的 */
-  let chrome = 0;
-  let lmargin = 0;
-  if (legend && body && !legend.hidden) {
-    const lr = legend.getBoundingClientRect();
-    chrome = lr.height - body.getBoundingClientRect().height;
-    lmargin = Math.max(0, sr.bottom - lr.bottom);
-  }
-  const base = sr.height - chrome - lmargin;
-  /* 卡片自然高度只能"解开封顶量一次"：封顶值若由封顶后的高度反推，两者会互相追着跑 */
-  let natural = 0;      // 卡片不封顶时压到哪儿
-  let chipTop = 0;
-  let chipChrome = 0;
-  if (chip && chipBody && !chip.hidden) {
-    const prev = chipBody.style.maxHeight;
-    chipBody.style.maxHeight = 'none';
-    const cr = chip.getBoundingClientRect();
-    chipTop = Math.max(0, cr.top - sr.top);
-    natural = chipTop + cr.height + LEGEND_GAP;
-    chipChrome = cr.height - chipBody.getBoundingClientRect().height;
-    chipBody.style.maxHeight = prev;
-  }
   /* 卡片最高能有多高：给图例留够三行 */
-  const capLimit = base - LEGEND_GAP - chipTop - LEGEND_MIN;
-  const cap = (chip && chipBody && base - natural < LEGEND_MIN)
+  const capLimit = base - LEGEND_GAP - chip.chipTop - LEGEND_MIN;
+  const cap = (chip.present && base - chip.natural < LEGEND_MIN)
     ? Math.max(CHIP_MIN, capLimit) : 0;
   if (chipBody) {
-    chipBody.style.maxHeight = cap ? Math.max(0, Math.round((cap - chipChrome) / z)) + 'px' : '';
+    chipBody.style.maxHeight = cap ? Math.max(0, Math.round((cap - chip.chipChrome) / z)) + 'px' : '';
   }
-  const used = cap ? chipTop + cap + LEGEND_GAP : natural;
+  const used = cap ? chip.chipTop + cap + LEGEND_GAP : chip.natural;
   document.documentElement.style.setProperty(
     '--legend-max', Math.max(0, Math.round((base - used) / z)) + 'px');
   syncLegendTips();
@@ -734,15 +772,11 @@ function prettyCrsName(s) {
   return String(s || '').replace(/_/g, ' ').trim();
 }
 
-function crsRows(crs) {
-  if (!crs || (!crs.name && !crs.label)) return [['坐标系', '未记录']];
-  // 坐标系写完整名称（如 "China Geodetic Coordinate System 2000"），
-  // EPSG 表示法单独一行放，一眼能对上号
-  const rows = [['坐标系', prettyCrsName(crs.name || crs.label)]];
-  rows.push(['EPSG', crs.code || (crs.is_custom ? '无标准编码（自定义坐标系）' : '未记录')]);
-  const kind = [crs.kind_label, crs.method_label].filter(Boolean).join(' · ');
-  if (kind) rows.push(['类型', kind]);
+/* 投影参数：成对的先合成一行（第一/二标准纬线、假东/假北偏距），
+   其余按引擎给的顺序一条一行 */
+function crsParamRows(crs) {
   const params = crs.parameters || [];
+  const rows = [];
   const byLabel = {};
   params.forEach((p) => { byLabel[p.label] = p; });
   const used = {};
@@ -761,21 +795,46 @@ function crsRows(crs) {
   params.forEach((p) => {
     if (!used[p.label]) rows.push([p.label, num(p.value, 6)]);
   });
+  return rows;
+}
+
+/* 椭球：名字、长/短半轴、扁率倒数 */
+function crsEllipsoidRows(crs) {
   const e = crs.ellipsoid;
-  if (e && (e.name || e.semi_major_m)) rows.push(['椭球', prettyCrsName(e.name) || '未记录']);
-  if (e && e.semi_major_m) {
-    const m = unitText('m');
-    if (e.semi_minor_m) {
-      rows.push(['长/短半轴', num(e.semi_major_m, 3) + ' ' + m + '，' + num(e.semi_minor_m, 3) + ' ' + m]);
-    } else {
-      rows.push(['长半轴', num(e.semi_major_m, 3) + ' ' + m]);
-    }
-    if (e.inverse_flattening) rows.push(['扁率倒数', '1 / ' + num(e.inverse_flattening, 4)]);
+  if (!e) return [];
+  const rows = [];
+  if (e.name || e.semi_major_m) rows.push(['椭球', prettyCrsName(e.name) || '未记录']);
+  if (!e.semi_major_m) return rows;
+  const m = unitText('m');
+  if (e.semi_minor_m) {
+    rows.push(['长/短半轴', num(e.semi_major_m, 3) + ' ' + m + '，' + num(e.semi_minor_m, 3) + ' ' + m]);
+  } else {
+    rows.push(['长半轴', num(e.semi_major_m, 3) + ' ' + m]);
   }
-  if (crs.geographic_crs && crs.geographic_crs.name) {
-    const g = crs.geographic_crs;
-    rows.push(['地理基准', prettyCrsName(g.name) + (g.epsg ? '（EPSG:' + g.epsg + '）' : '（无标准编码）')]);
-  }
+  if (e.inverse_flattening) rows.push(['扁率倒数', '1 / ' + num(e.inverse_flattening, 4)]);
+  return rows;
+}
+
+/* 地理基准：WGS 84 这一类，括号里给 EPSG 号；没有就是没有 */
+function crsGeogRow(crs) {
+  const g = crs.geographic_crs;
+  if (!g || !g.name) return null;
+  return ['地理基准', prettyCrsName(g.name) +
+    (g.epsg ? '（EPSG:' + g.epsg + '）' : '（无标准编码）')];
+}
+
+function crsRows(crs) {
+  if (!crs || (!crs.name && !crs.label)) return [['坐标系', '未记录']];
+  // 坐标系写完整名称（如 "China Geodetic Coordinate System 2000"），
+  // EPSG 表示法单独一行放，一眼能对上号
+  const rows = [['坐标系', prettyCrsName(crs.name || crs.label)]];
+  rows.push(['EPSG', crs.code || (crs.is_custom ? '无标准编码（自定义坐标系）' : '未记录')]);
+  const kind = [crs.kind_label, crs.method_label].filter(Boolean).join(' · ');
+  if (kind) rows.push(['类型', kind]);
+  rows.push.apply(rows, crsParamRows(crs));
+  rows.push.apply(rows, crsEllipsoidRows(crs));
+  const geog = crsGeogRow(crs);
+  if (geog) rows.push(geog);
   if (crs.unit_label) rows.push(['单位', unitText(crs.unit_label)]);
   if (crs.note) rows.push(['说明', crs.note]);
   return rows;
@@ -888,33 +947,31 @@ function withUnit(text, unit) {
   return unit ? text + ' ' + unit : text;
 }
 
+/* 统计项可能是真的没有（快速统计没算），一律用这个判断，别把 0 当缺失 */
+function hasNum(v) {
+  return v !== null && v !== undefined;
+}
+
 function statRows(st, phys) {
   if (!st) return [];
   const digits = physDigits(phys);
   const rows = [];
-  if (st.minimum !== null && st.minimum !== undefined) {
+  if (hasNum(st.minimum)) {
     // 这组值只统计有效像元（跳过 NoData），"最小/最大值"容易让人以为全图都算了
     rows.push(['有效值范围', withUnit(physText(phys, st.minimum, digits) + ' ~ ' +
       physText(phys, st.maximum, digits), phys && phys.unit)]);
   }
   rows.push(['平均值', physText(phys, st.mean, digits)]);
   // 中位数、不同取值、NoData 像元这几项要等值分布算出来才补得上
-  if (st.median !== null && st.median !== undefined) {
-    rows.push(['中位数', physText(phys, st.median, digits)]);
-  }
+  if (hasNum(st.median)) rows.push(['中位数', physText(phys, st.median, digits)]);
   rows.push(['标准差', physText(phys, st.stddev, digits)]);
-  if (st.unique_count !== null && st.unique_count !== undefined) {
-    rows.push(['不同取值', count(st.unique_count) + ' 种']);
-  }
-  if (st.nodata_count !== null && st.nodata_count !== undefined) {
-    rows.push(['NoData像元', count(st.nodata_count)]);
-  }
-  rows.push(['有效像元占比', (st.valid_percent === null || st.valid_percent === undefined)
-    ? null : num(st.valid_percent, 2) + '%']);
+  if (hasNum(st.unique_count)) rows.push(['不同取值', count(st.unique_count) + ' 种']);
+  if (hasNum(st.nodata_count)) rows.push(['NoData像元', count(st.nodata_count)]);
+  rows.push(['有效像元占比', hasNum(st.valid_percent) ? num(st.valid_percent, 2) + '%' : null]);
   rows.push(['统计来源', st.source_label]);
   /* 换算过的统计另起一行给出原始数：别的软件多半显示文件里那一份，
      对不上数的时候要有个地方能核对 */
-  if (phys && phys.on && st.minimum !== null && st.minimum !== undefined) {
+  if (phys && phys.on && hasNum(st.minimum)) {
     rows.push(['原始值范围', num(st.minimum, 4) + ' ~ ' + num(st.maximum, 4) +
       '（未换算）']);
   }
@@ -999,6 +1056,91 @@ function tileLayerTable(layers) {
 
 /* ---------- 各格式的分节：只放数据本身的信息，文件级的都在地图胶囊里 ---------- */
 
+/* 左上角坐标：两个值分两行写，一行西边界、一行北边界，和"范围"那四条边同一套说法；
+   挤在一行时读的人分不清哪个是经度哪个是纬度 */
+function originRow(d, crs) {
+  const unit = unitText(crs.unit_label);
+  const geoUnit = !unit || unit === '°' || unit === '度';
+  const lines = geoUnit
+    ? ['西 ' + degText(d.origin[0], true), '北 ' + degText(d.origin[1], false)]
+    : d.extent_wgs84
+      ? ['西 ' + num(d.origin[0]) + ' ' + unit + ' (' + degText(d.extent_wgs84[0], true) + ')',
+        '北 ' + num(d.origin[1]) + ' ' + unit + ' (' + degText(d.extent_wgs84[3], false) + ')']
+      : ['西 ' + num(d.origin[0]), '北 ' + num(d.origin[1])];
+  return ['左上角坐标', lines.join('\n')];
+}
+
+/* 栅格"空间"一节的后半段：范围之后是像元大小、左上角，以及没有地理坐标时的说明 */
+function rasterSpaceRows(d, crs) {
+  const rows = extentRows(d.extent, d.extent_wgs84, crs.unit_label);
+  if (d.pixel_size_label) {
+    rows.push(['像元大小', unitSwap(d.pixel_size_label) +
+      (d.pixel_size_deg ? '（约 ' + num(d.pixel_size_deg, 6) + '°）' : '')]);
+  }
+  if (d.origin) rows.push(originRow(d, crs));
+  /* 缺哪一样只说在地图区底栏那一句里：信息栏再列一遍，同一件事要在两个地方读，
+     而且底下那段话比"无坐标原因"四个字更说得清 */
+  if (d.no_georeference) rows.push(['范围', '无地理坐标']);
+  return rows;
+}
+
+/* 缩放系数与偏移是文件自己写的换算，只在真有且是有限数时才占一行 */
+function scaleRow(band, phys) {
+  if (phys.rawScale === null || !Number.isFinite(phys.rawScale)) return null;
+  return ['缩放系数', '× ' + num(phys.rawScale, 10), band.scale_key
+    ? ['换算关系为 真实值 = 原始值 × 缩放系数 + 偏移，系数取自文件属性 ' + band.scale_key + '。']
+    : null];
+}
+
+function offsetRow(band, phys) {
+  if (phys.rawOffset === null || !Number.isFinite(phys.rawOffset)) return null;
+  return ['数值偏移', '+ ' + num(phys.rawOffset, 10), band.offset_key
+    ? ['偏移取自文件属性 ' + band.offset_key + '，换算时加在缩放之后。']
+    : null];
+}
+
+/* 栅格"波段"一节：名称、类型、单位与换算系数都来自文件属性，
+   多波段时再挂一张逐波段表 */
+function railRasterBands(rail, d, band, phys) {
+  rail.sec('波段');
+  rail.row('名称', (d.bands || []).map((b) => b.description).filter(Boolean).slice(0, 8).join('、'));
+  /* 类型名用 GDAL 的叫法（Int16、Float32）。前面再挂"16 位"是同一件事说两遍，
+     两个写法并排反而让人怀疑自己看错；位数、取值范围与代码里的写法都放进气泡 */
+  const multiTypes = (d.data_types || []).length > 1 ? d.data_types : null;
+  rail.row('数据类型', d.type_label + (multiTypes ? '（多类型）' : ''),
+    dtypeTip(d.type_label, multiTypes));
+  /* 单位与换算系数是文件自己写的，原样给出：缩放系数乘上偏移就是物理值，
+     上面"统计"那一段已经按它换算了。来自文件属性时，气泡里写出属性名，
+     用户拿 Python 读同一份数据时按这个名字取 */
+  rail.row('数值单位', phys.unit, band.unit_key
+    ? ['单位取自文件属性 ' + band.unit_key + '。', '用代码读同一个属性就能拿到同样的单位。']
+    : null);
+  const scale = scaleRow(band, phys);
+  if (scale) rail.row(scale[0], scale[1], scale[2]);
+  const offset = offsetRow(band, phys);
+  if (offset) rail.row(offset[0], offset[1], offset[2]);
+  const palette = band.palette_count || d.palette_count || 0;
+  rail.row('色表', palette ? palette + ' 项' : '无');
+  rail.row('NoData', nodataText(band) || '未设置', band.nodata_key
+    ? ['无效值标记取自文件属性 ' + band.nodata_key + '。', '读数据时应先按它做掩膜，否则统计会被填充值带偏。']
+    : null);
+  if (d.bands && d.bands.length > 1) rail.node(bandTable(d.bands));
+}
+
+/* 栅格"存储"一节：压缩、排布、金字塔。金字塔级别取自第一波段，
+   各级的重采样方法也一并写出来，用户能看出它是平均值还是最近邻 */
+function rasterStorageRows(d, band) {
+  return [
+    ['压缩算法', d.compression_label],
+    ['未压缩大小', bytes(d.uncompressed_bytes)],
+    ['压缩比', d.compression_ratio_label],
+    ['存储组织', d.storage_layout],
+    ['金字塔', band.overviews ? band.overviews + ' 级' +
+      (band.overview_resampling ? ' · 重采样 ' + band.overview_resampling : '') : '无'],
+    ['波段排布', { BAND: '波段顺序存放', PIXEL: '像元顺序存放' }[d.interleave]],
+  ];
+}
+
 function railRaster(rail, d) {
   const crs = d.crs || {};
   const band = (d.bands || [])[0] || {};
@@ -1013,37 +1155,13 @@ function railRaster(rail, d) {
     return;
   }
 
-  const space = extentRows(d.extent, d.extent_wgs84, crs.unit_label);
-  if (d.pixel_size_label) {
-    space.push(['像元大小', unitSwap(d.pixel_size_label) +
-      (d.pixel_size_deg ? '（约 ' + num(d.pixel_size_deg, 6) + '°）' : '')]);
-  }
-  if (d.origin) {
-    const unit = unitText(crs.unit_label);
-    const geoUnit = !unit || unit === '°' || unit === '度';
-    /* 起始点的两个值分两行写：一行西边界、一行北边界，和"范围"那四条边同一套说法；
-       挤在一行时读的人分不清哪个是经度哪个是纬度 */
-    const lines = geoUnit
-      ? ['西 ' + degText(d.origin[0], true), '北 ' + degText(d.origin[1], false)]
-      : d.extent_wgs84
-        ? ['西 ' + num(d.origin[0]) + ' ' + unit + ' (' + degText(d.extent_wgs84[0], true) + ')',
-          '北 ' + num(d.origin[1]) + ' ' + unit + ' (' + degText(d.extent_wgs84[3], false) + ')']
-        : ['西 ' + num(d.origin[0]), '北 ' + num(d.origin[1])];
-    space.push(['左上角坐标', lines.join('\n')]);
-  }
-  if (d.no_georeference) {
-    /* 缺哪一样只说在地图区底栏那一句里：信息栏再列一遍，同一件事要在两个地方读，
-       而且底下那段话比"无坐标原因"四个字更说得清 */
-    space.push(['范围', '无地理坐标']);
-  }
-
   rail.sec('空间');
   rail.many([
     ['行列号', '行 ' + num(d.rows) + ' · 列 ' + num(d.cols)],
     ['像元总数', count(d.pixels)],
     ['波段数量', d.band_count],
   ]);
-  rail.many(space);
+  rail.many(rasterSpaceRows(d, crs));
 
   rail.sec('坐标');
   rail.many(crsRows(crs));
@@ -1056,46 +1174,36 @@ function railRaster(rail, d) {
     showErrToast('统计值与实测分布不一致', band.statistics_mismatch);
   }
 
-  rail.sec('波段');
-  rail.row('名称', (d.bands || []).map((b) => b.description).filter(Boolean).slice(0, 8).join('、'));
-  /* 类型名用 GDAL 的叫法（Int16、Float32）。前面再挂"16 位"是同一件事说两遍，
-     两个写法并排反而让人怀疑自己看错；位数、取值范围与代码里的写法都放进气泡 */
-  const multiTypes = (d.data_types || []).length > 1 ? d.data_types : null;
-  rail.row('数据类型', d.type_label + (multiTypes ? '（多类型）' : ''),
-    dtypeTip(d.type_label, multiTypes));
-  /* 单位与换算系数是文件自己写的，原样给出：缩放系数乘上偏移就是物理值，
-     上面"统计"那一段已经按它换算了。来自文件属性时，气泡里写出属性名，
-     用户拿 Python 读同一份数据时按这个名字取 */
-  rail.row('数值单位', phys.unit, band.unit_key
-    ? ['单位取自文件属性 ' + band.unit_key + '。', '用代码读同一个属性就能拿到同样的单位。']
-    : null);
-  if (phys.rawScale !== null && Number.isFinite(phys.rawScale)) {
-    rail.row('缩放系数', '× ' + num(phys.rawScale, 10), band.scale_key
-      ? ['换算关系为 真实值 = 原始值 × 缩放系数 + 偏移，系数取自文件属性 ' + band.scale_key + '。']
-      : null);
-  }
-  if (phys.rawOffset !== null && Number.isFinite(phys.rawOffset)) {
-    rail.row('数值偏移', '+ ' + num(phys.rawOffset, 10), band.offset_key
-      ? ['偏移取自文件属性 ' + band.offset_key + '，换算时加在缩放之后。']
-      : null);
-  }
-  const palette = band.palette_count || d.palette_count || 0;
-  rail.row('色表', palette ? palette + ' 项' : '无');
-  rail.row('NoData', nodataText(band) || '未设置', band.nodata_key
-    ? ['无效值标记取自文件属性 ' + band.nodata_key + '。', '读数据时应先按它做掩膜，否则统计会被填充值带偏。']
-    : null);
-  if (d.bands && d.bands.length > 1) rail.node(bandTable(d.bands));
+  railRasterBands(rail, d, band, phys);
 
   rail.sec('存储');
-  rail.many([
-    ['压缩算法', d.compression_label],
-    ['未压缩大小', bytes(d.uncompressed_bytes)],
-    ['压缩比', d.compression_ratio_label],
-    ['存储组织', d.storage_layout],
-    ['金字塔', band.overviews ? band.overviews + ' 级' +
-      (band.overview_resampling ? ' · 重采样 ' + band.overview_resampling : '') : '无'],
-    ['波段排布', { BAND: '波段顺序存放', PIXEL: '像元顺序存放' }[d.interleave]],
-  ]);
+  rail.many(rasterStorageRows(d, band));
+}
+
+/* 几何类型这一格：混合类型先写名字，各类型个数交给后台数；
+   单一类型直接写中文名，括号里带 OGR 的叫法 */
+function railGeomType(rail, primary) {
+  if (!primary.geometry_type_label) return;
+  /* 中文给人读，英文是 OGR 那一套的名字，两边对得上才知道说的是同一种几何；
+     Z/M 单独列出（下面两行），几何类型这里不再缀一遍 */
+  const geomLabel = primary.geometry_type_label.replace('·含 Z 值', '').replace('·含 M 值', '');
+  if (geomLabel.indexOf('混合') >= 0) {
+    /* 先把类型本身写出来，"各类型各有多少个"交给后台数——大文件要几秒，
+       不能让人盯着一句"正在统计…"干等。数完把这一格换成明细 */
+    rail.row('几何类型', primary.geometry_counts_text || geomLabel);
+    if (!primary.geometry_counts_text) fillGeomTypes(primary, geomLabel);
+    return;
+  }
+  rail.row('几何类型', geomLabel +
+    (primary.geometry_type ? '（' + primary.geometry_type + '）' : ''));
+}
+
+/* 范围四条边；快速模式下还没有范围时留一行"统计中"，不让右栏看着缺一块 */
+function vectorExtentRows(primary) {
+  const rows = extentRows(primary.extent, primary.extent_wgs84,
+    (primary.crs || {}).unit_label, !primary.extent_wgs84 && !!primary.extent);
+  if (primary.quick && !primary.extent) rows.push(['范围', '统计中…']);
+  return rows;
 }
 
 function railVector(rail, d) {
@@ -1104,28 +1212,13 @@ function railVector(rail, d) {
 
   rail.sec('空间');
   rail.row('数据类型', (d.driver_label || '矢量数据') + ' 要素类');
-  if (primary.geometry_type_label) {
-    /* 中文给人读，英文是 OGR 那一套的名字，两边对得上才知道说的是同一种几何；
-       Z/M 单独列出（下面两行），几何类型这里不再缀一遍 */
-    const geomLabel = primary.geometry_type_label.replace('·含 Z 值', '').replace('·含 M 值', '');
-    if (geomLabel.indexOf('混合') >= 0) {
-      /* 先把类型本身写出来，"各类型各有多少个"交给后台数——大文件要几秒，
-         不能让人盯着一句"正在统计…"干等。数完把这一格换成明细 */
-      rail.row('几何类型', primary.geometry_counts_text || geomLabel);
-      if (!primary.geometry_counts_text) fillGeomTypes(primary, geomLabel);
-    } else {
-      rail.row('几何类型', geomLabel +
-        (primary.geometry_type ? '（' + primary.geometry_type + '）' : ''));
-    }
-  }
+  railGeomType(rail, primary);
   rail.row('要素数', count(primary.feature_count) ||
     (primary.quick ? '统计中…' : null));
   rail.row('Z 值坐标', primary.has_z ? '有' : '无');
   rail.row('M 值坐标', primary.has_m ? '有' : '无');
   if (primary.attr_encoding && primary.field_count) rail.row('属性表编码', primary.attr_encoding);
-  rail.many(extentRows(primary.extent, primary.extent_wgs84,
-    (primary.crs || {}).unit_label, !primary.extent_wgs84 && !!primary.extent));
-  if (primary.quick && !primary.extent) rail.row('范围', '统计中…');
+  rail.many(vectorExtentRows(primary));
 
   rail.sec('坐标');
   rail.many(crsRows(primary.crs || {}));
@@ -1262,8 +1355,11 @@ function railArchive(rail, d) {
   const members = (d.layers || []).filter((l) => l.ok !== false);
   (d.layers || []).forEach((layer) => {
     if (layer.ok === false) {
-      rail.node(notice('error', (layer.member || '包内文件') + '：' + layer.error.title,
-        layer.error.detail, layer.error.hint));
+      /* 包内某一份读不出来：气泡里说清是哪一份，右栏也留一行，别让这一段凭空消失 */
+      const name = layer.member || '包内文件';
+      const err = layer.error || {};
+      showErrToast(name + '：' + (err.title || '读取失败'), err.detail, err.hint);
+      rail.row('读取失败', name + (err.title ? '：' + err.title : ''));
       return;
     }
     // 一份数据时不必再标成员名，用这个软件的人看得懂下面就是包内那份数据
@@ -1299,6 +1395,39 @@ function sidecarText(side) {
 /* 上一条错误由打开入口（inspectPath/uploadFiles）在开始新一次读取时收掉；
    这里不能再收——"已开图层 + 新文件打不开"的回滚也走这个函数，
    在这儿收会把刚弹出来的错误卡片又立刻抹掉 */
+/* 文件自带的提醒（DWG 转换这类）走浮层卡片：看一眼知道就行，
+   不放在信息栏里长期占一行，重新渲染时也不再弹 */
+function renderConversionNote(data) {
+  if (!data.conversion) return;
+  showErrToast('转换后读取' +
+    (data.conversion.version ? '（' + data.conversion.version + ' 格式）' : ''),
+    data.conversion.note);
+}
+
+/* 换文件后要重置的那些状态：空图提示、属性表缓存与自动打开、左上角卡片、耗时 */
+function resetRenderState(data) {
+  $('empty').hidden = true;
+  $('panels').hidden = false;
+  attrAuto = (data.kind === 'vector' || data.kind === 'archive') && !stackedStage();
+  attrLayer = 0;
+  attrCache = {};   // 换了文件，属性表的缓存全部作废
+  attrShown = null;
+  setChip(data);
+  // 缓存命中时耗时是 0，dur() 会返回空；直接说"缓存命中"比留白清楚
+  if (window.GisMap) GisMap.setElapsed(data.cached ? '缓存命中' : dur(data.elapsed_ms));
+}
+
+/* 交给地图：栅格要先算配色，矢量直接画 */
+async function drawIntoMap(data) {
+  if (window.GisMap) GisMap.clear();
+  if (data.kind === 'raster' && !data.multi_variable) await setupRaster(data);
+  else resetRasterView();
+  // 地图聚焦时要把即将弹出的属性表高度让出来（drawVector 里读这个标志）
+  data.reserveAttr = attrAuto;
+  if (window.GisMap) GisMap.setDrawLimit(config.draw_limit || 5000);
+  if (window.GisMap) GisMap.show(data);
+}
+
 async function renderResult(data, path, opts) {
   /* notes：这次渲染要不要把文件自带的提示/警告弹出来。打开新文件要，重新渲染
      （切波段、改单位、打不开时回滚到上一个文件）不要——同一条提示用户已经看过一遍 */
@@ -1311,37 +1440,47 @@ async function renderResult(data, path, opts) {
     return;
   }
 
-  $('empty').hidden = true;
-  $('panels').hidden = false;
-  attrAuto = (data.kind === 'vector' || data.kind === 'archive') && !stackedStage();
-  attrLayer = 0;
-  attrCache = {};   // 换了文件，属性表的缓存全部作废
-  attrShown = null;
-
-  setChip(data);
-  // 缓存命中时耗时是 0，dur() 会返回空；直接说"缓存命中"比留白清楚
-  if (window.GisMap) GisMap.setElapsed(data.cached ? '缓存命中' : dur(data.elapsed_ms));
-  /* DWG 这类"先转换成 DXF 再读取"的说明走浮层卡片：它是对这次打开的一条提醒，
-     看一眼知道就行，不放在信息栏里长期占一行（re-render 时也不会重复弹） */
-  if (data.conversion) {
-    showErrToast('转换后读取' +
-      (data.conversion.version ? '（' + data.conversion.version + ' 格式）' : ''),
-      data.conversion.note);
-  }
-
+  resetRenderState(data);
+  renderConversionNote(data);
   /* deferMap：快速打开的大矢量先不画地图——这时还没有范围，取数会按当前视野过滤，
      十有八九取回来 0 个，而且永远等不到自动聚焦。等全量检查（带范围）到了再画 */
   if (opts && opts.deferMap) return;
-  if (window.GisMap) GisMap.clear();
-  if (data.kind === 'raster' && !data.multi_variable) await setupRaster(data);
-  else resetRasterView();
-  // 地图聚焦时要把即将弹出的属性表高度让出来（drawVector 里读这个标志）
-  data.reserveAttr = attrAuto;
-  if (window.GisMap) GisMap.setDrawLimit(config.draw_limit || 5000);
-  if (window.GisMap) GisMap.show(data);
+  await drawIntoMap(data);
 }
 
 /* 右栏那张长表：单位写法之类的设置一改，只重画这一块，地图不动 */
+/* 每种数据由谁画右栏：加一种格式只在这里添一行 */
+const RAIL_PAINTERS = {
+  raster: railRaster,
+  vector: railVector,
+  tileset: railTileset,
+  archive: railArchive,
+  json: railJson,
+};
+
+/* 图层级的问题逐个报出来，哪个图层读失败了要能指名字 */
+function railLayerErrors(data) {
+  (data.layers || []).filter((l) => l.error).forEach((l) => {
+    showErrToast('图层 ' + (l.name || '未命名') + ' 读取失败', l.error);
+  });
+}
+
+function railLayerWarning(data) {
+  const first = (data.layers || [])[0];
+  if (first && first.warning) showErrToast(first.warning, '', '', 'info');
+}
+
+/* 提示、警告一律走全局浮层：信息栏只放数据本身，不留说明性文字 */
+function railNotes(data) {
+  if (data.kind === 'vector') railLayerErrors(data);
+  if (data.warning) showErrToast(data.warning, '', '', 'info');
+  if (data.kind === 'vector') railLayerWarning(data);
+  if (data.kind === 'tileset') {
+    showErrToast('这是切片缓存不是单一数据文件',
+      '瓦片按视野需要逐张读取，已在地图上按级显示；要素的精确统计请回到原始矢量数据查看。');
+  }
+}
+
 function renderRail(data, notes) {
   const rail = newRail();
   const f = (data && data.file) || {};
@@ -1349,29 +1488,11 @@ function renderRail(data, notes) {
   rail.head(f.name || path || '数据');
   unfoldPanels();
 
-  if (!data || !data.ok) { rail.render($('rail')); return; }
-
-  if (data.kind === 'raster') railRaster(rail, data);
-  else if (data.kind === 'vector') railVector(rail, data);
-  else if (data.kind === 'tileset') railTileset(rail, data);
-  else if (data.kind === 'archive') railArchive(rail, data);
-  else if (data.kind === 'json') railJson(rail, data);
-  else rail.row('格式', data.driver_label || '未知');
-  if (notes) {
-    if (data.kind === 'vector' && (data.layers || []).some((l) => l.error)) {
-      data.layers.filter((l) => l.error).forEach((l) => {
-        showErrToast('图层 ' + (l.name || '未命名') + ' 读取失败', l.error);
-      });
-    }
-    /* 提示、警告一律走全局浮层：信息栏只放数据本身，不留说明性文字 */
-    if (data.warning) showErrToast(data.warning, '', '', 'info');
-    if (data.kind === 'vector' && (data.layers || [])[0] && data.layers[0].warning) {
-      showErrToast(data.layers[0].warning, '', '', 'info');
-    }
-    if (data.kind === 'tileset') {
-      showErrToast('这是切片缓存不是单一数据文件',
-        '瓦片按视野需要逐张读取，已在地图上按级显示；要素的精确统计请回到原始矢量数据查看。');
-    }
+  if (data && data.ok) {
+    const painter = RAIL_PAINTERS[data.kind];
+    if (painter) painter(rail, data);
+    else rail.row('格式', data.driver_label || '未知');
+    if (notes) railNotes(data);
   }
   rail.render($('rail'));
 }
@@ -1479,11 +1600,8 @@ function applyLayerState(d) {
   }
 }
 
-function setChip(d) {
-  const chip = $('fileChip');
-  if (!d) { chip.hidden = true; hideLayerPop(); return; }
-  layerItems = [];
-  layerActive = 0;
+/* 左上角卡片的那几行：按数据种类拼，空值留给渲染时统一跳过 */
+function chipRows(d) {
   const f = d.file || {};
   const kindLabel = { archive: '压缩包', json: 'JSON 文本' };
   const rows = [
@@ -1501,6 +1619,16 @@ function setChip(d) {
   }
   if (d.opened_from) rows.push(['来自文件夹', d.opened_from]);
   if (d.sidecars) rows.push(['伴生文件', sidecarText(d.sidecars)]);
+  return rows;
+}
+
+function setChip(d) {
+  const chip = $('fileChip');
+  if (!d) { chip.hidden = true; hideLayerPop(); return; }
+  layerItems = [];
+  layerActive = 0;
+  const f = d.file || {};
+  const rows = chipRows(d);
 
   const body = $('chipBody');
   body.textContent = '';
@@ -1702,6 +1830,32 @@ function medianOfHist(h) {
   return null;
 }
 
+/* 直方图里已经算出来了、统计缓存里却空着的那几项，就地补进 statistics：
+   大文件走的是快速统计，别为了三个数字再跑一遍引擎 */
+function fillMedian(st, h) {
+  if (st.median !== null && st.median !== undefined) return false;
+  const m = medianOfHist(h);
+  if (m === null || !Number.isFinite(m)) return false;
+  st.median = m;
+  return true;
+}
+
+function fillUniqueCount(st, h) {
+  if (st.unique_count !== null && st.unique_count !== undefined) return false;
+  if (!h.per_value_bins) return false;   // 分箱过的直方图数不出"不同取值个数"
+  st.unique_count = (h.counts || []).filter((c) => c > 0).length;
+  return true;
+}
+
+function fillNodataCount(st, d, h) {
+  if (st.nodata_count !== null && st.nodata_count !== undefined) return false;
+  if (!d.pixels || h.valid_percent === null || h.valid_percent === undefined) return false;
+  const n = Math.round(d.pixels * (1 - h.valid_percent / 100));
+  if (n <= 0) return false;
+  st.nodata_count = n;
+  return true;
+}
+
 function mergeHistStats(res) {
   const d = current && current.data;
   const h = res && res.histogram;
@@ -1709,21 +1863,8 @@ function mergeHistStats(res) {
   const band0 = (d.bands || [])[0];
   const st = band0 && band0.index === 1 ? band0.statistics : null;
   if (!st) return false;
-  let changed = false;
-  if (st.median === null || st.median === undefined) {
-    const m = medianOfHist(h);
-    if (m !== null && Number.isFinite(m)) { st.median = m; changed = true; }
-  }
-  if ((st.unique_count === null || st.unique_count === undefined) && h.per_value_bins) {
-    st.unique_count = (h.counts || []).filter((c) => c > 0).length;
-    changed = true;
-  }
-  if ((st.nodata_count === null || st.nodata_count === undefined) &&
-      d.pixels && h.valid_percent !== null && h.valid_percent !== undefined) {
-    const n = Math.round(d.pixels * (1 - h.valid_percent / 100));
-    if (n > 0) { st.nodata_count = n; changed = true; }
-  }
-  return changed;
+  const changed = [fillMedian(st, h), fillUniqueCount(st, h), fillNodataCount(st, d, h)];
+  return changed.some(Boolean);
 }
 
 /* 分级界值和颜色：图例、影像出图共用这一份。
@@ -1823,6 +1964,80 @@ function destroyHistChart() {
   if (histChart) { histChart.destroy(); histChart = null; }
 }
 
+/* 图表的配色全部取自 CSS 变量：浅色/深色主题切换后不用重画就有正确颜色 */
+function histPalette(root) {
+  const get = (name, fallback) => (root.getPropertyValue(name) || '').trim() || fallback;
+  return {
+    bar: get('--bar', '#4b8ec4'),
+    dim: get('--text-dim', '#777'),
+    grid: get('--line', 'rgba(0,0,0,.1)'),
+    tipBg: get('--panel', '#fff'),
+    tipTx: get('--text', '#222'),
+  };
+}
+
+/* 横轴数字跟着信息栏那份换算走：一边显示 0.001~0.598、一边显示 1~598
+   会让人以为看了两份数据 */
+function histFrame(hist, phys) {
+  const lo = Number(hist.min);
+  const step = Number(hist.bin_width) || 0;
+  const on = !!(phys && phys.on);
+  const pd = physDigits(phys);
+  return {
+    lo: lo,
+    step: step,
+    on: on,
+    pd: pd,
+    at: (v) => (on ? physVal(phys, v) : v),
+    xDigits: on ? pd : (step >= 1 ? 0 : 3),
+  };
+}
+
+/* 分类数据的横轴就是「第几类」，每一类都得标出来：挤的时候斜着排，
+   不再按 maxTicksLimit 抽掉一半，否则对不上图例里那些类别 */
+function histXTicks(discrete, count, color) {
+  if (discrete) {
+    return {
+      color: color, font: { size: 12 }, autoSkip: false,
+      maxRotation: count > 12 ? 60 : 0, minRotation: 0, padding: 0,
+    };
+  }
+  return { maxTicksLimit: 6, color: color, font: { size: 13 }, autoSkip: true, padding: 0 };
+}
+
+function histYTitle(unit, color) {
+  return {
+    display: true,
+    text: '像元数' + (unit[1] ? '（' + unit[1] + '）' : ''),
+    color: color,
+    font: { size: 13 },
+    padding: { top: 0, bottom: 0 },
+  };
+}
+
+/* 悬停气泡：标题给这一档的区间，正文给像元数 */
+function histTooltip(fr, counts, colors) {
+  const gap = fr.on ? fr.pd : 4;
+  return {
+    displayColors: false,
+    // 气泡跟着主题走：浅色底上不再是默认那块深灰
+    backgroundColor: colors.tipBg,
+    titleColor: colors.tipTx,
+    bodyColor: colors.tipTx,
+    borderColor: colors.grid,
+    borderWidth: 1,
+    cornerRadius: 6,
+    padding: 8,
+    callbacks: {
+      title: (items) => {
+        const a = fr.lo + items[0].dataIndex * fr.step;
+        return num(fr.at(a), gap) + ' ~ ' + num(fr.at(a + fr.step), gap);
+      },
+      label: (ctx) => count(counts[ctx.dataIndex]) + ' 像元',
+    },
+  };
+}
+
 function drawHistogram(hist, phys, discrete) {
   const wrap = el('div', 'hist-canvas');
   const counts = (hist && hist.counts) || [];
@@ -1833,32 +2048,21 @@ function drawHistogram(hist, phys, discrete) {
   const scale = linTicks(peak / unit[0]);
   const top = scale.list[scale.list.length - 1] || 1;
   const shown = (v) => String(Math.round(v * 10) / 10);
-  const lo = Number(hist.min);
-  const step = Number(hist.bin_width) || 0;
-  /* 横轴刻度跟着信息栏那份换算走：一边显示 0.001~0.598、一边显示 1~598 会让人以为看了两份数据 */
-  const on = !!(phys && phys.on);
-  const pd = physDigits(phys);
-  const at = (v) => (on ? physVal(phys, v) : v);
-  const xd = on ? pd : (step >= 1 ? 0 : 3);
-  const labels = counts.map((c, i) => num(at(lo + i * step), xd));
-  const rs = getComputedStyle(document.documentElement);
-  const bar = (rs.getPropertyValue('--bar') || '').trim() || '#4b8ec4';
-  const dim = (rs.getPropertyValue('--text-dim') || '').trim() || '#777';
-  const grid = (rs.getPropertyValue('--line') || '').trim() || 'rgba(0,0,0,.1)';
+  const fr = histFrame(hist, phys);
+  const labels = counts.map((c, i) => num(fr.at(fr.lo + i * fr.step), fr.xDigits));
+  const colors = histPalette(getComputedStyle(document.documentElement));
 
   const canvas = document.createElement('canvas');
   wrap.appendChild(canvas);
   destroyHistChart();
-  const tipBg = (rs.getPropertyValue('--panel') || '').trim() || '#fff';
-  const tipTx = (rs.getPropertyValue('--text') || '').trim() || '#222';
   histChart = new Chart(canvas, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [{
         data: counts.map((c) => c / unit[0]),
-        backgroundColor: bar,
-        hoverBackgroundColor: bar,
+        backgroundColor: colors.bar,
+        hoverBackgroundColor: colors.bar,
         borderWidth: 0,
         barPercentage: 1,
         categoryPercentage: 1,
@@ -1872,61 +2076,33 @@ function drawHistogram(hist, phys, discrete) {
       scales: {
         x: {
           grid: { display: false },
-          border: { color: grid },
+          border: { color: colors.grid },
           // 标签再贴近轴线一点，给绘图区多留高度
-          /* 分类数据的横轴就是「第几类」，每一类都得标出来：挤的时候斜着排，
-             不再按 maxTicksLimit 抽掉一半，否则对不上图例里那些类别 */
-          ticks: discrete
-            ? { color: dim, font: { size: 12 }, autoSkip: false, maxRotation: counts.length > 12 ? 60 : 0, minRotation: 0, padding: 0 }
-            : { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 0 },
+          ticks: histXTicks(discrete, counts.length, colors.dim),
         },
         y: {
           beginAtZero: true,
           max: top,
-          grid: { color: grid, drawTicks: false },
+          grid: { color: colors.grid, drawTicks: false },
           border: { display: false },
           ticks: {
-            stepSize: scale.step, color: dim, font: { size: 13 }, padding: 2,
+            stepSize: scale.step, color: colors.dim, font: { size: 13 }, padding: 2,
             callback: (v) => shown(v),
           },
           // 轴标题竖着写在轴左侧，不占顶上那条位置
-          title: {
-            display: true,
-            text: '像元数' + (unit[1] ? '（' + unit[1] + '）' : ''),
-            color: dim,
-            font: { size: 13 },
-            padding: { top: 0, bottom: 0 },
-          },
+          title: histYTitle(unit, colors.dim),
         },
       },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          displayColors: false,
-          // 气泡跟着主题走：浅色底上不再是默认那块深灰
-          backgroundColor: tipBg,
-          titleColor: tipTx,
-          bodyColor: tipTx,
-          borderColor: grid,
-          borderWidth: 1,
-          cornerRadius: 6,
-          padding: 8,
-          callbacks: {
-            title: (items) => {
-              const i = items[0].dataIndex;
-              const a = lo + i * step;
-              const d = on ? pd : 4;
-              return num(at(a), d) + ' ~ ' + num(at(a + step), d);
-            },
-            label: (ctx) => count(counts[ctx.dataIndex]) + ' 像元',
-          },
-        },
+        tooltip: histTooltip(fr, counts, colors),
       },
     },
   });
   _histLast = hist;
   return wrap;
 }
+
 
 function legendBody(open) {
   const body = $('legendBody');
@@ -2112,34 +2288,35 @@ function kindText(f) {
 }
 
 /* 字段类型的说明：把引擎读到的类型名对上 GIS 里的通用叫法，不说"小数型"这种含糊话 */
+/* 字段类型的解释：给人读的一句话。带长度/精度的用函数生成，固定说法直接写 */
+const TYPE_EXPLAIN = {
+  IntegerList: () => '整数列表（IntegerList）：一个字段里存一组整数',
+  RealList: () => '浮点列表（RealList）：一个字段里存一组带小数点的数值',
+  Integer: (w) => '整数（Integer，32 位）：不含小数位，常用于编号、计数、年份。' +
+    (w ? '最多 ' + w + ' 位数字' : '取值范围约 ±21.5 亿'),
+  Integer64: (w) => '长整数（Integer64，64 位）：取值范围远大于 32 位整数' +
+    (w ? '，最多 ' + w + ' 位数字' : '') + '，常用于大编号与时间戳',
+  Real: (w, p) => '双精度浮点（Real，即 Double）：存带小数点的连续数值，如面积、人口、降水量。' +
+    (p ? '小数位 ' + p + ' 位' : '按双精度存储，约 15 位有效数字'),
+  Date: () => '日期（Date）：只记年月日，不含时刻',
+  DateTime: () => '日期时间（DateTime）：年月日与时刻一起记',
+  Time: () => '时间（Time）：只记时刻，不含日期',
+};
+
 function typeExplain(f) {
   const t = String(f.type || '');
   const w = f.width ? Number(f.width) : 0;
   const p = f.precision ? Number(f.precision) : 0;
+  if (!t) return '';
+  // 带 List 的、带 String/Binary 的是一整类，先按前缀判，剩下的是定名类型
   if (t.indexOf('StringList') === 0) return '文本列表（StringList）：一个字段里存多段文字';
-  if (t.indexOf('String') === 0 || t === 'WideString') {
+  if (t === 'WideString' || t.indexOf('String') === 0) {
     return '文本（String）：存名称、编号、备注这类文字内容。' +
       (w ? '每个值最多 ' + w + ' 个字符，超出即截断' : '长度上限由数据源定义');
   }
-  if (t.indexOf('IntegerList') === 0) return '整数列表（IntegerList）：一个字段里存一组整数';
-  if (t.indexOf('RealList') === 0) return '浮点列表（RealList）：一个字段里存一组带小数点的数值';
-  if (t === 'Integer') {
-    return '整数（Integer，32 位）：不含小数位，常用于编号、计数、年份。' +
-      (w ? '最多 ' + w + ' 位数字' : '取值范围约 ±21.5 亿');
-  }
-  if (t === 'Integer64') {
-    return '长整数（Integer64，64 位）：取值范围远大于 32 位整数' +
-      (w ? '，最多 ' + w + ' 位数字' : '') + '，常用于大编号与时间戳';
-  }
-  if (t === 'Real') {
-    return '双精度浮点（Real，即 Double）：存带小数点的连续数值，如面积、人口、降水量。' +
-      (p ? '小数位 ' + p + ' 位' : '按双精度存储，约 15 位有效数字');
-  }
-  if (t === 'Date') return '日期（Date）：只记年月日，不含时刻';
-  if (t === 'DateTime') return '日期时间（DateTime）：年月日与时刻一起记';
-  if (t === 'Time') return '时间（Time）：只记时刻，不含日期';
   if (t.indexOf('Binary') === 0) return '二进制（Binary）：存字节流，如图片、附件，表格里读不出内容';
-  return t ? '存储类型：' + t : '';
+  const make = TYPE_EXPLAIN[t];
+  return make ? make(w, p) : '存储类型：' + t;
 }
 
 function copyText(text, note) {
@@ -2420,6 +2597,36 @@ function setAttrMore(c, busy) {
   if (chip) chip.hidden = !(busy && attrShown === c);
 }
 
+/* Esc 一层层往回收：先关最上面的浮层，再关识别弹窗；属性表不归它管 */
+function escapeTopLayer(e, typing) {
+  const t = e.target;
+  if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
+  if (!$('updPop').hidden) { closeUpdPop(); return; }
+  if (!$('recentPop').hidden) { hideRecent(); return; }
+  if (!$('pickPop').hidden) { hidePickPop(); return; }
+  if (!$('checkPop').hidden) { hideCheckPop(); return; }
+  if (!$('convPop').hidden) { hideConvPop(); return; }
+  if (!$('layerPop').hidden) { hideLayerPop(); return; }
+  if (!$('settings').hidden) { $('cfgClose').click(); return; }
+  if (!$('errToast').hidden) { hideErrToast(); return; }
+  if (t === $('attrFind')) { $('attrFind').value = ''; applyAttrFind(); $('attrFind').blur(); return; }
+  if (typing) return;
+  if (window.GisMap && GisMap.closePopup()) return;
+  // 属性表不归 Esc 管：点右上角的 × 关，别让按键误伤
+}
+
+/* Ctrl+F：属性表没开就先打开，再把光标放进查找框 */
+function focusAttrFind(e) {
+  e.preventDefault();
+  if (!attrOpen()) { attrAuto = false; toggleAttr(); }
+  const box = $('attrFind');
+  if (box) { box.focus(); box.select(); }
+}
+
+function fitToLayer() {
+  if (window.GisMap && GisMap.hasLayer && GisMap.hasLayer()) GisMap.fullExtent();
+}
+
 /* 键盘上的 shortcuts：Esc 一层层往回收，F 回全图，Ctrl+F 跳到属性表查找框。
    正在打字的时候除了 Esc 都不抢键 */
 function wireQuickKeys() {
@@ -2427,32 +2634,10 @@ function wireQuickKeys() {
     const t = e.target;
     const typing = !!(t && t.closest && t.closest('input, textarea, select, .combo'));
     const combo = comboOf(e);
-    if (combo && combo === keyOf('key_close')) {
-      if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
-      if (!$('updPop').hidden) { closeUpdPop(); return; }
-      if (!$('recentPop').hidden) { hideRecent(); return; }
-      if (!$('pickPop').hidden) { hidePickPop(); return; }
-      if (!$('checkPop').hidden) { hideCheckPop(); return; }
-      if (!$('convPop').hidden) { hideConvPop(); return; }
-      if (!$('layerPop').hidden) { hideLayerPop(); return; }
-      if (!$('settings').hidden) { $('cfgClose').click(); return; }
-      if (!$('errToast').hidden) { hideErrToast(); return; }
-      if (t === $('attrFind')) { $('attrFind').value = ''; applyAttrFind(); $('attrFind').blur(); return; }
-      if (typing) return;
-      if (window.GisMap && GisMap.closePopup()) return;
-      return;   // 属性表不归 Esc 管：点右上角的 × 关，别让按键误伤
-    }
-    if (combo && combo === keyOf('key_find')) {
-      e.preventDefault();
-      if (!attrOpen()) { attrAuto = false; toggleAttr(); }
-      const box = $('attrFind');
-      if (box) { box.focus(); box.select(); }
-      return;
-    }
+    if (combo === keyOf('key_close')) { escapeTopLayer(e, typing); return; }
+    if (combo === keyOf('key_find')) { focusAttrFind(e); return; }
     if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (combo && combo === keyOf('key_fit')) {
-      if (window.GisMap && GisMap.hasLayer && GisMap.hasLayer()) GisMap.fullExtent();
-    }
+    if (combo === keyOf('key_fit')) fitToLayer();
   });
 }
 
@@ -2482,6 +2667,44 @@ function failAttr(c) {
 }
 
 /* 逐页取：不带视野范围，整层的要素按序读，避免"只有视野内"那种半截表 */
+/* 第一次拿到数据时立表头；这个图层一个属性字段都没有就说明白，返回 false */
+function attrBuildShell(c, got) {
+  if (!(c.keys && c.keys.length)) c.keys = keysFromRows(got, c.layer);
+  if (!c.keys.length) {
+    if (attrShown === c) {
+      setAttrMore(c, false);
+      const body = $('attrBody');
+      body.textContent = '';
+      body.appendChild(el('div', 'attr-empty', '这个图层没有可展示的属性字段'));
+    }
+    c.done = true;
+    return false;
+  }
+  attrShell(c);
+  return true;
+}
+
+/* 一页要素到了：补字段、加行、判断还有没有下一页；没铺满一屏就接着要 */
+function attrPageArrived(c, res, n) {
+  const m = res.gisviewer || {};
+  const got = res.features || [];
+  if (m.deep_page && !got.length) {
+    toastNote('翻页较慢', '这个格式没有空间索引，已在后台建索引；等几秒再翻会快很多。', '', false);
+  }
+  if (m.layer_total !== null && m.layer_total !== undefined) c.total = m.layer_total;
+  if (!c.built && !attrBuildShell(c, got)) return;
+  appendAttrRows(c, got);
+  c.done = !got.length || (c.total !== null && c.rows.length >= c.total) || got.length < n;
+  if (attrShown === c) {
+    setAttrMore(c, false);
+    // 一页没铺满一屏就接着要，用户滚不动就触发不了下一页
+    requestAnimationFrame(() => {
+      const body = $('attrBody');
+      if (attrShown === c && !c.done && body.scrollHeight <= body.clientHeight + 40) loadAttrPage(c);
+    });
+  }
+}
+
 function loadAttrPage(c) {
   if (c.done || c.loading || c.error) return;
   c.loading = true;
@@ -2498,36 +2721,7 @@ function loadAttrPage(c) {
       failAttr(c);
       return;
     }
-    const m = res.gisviewer || {};
-    const got = res.features || [];
-    if (m.deep_page && !got.length) {
-      toastNote('翻页较慢', '这个格式没有空间索引，已在后台建索引；等几秒再翻会快很多。', '', false);
-    }
-    if (m.layer_total !== null && m.layer_total !== undefined) c.total = m.layer_total;
-    if (!c.built) {
-      if (!(c.keys && c.keys.length)) c.keys = keysFromRows(got, c.layer);
-      if (!c.keys.length) {
-        if (attrShown === c) {
-          setAttrMore(c, false);
-          const body = $('attrBody');
-          body.textContent = '';
-          body.appendChild(el('div', 'attr-empty', '这个图层没有可展示的属性字段'));
-        }
-        c.done = true;
-        return;
-      }
-      attrShell(c);
-    }
-    appendAttrRows(c, got);
-    c.done = !got.length || (c.total !== null && c.rows.length >= c.total) || got.length < n;
-    if (attrShown === c) {
-      setAttrMore(c, false);
-      // 一页没铺满一屏就接着要，用户滚不动就触发不了下一页
-      requestAnimationFrame(() => {
-        const body = $('attrBody');
-        if (attrShown === c && !c.done && body.scrollHeight <= body.clientHeight + 40) loadAttrPage(c);
-      });
-    }
+    attrPageArrived(c, res, n);
   }).catch((err) => {
     if (tok !== c.tok) return;
     c.loading = false;
@@ -3612,22 +3806,28 @@ const RECENT_ICO = {
 };
 
 /* 先按格式认（数据库、表格、地球、结构化文本、CAD），认不出来的再按几何认 */
+const RECENT_FMT_RULES = [
+  // 驱动名有中文（文件地理数据库）也有英文，两套都得认
+  [/Geodatabase|GeoPackage|SQLite|SpatiaLite|地理数据库|空间数据库/i, 'db'],
+  [/表格|CSV|XLSX/i, 'table'],
+  [/^KML|^GPX/i, 'globe'],
+  [/GeoJSON|GML|TopoJSON|JSON/i, 'code'],
+  [/^DXF|^DWG/i, 'cad']
+];
+const RECENT_GEOM_KEYS = ['point', 'line', 'polygon'];
+
 function recentIconKey(m) {
   if (!m) return 'file';
-  const kind = m.kind || '';
+  if (m.kind === 'archive') return 'archive';
   const fmt = m.fmt || '';
-  if (kind === 'archive') return 'archive';
-  // 驱动名有中文（文件地理数据库）也有英文，两套都得认
-  if (/Geodatabase|GeoPackage|SQLite|SpatiaLite|地理数据库|空间数据库/i.test(fmt)) return 'db';
-  if (/表格|CSV|XLSX/i.test(fmt)) return 'table';
-  if (/^KML|^GPX/i.test(fmt)) return 'globe';
-  if (/GeoJSON|GML|TopoJSON|JSON/i.test(fmt)) return 'code';
-  if (/^DXF|^DWG/i.test(fmt)) return 'cad';
-  if (kind === 'raster') return 'raster';
+  for (let i = 0; i < RECENT_FMT_RULES.length; i += 1) {
+    if (RECENT_FMT_RULES[i][0].test(fmt)) return RECENT_FMT_RULES[i][1];
+  }
+  if (m.kind === 'raster') return 'raster';
   const g = (m.geom || '').toLowerCase();
-  if (g.indexOf('point') === 0) return 'point';
-  if (g.indexOf('line') === 0) return 'line';
-  if (g.indexOf('polygon') === 0) return 'polygon';
+  for (let i = 0; i < RECENT_GEOM_KEYS.length; i += 1) {
+    if (g.indexOf(RECENT_GEOM_KEYS[i]) === 0) return RECENT_GEOM_KEYS[i];
+  }
   if (g === 'mixed' || g === 'geometrycollection') return 'mixed';
   return 'file';
 }
@@ -3884,26 +4084,31 @@ function togglePickPop() {
 
 /* 认 "116.4, 39.9"、"116.4 39.9"、"116.4E 39.9N" 这一类写法，顺序按 X,Y（经度在前）；
    带了路径符号或结尾像扩展名的，一律不当坐标 */
+/* 一个数字加可选的度数符号与方位字母："116.4"、"116.4E"、"39.9N" 都认 */
+function parseCoord(part) {
+  const m = /^([-+]?[\d.]+)\s*(?:°|deg)?([NSEWnsew])?$/.exec(part);
+  if (!m) return null;
+  let v = parseFloat(m[1]);
+  if (!isFinite(v)) return null;
+  const h = (m[2] || '').toUpperCase();
+  if (h === 'S' || h === 'W') v = -v;
+  const axis = h === 'N' || h === 'S' ? 'lat' : (h === 'E' || h === 'W' ? 'lon' : '');
+  return { v: v, axis: axis };
+}
+
 function parseLonLat(text) {
   const s = String(text || '').trim().replace(/，/g, ',').replace(/；/g, ';').replace(/\s+/g, ' ');
   if (!s || /[\\/:*?"<>|]/.test(s)) return null;
   if (/\.[A-Za-z]{2,5}$/.test(s)) return null;
   const parts = s.split(/[,; ]+/).filter(Boolean);
   if (parts.length !== 2) return null;
-  const got = [];
-  for (let i = 0; i < 2; i++) {
-    const m = /^([-+]?[\d.]+)\s*(?:°|deg)?([NSEWnsew])?$/.exec(parts[i]);
-    if (!m) return null;
-    let v = parseFloat(m[1]);
-    if (!isFinite(v)) return null;
-    const h = (m[2] || '').toUpperCase();
-    if (h === 'S' || h === 'W') v = -v;
-    got.push({ v: v, axis: h === 'N' || h === 'S' ? 'lat' : (h === 'E' || h === 'W' ? 'lon' : '') });
-  }
-  let lon = got[0].v;
-  let lat = got[1].v;
+  const a = parseCoord(parts[0]);
+  const b = parseCoord(parts[1]);
+  if (!a || !b) return null;
+  let lon = a.v;
+  let lat = b.v;
   // 写了 N/S 在前（39.9N 116.4E 这类），按字母把两数换回来
-  if (got[0].axis === 'lat' || got[1].axis === 'lon') { lon = got[1].v; lat = got[0].v; }
+  if (a.axis === 'lat' || b.axis === 'lon') { lon = b.v; lat = a.v; }
   if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return null;
   return [lon, lat];
 }
@@ -4257,12 +4462,17 @@ function paintRange(el) {
   el.style.setProperty('--pct', Math.max(0, Math.min(100, pct)).toFixed(1) + '%');
 }
 
-function fillSettings() {
+/* 设置页按分组填：每个函数只负责一个分区的控件，
+   顺序与原来自上而下一致（基础、显示、窗口、缓存、外观、系统） */
+function fillBasemapSettings() {
   $('cfgBasemap').value = config.basemap || 'tianditu_img';
   $('cfgAnnotation').checked = config.annotation === true;
   $('cfgKey').value = config.tianditu_key || '';
   keyTouched = false;
   paintBasemapFields();
+}
+
+function fillRenderSettings() {
   $('cfgRamp').value = config.ramp || 'viridis';
   $('cfgClassCount').value = String(config.class_count || 5);
   $('cfgNodata').value = config.nodata_view || 'transparent';
@@ -4273,11 +4483,17 @@ function fillSettings() {
   $('cfgDrawLimit').value = String(config.draw_limit || 5000);
   $('cfgVecPrecision').value = config.vec_precision || 'auto';
   paintVecPrecHint();
+}
+
+function fillWindowSettings() {
   $('cfgTopMost').checked = !!config.always_on_top;
   if ($('cfgPyrAsk')) $('cfgPyrAsk').checked = !pyrNeverAsked();
   $('cfgRestore').checked = !!config.restore_last;
   $('cfgOpenDir').value = config.open_dir || '';
   $('cfgRecentMax').value = String(recentMax());
+}
+
+function fillCacheSettings() {
   /* 副本存放位置留空时直接填上系统临时目录：让用户看见实际用的是哪，
      而不是对着一个"留空则用临时目录"的占位符去猜 */
   $('cfgCache').value = config.cache_dir || config.temp_dir || '';
@@ -4285,6 +4501,9 @@ function fillSettings() {
   // 框里给"用户选的位置"；实际生效的目录（所选位置 / TulanCache）在下方状态行
   $('cachePath').value = config.cache_root || config.cache_effective || cacheDirShown || '';
   $('cfgKeepHours').value = String(config.keep_hours || 12);
+}
+
+function fillLookSettings() {
   $('cfgZoom').value = String(config.ui_zoom || 100);
   $('cfgAlpha').value = String(config.panel_alpha || 93);
   $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
@@ -4297,6 +4516,9 @@ function fillSettings() {
   $('cfgCloseAsk').checked = config.close_ask !== false;
   // 早先存过 "boot"（开机就查），这一版改成打开后延迟查，读到老值直接换算过去
   $('cfgUpdFreq').value = config.upd_freq === 'boot' ? 'open' : (config.upd_freq || 'open');
+}
+
+function fillSystemSettings() {
   fillFontSelects();
   paintHotkeys();
   $('cfgAutoStart').checked = host.autoStart === true;
@@ -4319,6 +4541,15 @@ function fillSettings() {
   document.querySelectorAll('#settings select').forEach((s) => window.syncSelect(s));
 }
 
+function fillSettings() {
+  fillBasemapSettings();
+  fillRenderSettings();
+  fillWindowSettings();
+  fillCacheSettings();
+  fillLookSettings();
+  fillSystemSettings();
+}
+
 /* 副本目录用不了的时候引擎会退回系统临时目录，原因得自己说出来。
    这段说明现在并进"副本存放位置"下方的状态行，不再单独占一行 */
 function paintCacheHint() {
@@ -4335,6 +4566,13 @@ let cacheDirShown = '';
    点"选择…"之前先记下目标，收到回传时按这个分发 */
 let dirPickTarget = '';
 let filePickTarget = '';   // 壳的选文件框回传填给谁：'conv' 或默认给体检
+
+/* 选目录时从这一栏当前的路径起步：全从"起始目录"起步的话，
+   选副本目录、缓存目录都得自己再翻一遍 */
+function pickFrom(inputId) {
+  const box = $(inputId);
+  toShell('pickdir:' + ((box && box.value) || '').trim());
+}
 
 function paintCacheSize(info, dir) {
   if (dir) cacheDirShown = dir;
@@ -5023,36 +5261,15 @@ function runConvDry() {
       suffix: convSuffixValue(), overwrite: convOverwrite(),
     }),
   }).then((r) => r.json()).then((d) => {
-    if (seq !== convDrySeq) return;                 // 已经有更新的一次预检在跑，这次作废
-    if (sig !== convSignature()) return;            // 参数在等待期间变了，结果对不上
-    if ($('convPop') && $('convPop').hidden) return;
+    if (convDryStale(seq, sig)) return;
     convDrySig = sig;
     convDryDone = true;
     const box2 = convStatusBox();
     const sum2 = $('convSrcSum');
     if (!box2 || !sum2) return;
     box2.textContent = '';
-    if (!d || !d.ok) {
-      const err = (d && d.error) || {};
-      sum2.textContent = '';
-      convReady = false;
-      updateConvRun();
-      paintConvOutHint('');
-      convError(err.title || '预检未通过。', err.hint);
-      return;
-    }
-    const b = d.before || {};
-    convReady = true;
-    updateConvRun();
-    sum2.textContent = [
-      b.feature_count + ' 个要素',
-      b.field_count + ' 个字段',
-      b.geometry || '几何未知',
-      b.crs || '坐标系未记录',
-    ].join(' · ');
-    // 落点直接给完整路径，就在页脚那一行的最左侧
-    paintConvOutHint(d.out_path || '');
-    (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
+    if (!d || !d.ok) { convDryFail(d, sum2); return; }
+    convDryOk(d, box2, sum2);
   }).catch(() => {
     const sum2 = $('convSrcSum');
     if (sum2) sum2.textContent = '';
@@ -5060,6 +5277,40 @@ function runConvDry() {
     updateConvRun();
     convError('预检没能完成。', '请确认引擎在运行，然后重试。');
   });
+}
+
+/* 这次预检还算数吗：序号不是最新、参数变了、浮层已经关掉，都作废 */
+function convDryStale(seq, sig) {
+  if (seq !== convDrySeq) return true;      // 已经有更新的一次预检在跑
+  if (sig !== convSignature()) return true; // 参数在等待期间变了，结果对不上
+  const pop = $('convPop');
+  return !!(pop && pop.hidden);
+}
+
+/* 预检成功：把"转换后长什么样"填进页脚摘要，警告逐条列出 */
+function convDryOk(d, box2, sum2) {
+  const b = d.before || {};
+  convReady = true;
+  updateConvRun();
+  sum2.textContent = [
+    b.feature_count + ' 个要素',
+    b.field_count + ' 个字段',
+    b.geometry || '几何未知',
+    b.crs || '坐标系未记录'
+  ].join(' · ');
+  // 落点直接给完整路径，就在页脚那一行的最左侧
+  paintConvOutHint(d.out_path || '');
+  (d.warnings || []).forEach((w) => box2.appendChild(convMsg('warn', w)));
+}
+
+/* 预检没过：清掉摘要，把引擎给的标题与建议一起亮出来 */
+function convDryFail(d, sum2) {
+  const err = (d && d.error) || {};
+  sum2.textContent = '';
+  convReady = false;
+  updateConvRun();
+  paintConvOutHint('');
+  convError(err.title || '预检未通过。', err.hint);
 }
 
 /* 主按钮只有"输入文件填了"才亮：空着点它没有任何意义，置灰比点完弹一句提示好 */
@@ -5583,15 +5834,34 @@ function vkOf(e) {
   return named[code] || 0;
 }
 
+const MODIFIER_KEYS = ['Control', 'Alt', 'Shift', 'Meta', 'CapsLock'];
+
+/* 修饰键按位记：Ctrl=2、Alt=1、Shift=4、Win=8，和壳里的约定一致 */
+function modifierBits(e) {
+  return (e.ctrlKey ? 2 : 0) | (e.altKey ? 1 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+}
+
+/* 只按下修饰键本身时还没有具体键：Control/Alt/Shift/Meta/CapsLock 都算 0 */
+function vkOfEvent(e) {
+  if (MODIFIER_KEYS.indexOf(e.key) >= 0) return 0;
+  return vkOf(e);
+}
+
+/* 允许的组合：带一个修饰键，或者单按 F1~F12 */
+function hotkeyAcceptable(mods, vk) {
+  if (!vk) return false;
+  if (mods) return true;
+  return vk >= 0x70 && vk <= 0x7B;
+}
+
 function onArmKeydown(e) {
   if (!armingHot) return;
   e.preventDefault();
   e.stopPropagation();
   if (e.key === 'Escape') { settleHotkey(); return; }
-  const mods = (e.ctrlKey ? 2 : 0) | (e.altKey ? 1 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
-  const vk = e.key === 'Control' || e.key === 'Alt' || e.key === 'Shift' ||
-    e.key === 'Meta' || e.key === 'CapsLock' ? 0 : vkOf(e);
-  if (!vk || (mods === 0 && !(vk >= 0x70 && vk <= 0x7B))) {
+  const mods = modifierBits(e);
+  const vk = vkOfEvent(e);
+  if (!hotkeyAcceptable(mods, vk)) {
     $(HK_ROWS[armingHot].hint).textContent =
       '至少要按下一个修饰键（Ctrl、Alt、Shift、Win），单按 F1~F12 也可以。';
     return;
@@ -5844,11 +6114,8 @@ function maybeCheckUpdate() {
 }
 
 /* 设置改一处生效一处，没有"保存"这一步；落盘跟在每次改动后面 */
-async function applySettings() {
-  const before = {
-    ramp: config.ramp, k: config.class_count,
-    nodata: config.nodata_view, def: config.raster_default,
-  };
+/* 设置页上半部分：底图与数据显示相关，改完立刻影响下一次绘制 */
+function saveRenderPreferences() {
   config.basemap = $('cfgBasemap').value;
   config.annotation = $('cfgAnnotation').checked;
   /* 只写"确实有值"或"用户动过这一栏"的情况：别的控件触发 applySettings 时，
@@ -5867,10 +6134,14 @@ async function applySettings() {
   if (window.GisMap) GisMap.setVecPrecision(config.vec_precision);
   applyTopMost($('cfgTopMost').checked, true);
   if ($('cfgPyrAsk')) {
-    try { localStorage.setItem(PYR_NEVER, $('cfgPyrAsk').checked ? '0' : '1'); } catch { /* 同上 */ }
+    try { localStorage.setItem(PYR_NEVER, $('cfgPyrAsk').checked ? '0' : '1'); } catch { /* 隐私模式下写不了，不影响本次使用 */ }
   }
-  config.draw_limit = Number($('cfgDrawLimit').value);
+  config.draw_limit = Number($('cfgDrawLimit').value) || 5000;
   if (window.GisMap) GisMap.setDrawLimit(config.draw_limit);
+}
+
+/* 设置页下半部分：窗口行为、目录、缓存。改完要把"由壳执行"的那几项告诉壳 */
+function saveSystemPreferences() {
   config.ui_font = $('cfgFontUi').value;
   config.num_font = $('cfgFontNum').value;
   config.ui_zoom = Number($('cfgZoom').value);
@@ -5893,6 +6164,11 @@ async function applySettings() {
   // 写"用户想用的位置"，不读输入框：框里显示的是生效目录，可能已经被服务端回退过
   config.cache_root = cachePickIntent || '';
   config.keep_hours = Number($('cfgKeepHours').value);
+}
+
+/* 把改动应用出去：配色、字号、右栏文字、属性表、底图按钮都要跟上，
+   最后整份存回引擎；分级与上色是引擎算的，改了要重算当前波段 */
+async function applySavedSettings(before) {
   applyDataColor();
   applyLook();
   // 单位写法这类设置改的是右栏里的文字，只重画那块，地图和图层都不动
@@ -5903,6 +6179,16 @@ async function applySettings() {
   commitConfig();
   // 分级和上色是引擎算的，改完要把当前波段重算一遍，不能等用户重新拖文件
   if (raster) await refreshRasterView(before);
+}
+
+async function applySettings() {
+  const before = {
+    ramp: config.ramp, k: config.class_count,
+    nodata: config.nodata_view, def: config.raster_default,
+  };
+  saveRenderPreferences();
+  saveSystemPreferences();
+  await applySavedSettings(before);
 }
 
 /* 每次改动都整份写回去：引擎那边是读一遍再覆盖，最后写回去的那份就是最终状态 */
@@ -5919,7 +6205,7 @@ async function commitConfig() {
       config.cache_note = data.cache_note || '';
       /* 缓存位置的真相由服务端给：生效目录 + 切换说明。界面照抄，不自己判断 */
       if ('cache_effective' in data) config.cache_effective = data.cache_effective;
-      config.cache_fallback = !!data.cache_fallback;
+      config.cache_fallback = Boolean(data.cache_fallback);
       const note = data.cache_root_note || '';
       const fellBack = !!data.cache_fallback;
       if (note && note !== (config.cache_root_note || '')) {
@@ -6285,9 +6571,6 @@ function wireCacheSettings() {
     if (cacheDirShown) toShell('openpath:' + cacheDirShown);
   });
   // 文件框的起始目录：点"选择…"由壳弹系统选文件夹框，选完回传 GisHost('dir', 路径)
-  /* 选目录时从这一栏当前的路径起步：全从"起始目录"起步的话，
-     选副本目录、缓存目录都得自己再翻一遍 */
-  const pickFrom = (inputId) => toShell('pickdir:' + (($(inputId) || {}).value || '').trim());
   $('cfgOpenDirPick').addEventListener('click', () => { dirPickTarget = 'open'; pickFrom('cfgOpenDir'); });
   $('cfgCachePick').addEventListener('click', () => { dirPickTarget = 'cache'; pickFrom('cfgCache'); });
   $('cachePathPick').addEventListener('click', () => { dirPickTarget = 'cachedir'; pickFrom('cachePath'); });
@@ -6749,33 +7032,35 @@ function wireAttrTable() {
   });
 }
 
+/* 画出图层但没底图时提醒一次。只提醒"选了要密钥的底图却没填密钥"这一种，
+   用户自己把底图关掉是他的选择；配置还没读回来时不能判，否则启动就恢复上次文件那条路径会误报 */
+function hintNoBasemap(kind, state) {
+  if (state.shown || !configReady) return;
+  if (kind !== 'vector' && kind !== 'raster') return;
+  const bm = String(config.basemap || '');
+  if (bm.indexOf('tianditu') !== 0) return;
+  if ((config.tianditu_key || '').trim()) return;
+  state.shown = true;
+  showErrToast('当前无可用底图',
+    '在 **设置 → 底图** 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。', '', 'info');
+}
+
+/* 清空（none）不算画完：切文件时先清一次旧图层，那一下收遮罩就收早了。
+   skip 是"这层画不出来"，这时候遮罩要立刻撤，别让人对着转圈等 */
+function veilOnDrawn(kind) {
+  if (kind === 'skip') { releaseVeil(); return; }
+  if (kind === 'none') return;
+  drawTick += 1;
+  if (veilHold && drawTick > veilAt) releaseVeil();
+}
+
 /* 图层画完后的收尾与主题跟随系统 */
 function wireMapDrawDone() {
-  let baseHintShown = false;
+  const state = { shown: false };
   $('map').addEventListener('gis:drawn', (e) => {
     const kind = (e.detail && e.detail.kind) || 'none';
-    /* 别人拿到软件第一件事常常是"地图怎么是白的"：画出图层但没底图时提醒一次 */
-    /* 只提醒"选了要密钥的底图却没填密钥"这一种。用户自己把底图关掉，
-       那是他的选择，不该每次重绘都弹一句"没有底图" */
-    /* 配置还没读回来时 config.tianditu_key 一定是空的，这时候弹"没有底图"是误报——
-       启动就恢复上次文件的那条路径正好会撞上。等配置就绪再判 */
-    if (!baseHintShown && configReady && (kind === 'vector' || kind === 'raster')) {
-      const bm = String(config.basemap || '');
-      const noKey = bm.indexOf('tianditu') === 0 && !(config.tianditu_key || '').trim();
-      if (noKey) {
-        baseHintShown = true;
-        showErrToast('当前无可用底图',
-          '在 **设置 → 底图** 里选择底图源；天地图需要填一个"浏览器端"密钥（自备）。', '', 'info');
-      }
-    }
-    /* 清空（none）不算画完：切文件时先清一次旧图层，那一下收遮罩就收早了。
-       skip 是"这层画不出来"，这时候遮罩要立刻撤，别让人对着转圈等 */
-    if (kind === 'skip') {
-      releaseVeil();
-    } else if (kind !== 'none') {
-      drawTick++;
-      if (veilHold && drawTick > veilAt) releaseVeil();
-    }
+    hintNoBasemap(kind, state);
+    veilOnDrawn(kind);
     // 换成栅格或切片之后属性表已经没有意义，关掉，别把上一个矢量的行留在下面
     if (kind !== 'vector') closeAttr();
   });
@@ -6786,6 +7071,67 @@ function wireMapDrawDone() {
      错误提示由地图自己弹，别让遮罩一直转 */
   window.gisMapFail = () => { releaseVeil(); loadTip(false); };
 
+}
+
+/* 布局类的观察器：地图尺寸、文件卡高度都会影响图例能长多高 */
+function watchLayout() {
+  reportDropArea();
+  window.addEventListener('resize', reportDropArea);
+  const mainEl = $('drop');
+  if (mainEl && window.ResizeObserver) new ResizeObserver(reportDropArea).observe(mainEl);
+  /* 地图宽度会被分栏拖动、信息栏收放改掉：提示卡跟着重新居中 */
+  const mapEl = $('map');
+  if (mapEl && window.ResizeObserver) new ResizeObserver(placeErrToast).observe(mapEl);
+  /* 分栏拖动、信息栏收放、窗口缩放都会改地图高度；文件卡展开收起、换图层都会改它自己的高度 */
+  const stageEl = document.querySelector('.map-stage');
+  const chipEl = $('fileChip');
+  syncMapHeight();
+  if (!window.ResizeObserver) return;
+  const ro = new ResizeObserver(syncMapHeight);
+  if (stageEl) ro.observe(stageEl);
+  if (chipEl) ro.observe(chipEl);
+}
+
+/* 让壳知道关闭按钮的行为与"就绪"，顺便查一次更新 */
+function tellShellReady() {
+  // 底图按钮的亮灭按 config.basemap 定：设置里选过"无底图"，这里一启动就是灭的
+  updateBaseBtn();
+  toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
+  toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
+  toShell('ready');
+  maybeCheckUpdate();
+}
+
+/* 地址栏上的 ?theme= 优先于设置里的主题 */
+function applyForcedTheme(params) {
+  const forced = params.get('theme');
+  if (!forced || !THEME_LABELS[forced]) return;
+  config.theme = forced;
+  applyTheme(forced);
+  paintThemeBtn();
+}
+
+/* 启动时该打开哪个文件：启动期间拖进来的最要紧，其次是地址栏的 ?path=，最后问壳要预载路径 */
+function openBootDoc(params) {
+  if (pendingPaths.length) {
+    const dropped = pendingPaths[pendingPaths.length - 1];
+    pendingPaths = [];
+    openDropped(dropped);
+    return;
+  }
+  const given = params.get('path');
+  if (given) {
+    const clean = tidyPath(given);
+    $('pathInput').value = clean;
+    inspectPath(clean);
+    return;
+  }
+  fetch('/api/preload').then((r) => r.json()).then((d) => {
+    if (!d.ok || !d.paths || !d.paths.length) return;
+    const clean = tidyPath(d.paths[0]);
+    $('pathInput').value = clean;
+    inspectPath(clean);
+  }).catch(() => {});
 }
 
 /* 读回配置后恢复上次的文件与界面状态 */
@@ -6800,57 +7146,11 @@ function boot() {
       pendingCheck = [];
       checkPaths(list);
     }
-    reportDropArea();
-    window.addEventListener('resize', reportDropArea);
-    const mainEl = $('drop');
-    if (mainEl && window.ResizeObserver) new ResizeObserver(reportDropArea).observe(mainEl);
-    /* 地图宽度会被分栏拖动、信息栏收放改掉：提示卡跟着重新居中 */
-    const mapEl = $('map');
-    if (mapEl && window.ResizeObserver) new ResizeObserver(placeErrToast).observe(mapEl);
-    /* 分栏拖动、信息栏收放、窗口缩放都会改地图高度；文件卡展开收起、换图层都会改它自己的高度。
-       三类都影响图例能长多高，各挂一个观察器管住 */
-    const stageEl = document.querySelector('.map-stage');
-    const chipEl = $('fileChip');
-    syncMapHeight();
-    if (window.ResizeObserver) {
-      const ro = new ResizeObserver(syncMapHeight);
-      if (stageEl) ro.observe(stageEl);
-      if (chipEl) ro.observe(chipEl);
-    }
-    // 底图按钮的亮灭按 config.basemap 定：设置里选过"无底图"，这里一启动就是灭的
-    updateBaseBtn();
-    toShell('closeact:' + (config.close_act === 'exit' ? 'exit' : 'min'));
-    toShell('closeask:' + (config.close_ask === false ? 'off' : 'on'));
-    toShell('ready');
-    maybeCheckUpdate();
+    watchLayout();
+    tellShellReady();
     const params = new URLSearchParams(location.search);
-    const forced = params.get('theme');
-    if (forced && THEME_LABELS[forced]) {
-      config.theme = forced;
-      applyTheme(forced);
-      paintThemeBtn();
-    }
-    // 启动期间拖进来的文件优先：那是用户当下就要看的，比"恢复上次的文件"更要紧
-    if (pendingPaths.length) {
-      const dropped = pendingPaths[pendingPaths.length - 1];
-      pendingPaths = [];
-      openDropped(dropped);
-      return;
-    }
-    const given = params.get('path');
-    if (given) {
-      const clean = tidyPath(given);
-      $('pathInput').value = clean;
-      inspectPath(clean);
-      return;
-    }
-    fetch('/api/preload').then((r) => r.json()).then((d) => {
-      if (d.ok && d.paths && d.paths.length) {
-        const clean = tidyPath(d.paths[0]);
-        $('pathInput').value = clean;
-        inspectPath(clean);
-      }
-    }).catch(() => {});
+    applyForcedTheme(params);
+    openBootDoc(params);
   });
 }
 
