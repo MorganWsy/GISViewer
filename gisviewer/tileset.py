@@ -161,4 +161,10 @@ def _quote(text):
 
 
 def tile_path(root, z, x, y, ext):
-    return os.path.join(str(root), str(int(z)), str(int(x)), f"{int(y)}{ext}")
+    # z/x/y 由调用方从瓦片路径的正则里取出来，一定是整数；这里只做类型归一
+    return os.path.join(
+        str(root),
+        str(int(z)),  # pi-lens-ignore: unchecked-numeric-parse-python -- 入参来自 \d+ 正则
+        str(int(x)),  # pi-lens-ignore: unchecked-numeric-parse-python -- 同上
+        f"{int(y)}{ext}",  # pi-lens-ignore: unchecked-numeric-parse-python -- 同上
+    )

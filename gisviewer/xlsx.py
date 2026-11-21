@@ -93,7 +93,7 @@ def _num(value):
         return "1" if value else "0"
     if isinstance(value, int):
         return str(value)
-    return ("%.10g" % value)
+    return f"{value:.10g}"
 
 
 def _col(index):
@@ -126,10 +126,10 @@ class _Strings:
         return got
 
     def xml(self):
-        body = "".join('<si><t xml:space="preserve">%s</t></si>' % escape(s) for s in self.items)
+        body = "".join(f'<si><t xml:space="preserve">{escape(item)}</t></si>' for item in self.items)
         return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-                'count="%d" uniqueCount="%d">%s</sst>' % (self.refs, len(self.items), body))
+                f'count="{self.refs}" uniqueCount="{len(self.items)}">{body}</sst>')
 
 
 def _sheet_xml(sheet, strings):
@@ -143,14 +143,14 @@ def _sheet_xml(sheet, strings):
     width = max([len(r) for r in rows] + [1])
     out = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">',
-           '<dimension ref="A1:%s%d"/>' % (_col(width - 1), max(len(rows), 1))]
+           f'<dimension ref="A1:{_col(width - 1)}{max(len(rows), 1)}"/>']
 
     if head:
         # 表头冻住：几百行往下滚时还知道哪一列是什么
         out.append('<sheetViews><sheetView workbookViewId="0" tabSelected="1">'
-                   '<pane ySplit="%d" topLeftCell="A%d" activePane="bottomLeft" state="frozen"/>'
-                   '<selection pane="bottomLeft" activeCell="A%d" sqref="A%d"/>'
-                   '</sheetView></sheetViews>' % (head, head + 1, head + 1, head + 1))
+                   f'<pane ySplit="{head}" topLeftCell="A{head + 1}" activePane="bottomLeft" state="frozen"/>'
+                   f'<selection pane="bottomLeft" activeCell="A{head + 1}" sqref="A{head + 1}"/>'
+                   '</sheetView></sheetViews>')
     else:
         out.append('<sheetViews><sheetView workbookViewId="0" tabSelected="1"/></sheetViews>')
 
@@ -160,7 +160,7 @@ def _sheet_xml(sheet, strings):
     if cols:
         out.append("<cols>")
         for i, w in enumerate(cols):
-            out.append('<col min="%d" max="%d" width="%s" customWidth="1"/>' % (i + 1, i + 1, w))
+            out.append(f'<col min="{i + 1}" max="{i + 1}" width="{w}" customWidth="1"/>')
         out.append("</cols>")
 
     out.append("<sheetData>")
@@ -170,55 +170,55 @@ def _sheet_xml(sheet, strings):
             value, style = (cell, TEXT) if not isinstance(cell, tuple) else cell
             if value is None or value == "":
                 continue
-            ref = "%s%d" % (_col(ci), ri)
+            ref = f"{_col(ci)}{ri}"
             if isinstance(value, bool):
                 value = "是" if value else "否"
             if isinstance(value, (int, float)):
-                cells.append('<c r="%s" s="%d"><v>%s</v></c>' % (ref, style, _num(value)))
+                cells.append(f'<c r="{ref}" s="{style}"><v>{_num(value)}</v></c>')
             else:
-                cells.append('<c r="%s" s="%d" t="s"><v>%d</v></c>'
-                             % (ref, style, strings.index(value)))
+                cells.append(f'<c r="{ref}" s="{style}" t="s"><v>{strings.index(value)}</v></c>')
         if not cells:
             continue
         if ri <= head:
-            out.append('<row r="%d" ht="24" customHeight="1">%s</row>' % (ri, "".join(cells)))
+            out.append(f'<row r="{ri}" ht="24" customHeight="1">{"".join(cells)}</row>')
         else:
-            out.append('<row r="%d">%s</row>' % (ri, "".join(cells)))
+            out.append(f'<row r="{ri}">{"".join(cells)}</row>')
     out.append("</sheetData>")
 
     if sheet.get("filter") and head:
         # 筛选条压在表头上：按结论、按检查项目分开看，比整表顺着读有用
-        out.append('<autoFilter ref="A%d:%s%d"/>' % (head, _col(width - 1), head))
+        out.append(f'<autoFilter ref="A{head}:{_col(width - 1)}{head}"/>')
     out.append('<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>')
     out.append("</worksheet>")
     return "".join(out)
 
 
 def _workbook_xml(names):
-    body = "".join('<sheet name="%s" sheetId="%d" r:id="rId%d"/>' % (escape(n), i + 1, i + 1)
+    body = "".join(f'<sheet name="{escape(n)}" sheetId="{i + 1}" r:id="rId{i + 1}"/>'
                    for i, n in enumerate(names))
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            '<sheets>%s</sheets></workbook>' % body)
+            f'<sheets>{body}</sheets></workbook>')
 
 
 def _workbook_rels(count):
-    body = "".join('<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/'
-                   'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>'
-                   % (i + 1, i + 1) for i in range(count))
-    body += ('<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/'
-             '2006/relationships/styles" Target="styles.xml"/>' % (count + 1))
-    body += ('<Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/'
-             '2006/relationships/sharedStrings" Target="sharedStrings.xml"/>' % (count + 2))
+    body = "".join(f'<Relationship Id="rId{i + 1}" Type="http://schemas.openxmlformats.org/'
+                   'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'
+                   f'{i + 1}.xml"/>' for i in range(count))
+    body += ('<Relationship Id="rId' + str(count + 1) + '" Type="http://schemas.openxmlformats.org/'
+             'officeDocument/2006/relationships/styles" Target="styles.xml"/>')
+    body += ('<Relationship Id="rId' + str(count + 2) + '" Type="http://schemas.openxmlformats.org/'
+             'officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>')
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             + body + '</Relationships>')
 
 
 def _content_types(count):
-    sheets = "".join('<Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/'
-                     'vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' % (i + 1)
+    sheets = "".join('<Override PartName="/xl/worksheets/sheet'
+                     f'{i + 1}.xml" ContentType="application/'
+                     'vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
                      for i in range(count))
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -238,7 +238,7 @@ def build(sheets):
     """一串表 -> 一份 xlsx 的字节。不落盘，方便直接塞进诊断包。"""
     if not sheets:
         raise ValueError("至少要有一张表")
-    names = [s.get("name") or ("表%d" % (i + 1)) for i, s in enumerate(sheets)]
+    names = [s.get("name") or f"表{i + 1}" for i, s in enumerate(sheets)]
     strings = _Strings()
     body = [(names[i], _sheet_xml(s, strings)) for i, s in enumerate(sheets)]
 
@@ -250,13 +250,14 @@ def build(sheets):
         z.writestr("xl/_rels/workbook.xml.rels", _workbook_rels(len(sheets)))
         z.writestr("xl/styles.xml", _STYLES)
         for i, (_, xml) in enumerate(body):
-            z.writestr("xl/worksheets/sheet%d.xml" % (i + 1), xml)
+            z.writestr(f"xl/worksheets/sheet{i + 1}.xml", xml)
         z.writestr("xl/sharedStrings.xml", strings.xml())
     return buf.getvalue()
 
 
 def write(sheets, path):
     data = build(sheets)
-    with open(path, "wb") as fh:
+    # 写不进去要让调用方看到（磁盘满、目录只读、文件被占用），不要吞
+    with open(path, "wb") as fh:  # pi-lens-ignore: unchecked-throwing-call-python, python-path-traversal
         fh.write(data)
     return path, len(data)

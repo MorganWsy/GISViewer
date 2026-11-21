@@ -159,7 +159,8 @@ def build(target, layer_index, path):
             ("assumed_local", "1" if assumed_local else "0"),
         ])
         # SCHEMA_VERSION 是本文件的整数常量，不来自外部
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")  # pi-lens-ignore: python.lang.security.audit.formatted-sql-query.formatted-sql-query
+        # PRAGMA 不吃参数占位符，这里拼的是本文件的整数常量，不来自外部
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")  # pi-lens-ignore: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         lyr.ResetReading()
         rows_f = []
         rows_g = []

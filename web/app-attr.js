@@ -130,12 +130,12 @@ function typeExplain(f) {
   const p = f.precision ? Number(f.precision) : 0;
   if (!t) return '';
   // 带 List 的、带 String/Binary 的是一整类，先按前缀判，剩下的是定名类型
-  if (t.indexOf('StringList') === 0) return '文本列表（StringList）：一个字段里存多段文字';
-  if (t === 'WideString' || t.indexOf('String') === 0) {
+  if (t.startsWith('StringList')) return '文本列表（StringList）：一个字段里存多段文字';
+  if (t === 'WideString' || t.startsWith('String')) {
     return '文本（String）：存名称、编号、备注这类文字内容。' +
       (w ? '每个值最多 ' + w + ' 个字符，超出即截断' : '长度上限由数据源定义');
   }
-  if (t.indexOf('Binary') === 0) return '二进制（Binary）：存字节流，如图片、附件，表格里读不出内容';
+  if (t.startsWith('Binary')) return '二进制（Binary）：存字节流，如图片、附件，表格里读不出内容';
   const make = TYPE_EXPLAIN[t];
   return make ? make(w, p) : '存储类型：' + t;
 }
@@ -248,7 +248,7 @@ function keysFromRows(feats, layer) {
   if (fromFields.length) return fromFields;
   const keys = [];
   feats.forEach((f) => {
-    Object.keys(f.properties || {}).forEach((k) => { if (keys.indexOf(k) < 0) keys.push(k); });
+    Object.keys(f.properties || {}).forEach((k) => { if (!keys.includes(k)) keys.push(k); });
   });
   return keys;
 }
@@ -367,7 +367,7 @@ function applyAttrFind() {
   }
   let hit = 0;
   rows.forEach((tr) => {
-    const on = String(tr.textContent).toLowerCase().indexOf(q) >= 0;
+    const on = String(tr.textContent).toLowerCase().includes(q);
     tr.classList.toggle('find-off', !on);
     if (on) hit++;
   });

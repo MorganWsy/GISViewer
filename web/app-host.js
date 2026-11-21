@@ -107,7 +107,7 @@ const hostHandlers = {
 
 /* 开关类回报统一处理：value 是 on/off，出错时是 error:原因 */
 function switchState(boxId, hostKey, value, failPrefix) {
-  const bad = String(value).indexOf('error') === 0;
+  const bad = String(value).startsWith('error');
   const on = !bad && value === 'on';
   const box = $(boxId);
   if (box) box.checked = on;
@@ -167,7 +167,7 @@ function fillFontSelects() {
     });
     // 存过的字体没出现在名单里时也要留着选项，不然一保存就被悄悄改掉
     const chosen = pair[1] || '';
-    if (chosen && names.indexOf(chosen) < 0) {
+    if (chosen && !names.includes(chosen)) {
       const extra = document.createElement('option');
       extra.value = chosen;
       extra.textContent = chosen;
@@ -362,7 +362,7 @@ function modifierBits(e) {
 
 /* 只按下修饰键本身时还没有具体键：Control/Alt/Shift/Meta/CapsLock 都算 0 */
 function vkOfEvent(e) {
-  if (MODIFIER_KEYS.indexOf(e.key) >= 0) return 0;
+  if (MODIFIER_KEYS.includes(e.key)) return 0;
   return vkOf(e);
 }
 
@@ -953,7 +953,7 @@ function wireDrop() {
 const SET_PANES = ['base', 'render', 'look', 'file', 'sys', 'about'];
 
 function showSettingPane(sec) {
-  if (SET_PANES.indexOf(sec) < 0) sec = 'base';
+  if (!SET_PANES.includes(sec)) sec = 'base';
   document.querySelectorAll('#setNav button').forEach((b) => {
     b.classList.toggle('on', b.getAttribute('data-sec') === sec);
   });
@@ -1557,7 +1557,7 @@ function hintNoBasemap(kind, state) {
   if (state.shown || !configReady) return;
   if (kind !== 'vector' && kind !== 'raster') return;
   const bm = String(config.basemap || '');
-  if (bm.indexOf('tianditu') !== 0) return;
+  if (!bm.startsWith('tianditu')) return;
   if ((config.tianditu_key || '').trim()) return;
   state.shown = true;
   showErrToast('当前无可用底图',

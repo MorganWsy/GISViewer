@@ -281,7 +281,7 @@ function tipFlags(anchor) {
 
 /* 一行：以"· "开头画圆点，其余整段排（有的气泡是"一句总述 + 几条清单 + 一句收尾"） */
 function tipLine(line, marked) {
-  const bullet = marked ? line.indexOf('· ') === 0 : true;
+  const bullet = marked ? line.startsWith('· ') : true;
   const row = el('div', 'tip-li' + (bullet ? '' : ' tip-plain'));
   if (bullet) row.appendChild(el('i', 'tip-dot'));
   const span = el('span', 'tip-txt');
@@ -294,7 +294,7 @@ function tipLine(line, marked) {
 function fillTipBody(box, anchor, text) {
   const raw = String(text).split('\n').filter((s) => s.length);
   if (raw.length > 1) {
-    const marked = raw.some((s) => s.indexOf('· ') === 0);
+    const marked = raw.some((s) => s.startsWith('· '));
     box.classList.add('tip-multi');
     raw.forEach((line) => { box.appendChild(tipLine(line, marked)); });
   } else {
@@ -697,7 +697,7 @@ function newRail() {
             const td = el('td');
             td.appendChild(el('span', 'sk'));
             tr.appendChild(td);
-          } else if (it.v.indexOf('\n') >= 0) {
+          } else if (it.v.includes('\n')) {
             // 一个字段好几行值的时候（范围就是四个边），每行一个 div
             const td = el('td', 'v-lines');
             it.v.split('\n').forEach((line) => td.appendChild(el('div', null, line)));
@@ -851,9 +851,9 @@ const UNIT_ZH = {
 function unitEn(label) {
   const s = String(label || '');
   if (!s) return '';
-  if (s.indexOf('千米') >= 0 || s.indexOf('公里') >= 0) return 'km';
-  if (s.indexOf('米') >= 0) return 'm';
-  if (s.indexOf('度') >= 0) return '°';
+  if (s.includes('千米') || s.includes('公里')) return 'km';
+  if (s.includes('米')) return 'm';
+  if (s.includes('度')) return '°';
   return s;
 }
 
@@ -867,7 +867,7 @@ function unitText(label) {
 function unitSwap(text) {
   const s = String(text || '');
   if (config.unit_lang !== 'zh') return s;
-  return s.replace(/(\d)\s?(km|m|°|ft|yd|nmi)\b/g, (all, d, u) => d + ' ' + (UNIT_ZH[u] || u));
+  return s.replace(/(\d)\s?(km|m|°|ft|yd|nmi)\b/g, (_all, d, u) => d + ' ' + (UNIT_ZH[u] || u));
 }
 
 function degText(v, isLon) {
@@ -1189,7 +1189,7 @@ function railGeomType(rail, primary) {
   /* 中文给人读，英文是 OGR 那一套的名字，两边对得上才知道说的是同一种几何；
      Z/M 单独列出（下面两行），几何类型这里不再缀一遍 */
   const geomLabel = primary.geometry_type_label.replace('·含 Z 值', '').replace('·含 M 值', '');
-  if (geomLabel.indexOf('混合') >= 0) {
+  if (geomLabel.includes('混合')) {
     /* 先把类型本身写出来，"各类型各有多少个"交给后台数——大文件要几秒，
        不能让人盯着一句"正在统计…"干等。数完把这一格换成明细 */
     rail.row('几何类型', primary.geometry_counts_text || geomLabel);

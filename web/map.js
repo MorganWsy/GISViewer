@@ -904,7 +904,7 @@
   function clearTileLayers() {
     const st = map.getStyle() || {};
     (st.layers || []).forEach((l) => {
-      if (l.id.indexOf('tile-') === 0) map.removeLayer(l.id);
+      if (l.id.startsWith('tile-')) map.removeLayer(l.id);
     });
     if (map.getSource('tiles')) map.removeSource('tiles');
   }
@@ -1564,7 +1564,7 @@
   /* 点要素没有长度和面积，按钮直接不亮 */
   function canMeasure(g) {
     const t = g && g.type ? String(g.type) : '';
-    return t.indexOf('Point') < 0;
+    return !t.includes('Point');
   }
 
   function measureRemote(target, layer, fid) {
@@ -1866,7 +1866,7 @@
         : (hasResult ? '收起量算结果'
           : (!ok
             ? (fidOf(f) === null ? '这个要素量不了' : '点要素没有长度和面积')
-            : (String(f.geometry && f.geometry.type).indexOf('Polygon') >= 0
+            : (String(f.geometry && f.geometry.type).includes('Polygon')
               ? '计算面积和周长' : '计算长度')));
       measure.setAttribute('data-tip', measureTip);
       measure.setAttribute('aria-label', measureTip);
@@ -2068,7 +2068,7 @@
     // 只记配置；容器真正可见时再建图，避免在隐藏容器里初始化
     if (cfg) config = Object.assign(config, cfg);
     const pref = (cfg && cfg.vec_precision) || vecPrecision;
-    vecPrecision = ['auto', 'accurate', 'fast'].indexOf(String(pref)) >= 0 ? String(pref) : 'auto';
+    vecPrecision = ['auto', 'accurate', 'fast'].includes(String(pref)) ? String(pref) : 'auto';
   }
 
   function resize() {
@@ -2103,7 +2103,7 @@
     /* 设置页改"视野内单次绘制要素数"时调用 */
     /* 设置页改「几何精度」时调用：清掉逐层的记忆，让新策略立刻生效 */
     setVecPrecision(mode) {
-      const v = ['auto', 'accurate', 'fast'].indexOf(String(mode)) >= 0 ? String(mode) : 'auto';
+      const v = ['auto', 'accurate', 'fast'].includes(String(mode)) ? String(mode) : 'auto';
       if (v === vecPrecision) return;
       vecPrecision = v;
       for (const k of Object.keys(vecFull)) delete vecFull[k];

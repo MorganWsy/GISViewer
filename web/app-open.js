@@ -238,7 +238,7 @@ async function fetchInspect(path, fast) {
    否则这一条以后每次点都会失败一次 */
 function dropStaleRecent(path, data) {
   if (data.ok) return false;
-  if ((config.recent || []).indexOf(path) < 0) return false;
+  if (!(config.recent || []).includes(path)) return false;
   if (!/找不到|不存在/.test((data.error && data.error.title) || '')) return false;
   config.recent = config.recent.filter((x) => x !== path);
   renderRecent();
@@ -305,7 +305,7 @@ function openFailed(err) {
 
 /* 画之前先挂遮罩：栅格是同步画完的，等渲染返回时完成事件早发过了 */
 function stageVeil(data) {
-  const staged = !!data.ok && VEIL_KINDS.indexOf(data.kind) >= 0;
+  const staged = !!data.ok && VEIL_KINDS.includes(data.kind);
   if (staged) holdVeil('正在画图层…');
   return staged;
 }
@@ -885,7 +885,7 @@ function recentIconKey(m) {
   if (m.kind === 'raster') return 'raster';
   const g = (m.geom || '').toLowerCase();
   for (let i = 0; i < RECENT_GEOM_KEYS.length; i += 1) {
-    if (g.indexOf(RECENT_GEOM_KEYS[i]) === 0) return RECENT_GEOM_KEYS[i];
+    if (g.startsWith(RECENT_GEOM_KEYS[i])) return RECENT_GEOM_KEYS[i];
   }
   if (g === 'mixed' || g === 'geometrycollection') return 'mixed';
   return 'file';

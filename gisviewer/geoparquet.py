@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """GeoParquet 读写。
 
 GeoParquet 就是 Parquet 列存加一列 WKB 几何，再在文件级元数据里写一条 `geo`：
@@ -18,12 +17,12 @@ KV_METADATA {geo: '...'})`。几何交给 OGR 的 WKB 编解码，两边按上�
 百万级要素不适合走这条路：两边都是一次性进内存。
 """
 
+import contextlib
 import json
 import os
 import time
 
-from . import bootstrap
-from . import cache
+from . import bootstrap, cache
 
 ogr = bootstrap.ogr
 osr = bootstrap.osr
@@ -102,7 +101,7 @@ def _duckdb():
     try:
         import duckdb  # pyright: ignore[reportMissingImports]
     except Exception as exc:
-        raise RuntimeError("缺少 Parquet 读写组件（duckdb）：%s" % exc)
+        raise RuntimeError(f"缺少 Parquet 读写组件（duckdb）：{exc}") from None
     return duckdb
 
 
@@ -116,8 +115,8 @@ def geo_meta(path):
     duckdb = _duckdb()
     con = duckdb.connect()
     try:
-        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-        rows = con.execute("SELECT key, value FROM parquet_kv_metadata(%s)" % _lit(path)).fetchall()
+        # 路径走占位符，SQL 是固定的
+        rows = con.execute("SELECT key, value FROM parquet_kv_metadata(?)", [str(path)]).fetchall()
     finally:
         con.close()
     for key, val in rows:
@@ -136,12 +135,11 @@ def _srs_from_meta(meta, col):
     raw = col.get("crs")
     srs = osr.SpatialReference()
     if raw:
-        try:
+        # 元数据里的 crs 写法五花八门，认不出来就退回 CRS84
+        with contextlib.suppress(Exception):
             srs.SetFromUserInput(raw if isinstance(raw, str) else json.dumps(raw))
             srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
             return srs
-        except Exception:
-            pass
     srs.ImportFromEPSG(4326)
     srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     return srs
@@ -163,7 +161,7 @@ def _plain(value):
         return json.dumps(value, ensure_ascii=False)
     low = type(value).__name__.lower()
     if "decimal" in low:
-        return float(value)
+        return float(value)  # pi-lens-ignore: unchecked-numeric-parse-python -- duckdb 的 Decimal，转换不会失败
     if "date" in low or "time" in low:
         return value
     if "uuid" in low:
@@ -181,25 +179,28 @@ def read_to_geojson(src, dst):
     col = (meta.get("columns") or {}).get(geom_col) or {}
     enc = str(col.get("encoding") or "WKB").upper()
     if enc != "WKB":
-        raise ValueError("几何列用的是 %s 编码，当前只认 WKB。" % enc)
+        raise ValueError(f"几何列用的是 {enc} 编码，当前只认 WKB。")
 
     name = os.path.splitext(os.path.basename(str(src)))[0]
     con = duckdb.connect()
     try:
-        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-        desc = con.execute("DESCRIBE SELECT * FROM read_parquet(%s)" % _lit(src)).fetchall()
+        desc = con.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(src)]).fetchall()
         names = [str(r[0]) for r in desc]
         if geom_col not in names:
-            raise ValueError("元数据指的几何列 %s 不在文件里。" % geom_col)
+            raise ValueError(f"元数据指的几何列 {geom_col} 不在文件里。")
         picks = []
-        for col_name, col_type in [(str(r[0]), str(r[1])) for r in desc]:
-            q = '"%s"' % col_name.replace('"', '""')
+        for col_name, _col_type in [(str(r[0]), str(r[1])) for r in desc]:
+            # 列名来自文件本身，双引号里再转义一次，值一律不进 SQL
+            q = '"' + col_name.replace('"', '""') + '"'
             if col_name == geom_col:
-                picks.append('CAST(%s AS BLOB) AS %s' % (q, q))
+                picks.append(f"CAST({q} AS BLOB) AS {q}")
             else:
                 picks.append(q)
+        # 列名来自文件自身的 schema，路径走占位符
+        # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
+        sql = f"SELECT {', '.join(picks)} FROM read_parquet(?)"  # noqa: S608 - 拼的是列名，不是值
         # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-        rows = con.execute("SELECT %s FROM read_parquet(%s)" % (", ".join(picks), _lit(src))).fetchall()
+        rows = con.execute(sql, [str(src)]).fetchall()  # pi-lens-ignore: python-sql-injection
     finally:
         con.close()
 
@@ -209,13 +210,11 @@ def read_to_geojson(src, dst):
 
     driver = ogr.GetDriverByName("GeoJSON")
     if os.path.exists(dst):
-        try:
-            os.remove(dst)
-        except OSError:
-            pass
-    ds = driver.CreateDataSource(dst)
+        with contextlib.suppress(OSError):
+            os.remove(dst)  # pi-lens-ignore: unchecked-throwing-call-python, python-path-traversal -- 缓存目录里自己生成的临时文件
+    ds = driver.CreateDataSource(dst)  # pi-lens-ignore: unchecked-throwing-call-python, python-path-traversal -- 缓存目录里自己生成的临时文件
     if ds is None:
-        raise RuntimeError("无法创建临时 GeoJSON：%s" % dst)
+        raise RuntimeError(f"无法创建临时 GeoJSON：{dst}")
     try:
         lyr = ds.CreateLayer(name or "parquet", srs=srs, geom_type=geom_type)
         fields = []
@@ -256,25 +255,21 @@ def read_to_geojson(src, dst):
 def _fingerprint(path):
     try:
         st = os.stat(path)
-        return "%d_%d" % (st.st_size, st.st_mtime_ns)
+        return f"{st.st_size}_{st.st_mtime_ns}"
     except OSError:
         return "0_0"
 
 
 def _prune(folder):
     now = time.time()
-    try:
-        for name in os.listdir(folder):
+    with contextlib.suppress(OSError):   # 目录刚被清掉就当没有要清的
+        for name in os.listdir(folder):  # pi-lens-ignore: unchecked-throwing-call-python
             if not name.endswith(".geojson"):
                 continue
             full = os.path.join(folder, name)
-            try:
-                if now - os.path.getmtime(full) > _KEEP_DAYS * 86400:
-                    os.remove(full)
-            except OSError:
-                pass
-    except OSError:
-        pass
+            with contextlib.suppress(OSError):
+                if now - os.path.getmtime(full) > _KEEP_DAYS * 86400:  # pi-lens-ignore: unchecked-throwing-call-python
+                    os.remove(full)  # pi-lens-ignore: python-path-traversal -- 缓存目录里自己的临时文件
 
 
 def materialize(src):
@@ -285,12 +280,10 @@ def materialize(src):
     folder.mkdir(parents=True, exist_ok=True)
     stem = os.path.splitext(os.path.basename(str(src).rstrip("\\/")))[0]
     safe = "".join(c for c in stem if c not in '\\/:*?"<>|')[:40] or "data"
-    dst = str(folder / ("%s_%s.geojson" % (safe, _fingerprint(src))))
+    dst = str(folder / f"{safe}_{_fingerprint(src)}.geojson")
     if os.path.isfile(dst) and os.path.getsize(dst) > 0:
-        try:
+        with contextlib.suppress(OSError):
             os.utime(dst, None)   # 当"最近用过"的记号，别被清掉
-        except OSError:
-            pass
         return dst
     _prune(str(folder))
     read_to_geojson(src, dst)
@@ -314,11 +307,16 @@ def write(lyr, out_path, layer_name):
 
     con = duckdb.connect()
     try:
-        cols = ['"%s" BLOB' % geom_col] + ['"%s" %s' % (n.replace('"', '""'), t) for n, t in fields]
+        cols = ['"' + geom_col + '" BLOB'] + [
+            '"' + n.replace('"', '""') + '" ' + t for n, t in fields
+        ]
+        # 列名只能拼进 DDL（SQL 不支持给标识符占位），值全部走下面的 ? 占位符
+        # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
+        ddl = f"CREATE TABLE t ({', '.join(cols)})"  # noqa: S608 - 拼的是列名，不是值
         # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-        con.execute("CREATE TABLE t (%s)" % ", ".join(cols))
+        con.execute(ddl)  # pi-lens-ignore: python-sql-injection
         marks = ", ".join(["?"] * (len(fields) + 1))
-        sql = "INSERT INTO t VALUES (%s)" % marks
+        sql = f"INSERT INTO t VALUES ({marks})"  # noqa: S608 - 只有 ? 占位符
         batch = []
         written = 0
         geom_names = []
@@ -355,10 +353,10 @@ def write(lyr, out_path, layer_name):
             batch.append(row)
             written += 1
             if len(batch) >= 2000:
-                con.executemany(sql, batch)
+                con.executemany(sql, batch)  # pi-lens-ignore: python-sql-injection
                 batch = []
         if batch:
-            con.executemany(sql, batch)
+            con.executemany(sql, batch)  # pi-lens-ignore: python-sql-injection
 
         # 属性列建不出来时 duckdb 在 CREATE TABLE 就报错，走不到这里；字段照源定义建齐
         try:
@@ -389,9 +387,13 @@ def write(lyr, out_path, layer_name):
             },
         }
         text = json.dumps(meta, ensure_ascii=False, separators=(",", ":")).replace("'", "''")
-        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-        con.execute("COPY (SELECT * FROM t) TO %s (FORMAT PARQUET, KV_METADATA {geo: '%s'})"
-                    % (_lit(out_path), text))
+        # COPY 的目标路径与元数据都只能写成字面量；路径经 _lit 转义，text 里的单引号已翻倍
+        # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query
+        copy_sql = (
+            f"COPY (SELECT * FROM t) TO {_lit(out_path)}"  # noqa: S608 - 没有外部输入
+            f"(FORMAT PARQUET, KV_METADATA {{geo: '{text}'}})"
+        )
+        con.execute(copy_sql)  # pi-lens-ignore: python-sql-injection
     finally:
         con.close()
     return written, 0

@@ -334,6 +334,7 @@ def write(lyr, out_path, layer_name, xf=None):
         "bbox": [ext[0], ext[2], ext[1], ext[3]],
     }
     text = json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
-    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+    # 写不进去要让调用方看到（目录只读、磁盘满、文件被占用），不要吞
+    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:  # pi-lens-ignore: unchecked-throwing-call-python, python-path-traversal
         fh.write(text)
     return len(items), skipped, dropped
