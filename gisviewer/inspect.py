@@ -48,6 +48,10 @@ _friendly = labels.friendly_error
 def _clean_input(raw):
     """拖拽和命令行传进来的路径都要洗一遍：去掉引号、展开 ~、转换 /d/xxx 这类写法。"""
     text = str(raw).strip().strip('"').strip("'")
+    # 空路径不能当成"当前目录"往下走：那样会把工作目录里唯一一个能认的文件当成目标，
+    # 用户拖了个空白进来却读到别的文件，比直接报错更糟
+    if not text:
+        raise InspectError("没有指定文件", hint="把文件拖进窗口，或用“选择文件”挑一个。")
     if text.lower().startswith("file://"):
         text = text[7:]
     # /vsi 开头是 GDAL 的虚拟路径，不能按本地文件系统规范化

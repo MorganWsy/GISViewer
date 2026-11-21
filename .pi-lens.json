@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "no-important": { "ignorePaths": ["web/style.css"] },
+    "no-console-except-error-js": { "ignorePaths": ["tools/**"] }
+  }
+}

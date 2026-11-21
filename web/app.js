@@ -436,12 +436,10 @@ function tipRawAnchor(node) {
 function tipAnchorOf(node) {
   const t = tipRawAnchor(node);
   if (!t) return null;
-  /* 打开状态的东西不提示：菜单弹出来了、面板开着了，指针还停在同一颗按钮上，
-     再飘一句说明是噪音。
-     判据只认两样——.on（按钮亮着），以及"真的会弹出东西"的展开态（带 aria-haspopup）。
+  /* 亮着的按钮照样提示：底图、值分布这类开关，开着的时候更需要知道点一下会关掉什么。
+     只滤「真的会弹出东西、而且已经弹开了」那一种——这时指针就在面板边上，再飘一句是噪音。
      折叠按钮（收起文件信息、收起图例）长期是 aria-expanded="true"，它不弹任何浮层，
-     拿 expanded 一概滤掉，这几颗就永远没有提示了——这正是"最小化按钮没气泡"的根子 */
-  if (t.classList.contains('on')) return null;
+     只认 .on 与 aria-expanded 会把它们永远滤掉——这曾经是"最小化按钮没气泡"的根子 */
   if (t.getAttribute('aria-expanded') === 'true' && t.hasAttribute('aria-haspopup')) return null;
   return t;
 }
@@ -553,6 +551,7 @@ function syncMapHeight() {
   const used = cap ? chipTop + cap + LEGEND_GAP : natural;
   document.documentElement.style.setProperty(
     '--legend-max', Math.max(0, Math.round((base - used) / z)) + 'px');
+  syncLegendTips();
 }
 
 let stackedBefore = stackedStage();
@@ -1734,7 +1733,7 @@ function styleOf(res) {
   if (res.discrete) {
     return {
       band: res.band, edges: res.discrete.edges, colors: res.discrete.colors,
-      scheme: '调色板分类', fill: fill,
+      scheme: '分类数据', fill: fill,
     };
   }
   const items = res.classes || [];
@@ -1773,7 +1772,7 @@ function fillHistogram(res) {
   const hist = res.histogram || {};
   const phys = physOfBand(res.band);
   $('histBody').textContent = '';
-  $('histBody').appendChild(drawHistogram(hist, phys));
+  $('histBody').appendChild(drawHistogram(hist, phys, !!res.discrete));
   $('histNote').textContent = hist.source_label + ' · ' + hist.bins + ' 个分箱' +
     (phys && phys.unit ? ' · 单位 ' + phys.unit : '');
 }
@@ -1789,18 +1788,24 @@ function physOfBand(index) {
   return bandPhys(hit || (raster ? bands.find((b) => b.index === raster.band) : bands[0]));
 }
 
-/* 线性刻度：0 到峰值四等分，档距取整到 1/2/5×10^n。
-   对数轴的标签会全挤在顶上（1/2/5 之间差一个数量级），直方图要看的是相对高低，线性才对 */
+/* 线性刻度：档距取 1/2/5×10^n，而且必须盖住峰值，顶上再多走一格。
+   档距若向下取整（以前 5 会退成 2），最高那根柱子就会顶到框线外面去；
+   对数轴的标签会全挤在顶上（1/2/5 之间差一个数量级），直方图看的是相对高低，线性才对 */
 function linTicks(peak, parts) {
   const n = parts || 4;
-  if (!(peak > 0)) return [0, 1];
+  if (!(peak > 0)) return { list: [0, 1], step: 1 };
   const raw = peak / n;
   const mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
   const k = raw / mag;
-  const step = (k >= 5 ? 5 : k >= 2 ? 2 : 1) * mag;
-  const list = [];
-  for (let i = 0; i <= n; i++) list.push(step * i);
-  return list;
+  const step = (k > 5 ? 10 : k > 2 ? 5 : k > 1 ? 2 : 1) * mag;
+  const list = [0];
+  let v = 0;
+  /* 一直走到高过峰值一点点：最后一格就是留给最高那根柱子的余量 */
+  while (v < peak * 1.06) {
+    v += step;
+    list.push(v);
+  }
+  return { list: list, step: step };
 }
 
 
@@ -1818,15 +1823,15 @@ function destroyHistChart() {
   if (histChart) { histChart.destroy(); histChart = null; }
 }
 
-function drawHistogram(hist, phys) {
+function drawHistogram(hist, phys, discrete) {
   const wrap = el('div', 'hist-canvas');
   const counts = (hist && hist.counts) || [];
   if (!counts.length) return wrap;
   const peak = Math.max.apply(null, counts.concat([1]));
   const unit = tickUnit(peak);
   // 先按万/亿缩一遍再取整，刻度才是 0 2.5 5 7.5 10 这样均匀的一串
-  const ticks = linTicks(peak / unit[0]);
-  const top = ticks[ticks.length - 1] || 1;
+  const scale = linTicks(peak / unit[0]);
+  const top = scale.list[scale.list.length - 1] || 1;
   const shown = (v) => String(Math.round(v * 10) / 10);
   const lo = Number(hist.min);
   const step = Number(hist.bin_width) || 0;
@@ -1869,7 +1874,11 @@ function drawHistogram(hist, phys) {
           grid: { display: false },
           border: { color: grid },
           // 标签再贴近轴线一点，给绘图区多留高度
-          ticks: { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 0 },
+          /* 分类数据的横轴就是「第几类」，每一类都得标出来：挤的时候斜着排，
+             不再按 maxTicksLimit 抽掉一半，否则对不上图例里那些类别 */
+          ticks: discrete
+            ? { color: dim, font: { size: 12 }, autoSkip: false, maxRotation: counts.length > 12 ? 60 : 0, minRotation: 0, padding: 0 }
+            : { maxTicksLimit: 6, color: dim, font: { size: 13 }, autoSkip: true, padding: 0 },
         },
         y: {
           beginAtZero: true,
@@ -1877,7 +1886,7 @@ function drawHistogram(hist, phys) {
           grid: { color: grid, drawTicks: false },
           border: { display: false },
           ticks: {
-            stepSize: top / 4, color: dim, font: { size: 13 }, padding: 2,
+            stepSize: scale.step, color: dim, font: { size: 13 }, padding: 2,
             callback: (v) => shown(v),
           },
           // 轴标题竖着写在轴左侧，不占顶上那条位置
@@ -1927,12 +1936,22 @@ function legendBody(open) {
   return body;
 }
 
+/* 图例宽度有上限，值太长会被省略号切掉。切没切要量过才知道（同一个字符串在窄图例里
+   切、在宽图例里不切），所以按 scrollWidth 判定，切掉了才挂全文气泡，没切就不挂 */
+function syncLegendTips() {
+  document.querySelectorAll('#legendBody .legend-val').forEach((v) => {
+    if (v.scrollWidth > v.clientWidth + 1) v.setAttribute('data-tip', v.textContent);
+    else v.removeAttribute('data-tip');
+  });
+}
+
 function legendRow(color, text) {
   const row = el('div', 'legend-row');
   const sw = el('i', 'legend-swatch');
   sw.style.background = color;
   row.appendChild(sw);
-  row.appendChild(el('span', 'legend-val', text));
+  const val = el('span', 'legend-val', text);
+  row.appendChild(val);
   return row;
 }
 
@@ -1965,6 +1984,7 @@ function renderLegend(res) {
       body.appendChild(legendRow(color, phys && phys.on
         ? num(at(v), digits) : String(Math.round(v))));
     });
+    syncMapHeight();
     return;
   }
   const items = res.classes || [];
@@ -1975,6 +1995,7 @@ function renderLegend(res) {
   const body = legendBody(true);
   items.forEach((c) => body.appendChild(legendRow(c.color,
     num(at(c.lo), digits) + ' ~ ' + num(at(c.hi), digits))));
+  syncMapHeight();   // 行数变了，能长多高跟着变；这一步顺带量一次哪几行被省略
 }
 
 function hideLegend() {
@@ -3167,28 +3188,50 @@ function paintPyrAskTip() {
   ].join(String.fromCharCode(10)));
 }
 
+function fetchPyrStatus(path, probe) {
+  return fetch('/api/pyramid/status?probe=' + (probe ? '1' : '0') +
+    '&path=' + encodeURIComponent(path)).then((r) => r.json());
+}
+
+/* 把信息填进弹窗。方法默认值按数据类型给，但用户一碰就以用户为准 */
+function openPyramidDialog(path, st) {
+  pyrPath = path;
+  pyrTouched = false;
+  $('paSize').textContent = st.width ? st.width.toLocaleString() + '×' + st.height.toLocaleString() : '—';
+  $('paBytes').textContent = st.size ? fmtBytes(st.size) : '—';
+  const levels = st.levels || [];
+  $('paLevels').textContent = levels.length ? levels.length + ' 级（1/' + levels[levels.length - 1] + '）' : '—';
+  pyrRecommend = (st.colortable || st.categorical) ? 'nearest' : 'average';
+  setPyramidMethod(pyrRecommend);
+  $('paNever').checked = false;
+  $('pyrAsk').hidden = false;
+}
+
 function askPyramid(path, data) {
   /* 压缩包里的临时副本不建：它下次打开就是另一个路径了，副本白建 */
   if (!data || !data.ok || data.kind !== 'raster' || data.temp_copy) return Promise.resolve();
   if (pyrNeverAsked()) return Promise.resolve();
-  return fetch('/api/pyramid/status?path=' + encodeURIComponent(path))
-    .then((r) => r.json())
+  /* 判断全用打开文件时已经拿到的数字（宽高、字节数、金字塔级数），一次请求都不发。
+     以前这里要单独问一次 status，第一次请求得排在大图渲染后面，实测能等到一秒多，
+     弹窗就慢了 */
+  const py = data.pyramid;
+  if (!py || py.exists || !py.recommend) return Promise.resolve();
+  if (!current || current.path !== path) return Promise.resolve();
+  openPyramidDialog(path, py);
+  /* 后台再确认两件事：有没有已经建好的副本（缓存可能刚被清），以及是不是分类图。
+     分类判断要读一小块原始像元，大文件冷盘上要一秒，所以放在弹窗之后 */
+  fetchPyrStatus(path, true)
     .then((st) => {
-      if (!st || !st.ok || !st.recommend || st.running) return;
-      if (st.pyramid && st.pyramid.exists) return;
-      if (!current || current.path !== path) return;   // 这期间换了文件就别问了
-      pyrPath = path;
-      $('paSize').textContent = st.width ? st.width.toLocaleString() + '×' + st.height.toLocaleString() : '—';
-      $('paBytes').textContent = st.size ? fmtBytes(st.size) : '—';
-      $('paLevels').textContent = (st.levels || []).length ? (st.levels || []).length + ' 级（1/' + (st.levels || [])[(st.levels || []).length - 1] + '）' : '—';
-      /* 默认值按数据类型定：带调色板的就是分类图，必须最近邻；
-         其余按连续数据处理，给平均值（ArcGIS Pro、QGIS 对连续数据的建议） */
-      pyrRecommend = (st.colortable || st.categorical) ? 'nearest' : 'average';
-      setPyramidMethod(pyrRecommend);
-      $('paNever').checked = false;
-      $('pyrAsk').hidden = false;
+      if (!st || !st.ok) return;
+      if (st.pyramid && st.pyramid.exists) { hidePyramidAsk(); return; }
+      if (pyrPath !== path) return;
+      if (st.running) { hidePyramidAsk(); return; }
+      if (!st.categorical || pyrTouched) return;       // 用户已经自己选过就别抢
+      pyrRecommend = 'nearest';
+      if (pyramidMethod() === 'nearest') paintPyramidHint();
+      else setPyramidMethod('nearest');
     })
-    .catch(() => { /* 问不出来就当没这回事，不影响看文件 */ });
+    .catch(() => { /* 问不出来就按连续数据处理，不影响看文件 */ });
 }
 
 /* 采样方法下面那段说明：换一项就换一段，只讲这一步具体怎么做、代价是什么。
@@ -3205,6 +3248,7 @@ const PYR_HINTS = {
 };
 
 let pyrRecommend = 'average';
+let pyrTouched = false;      // 用户自己动过采样方法：之后不再自动改
 
 function pyramidMethod() {
   const el = document.querySelector('input[name="paMethod"]:checked');
@@ -3330,7 +3374,12 @@ if ($('cfgPyrAsk')) {
   });
 }
 document.querySelectorAll('input[name="paMethod"]').forEach((el) => {
-  el.addEventListener('change', paintPyramidHint);
+  /* 点卡片时高亮要跟着走：以前只重画说明文字，高亮一直留在默认那张 */
+  el.addEventListener('change', () => {
+    if (!el.checked) return;
+    pyrTouched = true;
+    setPyramidMethod(el.value);
+  });
 });
 
 $('paSkip').addEventListener('click', () => {
@@ -6526,9 +6575,9 @@ function init() {
   /* 贴图没取回来：地图还在，底图也还在，只这一张影像缺了。
      给一句话就够，别把界面压成错误页 */
   $('map').addEventListener('gis:rasterfail', (e) => {
-    const msg = (e.detail && e.detail.message) || '';
-    toastNote('影像没能取回来',
-      (msg ? msg + '。' : '') + '可以再平移或缩放一次重试；如果一直这样，检查文件是否还能读到。');
+    const why = (e.detail && e.detail.message) || '未能取到影像数据';
+    toastNote('影像显示失败',
+      why + '。请确认文件仍然存在并可读；缩放或平移后会自动重新尝试。');
   });
   $('map').addEventListener('gis:view', (e) => {
     paintView(e);

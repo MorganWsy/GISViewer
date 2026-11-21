@@ -112,6 +112,9 @@ def _levels_of(path):
         return [int(f) for f in (ds.overviews(1) or [])]  # pi-lens-ignore: unchecked-numeric-parse-python
 
 
+_KIND = {}
+
+
 def _looks_categorical(ds):
     """按一小块原始像元猜是不是分类图：整型、取值少、数值小，三者都满足才算。
 
@@ -143,8 +146,26 @@ def _looks_categorical(ds):
     return False
 
 
-def status(target):
-    """界面弹窗要的信息：值不值得建、建了没有、有多大、正在建吗。"""
+def suggest(width=0, height=0, size=0, has_overviews=False):
+    """值不值得建副本。原文件已经有金字塔、或者又小又轻，都不值得。
+
+    界面在打开文件的那一刻就要这个结论（inspect 里已经带了宽高、字节数和
+    金字塔级数），所以抽成纯函数，不碰文件、不读像元。
+    """
+    if has_overviews:
+        return False
+    if int(width or 0) * int(height or 0) >= MIN_PIXELS:
+        return True
+    return int(size or 0) >= MIN_BYTES
+
+
+def status(target, probe=True):
+    """界面弹窗要的信息：值不值得建、建了没有、有多大、正在建吗。
+
+    probe=False 时不做「是不是分类数据」的取样：读一小块原始像元在大文件上
+    要一两秒（冷盘上更久），弹窗不该等这一下。界面可以先拿快的结果把弹窗开
+    出来，再回头补这一项。
+    """
     info = {
         "ok": True,
         "path": str(target),
@@ -172,8 +193,14 @@ def status(target):
             with contextlib.suppress(Exception):
                 ds.colormap(1)
                 info["colortable"] = True
-            # 没有调色板也要认得出分类图：土地利用、掩膜这类数据常常是裸的整型
-            info["categorical"] = bool(info.get("colortable")) or _looks_categorical(ds)
+            # 没有调色板也要认得出分类图：土地利用、掩膜这类数据常常是裸的整型。
+            # 取样要读盘，按指纹记在进程里，同一个文件只探一次。
+            info["categorical"] = bool(info.get("colortable"))
+            if probe and not info["categorical"]:
+                key = _fingerprint(target)
+                if key not in _KIND:
+                    _KIND[key] = _looks_categorical(ds)
+                info["categorical"] = bool(_KIND[key])
     except Exception as exc:  # noqa: BLE001
         info["recommend"] = False
         info["reason"] = f"读不了这个文件：{exc}"[:120]

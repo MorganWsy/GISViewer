@@ -31,7 +31,10 @@
   let rasterTimer = null;
   /* 贴在样式里的那张图现在盖着哪块经纬度框。窗口变大、从托盘回来时视野会变宽，
      贴图还是旧的小框，屏幕上就只剩一部分有影像；靠它判断该不该换。 */
-  let rasterBox = null;
+  let rasterBox = null;      // 贴图盖住的经纬度框
+  let rasterZoom = -999;     // 取这张图时的层级：再次重取只看缩放，不看平移
+  let rasterRetry = 0;       // 连 fail 次数：第一次自动重试，第二次才提示
+  let rasterW = 0;           // 出这张图时的画布宽（CSS 像素）
   /* 贴图换图的序号：慢的那张回来了不能盖掉新的那张。窗口大、没有金字塔时
      引擎要十几秒才出图，中途再拖一次就会有两条请求在飞，先发后到的那张
      盖上去，屏幕上就是"影像只出来一部分、位置还不对" */
@@ -48,7 +51,7 @@
   }
   /* 先把图取到浏览器缓存，再交给 image source。
      好处是能在图真的到齐之后才换上去，也能把迟到的旧图丢掉 */
-  function applyImage(t, url, corners, boxFor) {
+  function applyImage(url, corners, boxFor) {
     const seq = ++rasterSeq;
     if (rasterBusyTimer) clearTimeout(rasterBusyTimer);
     rasterBusyTimer = setTimeout(() => { if (seq === rasterSeq) rasterBusy(true); }, 450);
@@ -59,6 +62,8 @@
          所以迟到的旧图不会盖掉新图。完成信号看 sourcedata，见下面那段 */
       src.updateImage({ url, coordinates: corners });
       rasterBox = boxFor;
+      rasterZoom = map.getZoom();
+      rasterW = map.getCanvas().clientWidth || 0;
     } catch {
       rasterDone();   /* 样式正在重建，等下一次 moveend */
     }
@@ -385,6 +390,8 @@
 
   function removeImage() {
     rasterTarget = null;
+    rasterZoom = -999;
+    rasterRetry = 0;
     rasterSeq += 1;
     rasterDone();
     if (rasterTimer) { clearTimeout(rasterTimer); rasterTimer = null; }
@@ -400,10 +407,14 @@
       Math.max.apply(null, xs), Math.max.apply(null, ys)];
   }
 
-  function setImage(url, corners, target) {
+  function setImage(url, corners, target, box) {
     removeImage();
     rasterTarget = target || null;
-    rasterBox = boxOfCorners(corners);
+    // 整幅缩略图要声明自己盖住 t.wgs：四个角点的外接矩形比整幅的经纬度外框小，
+    // 用它当覆盖范围会让「平移一点」也判成没盖住，于是白白重取一次
+    rasterBox = box || boxOfCorners(corners);
+    rasterZoom = map ? map.getZoom() : -999;
+    rasterW = (map && map.getCanvas() && map.getCanvas().clientWidth) || 0;
     map.addSource('gis-image', { type: 'image', url, coordinates: corners });
     if (!map.getLayer('gis-raster')) {
       map.addLayer({ id: 'gis-raster', type: 'raster', source: 'gis-image',
@@ -429,40 +440,61 @@
     const b = map.getBounds();
     const view = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
     const full = t.wgs;
-    const box = [Math.max(view[0], full[0]), Math.max(view[1], full[1]),
+    const vis = [Math.max(view[0], full[0]), Math.max(view[1], full[1]),
       Math.min(view[2], full[2]), Math.min(view[3], full[3])];
-    if (!(box[0] < box[2] && box[1] < box[3])) return;
+    if (!(vis[0] < vis[2] && vis[1] < vis[3])) return;
     const fullW = full[2] - full[0], fullH = full[3] - full[1];
-    const boxW = box[2] - box[0], boxH = box[3] - box[1];
+    const visW = vis[2] - vis[0], visH = vis[3] - vis[1];
     if (fullW <= 0 || fullH <= 0) return;
     const src = map.getSource('gis-image');
-    /* 盖上整幅图的判断。已经贴着整幅（512 缩略图或整幅大图）就不用再取；
-       贴的是更小的框（放大过又缩回来、或者窗口从小还原变大）就得换回整幅，
-       否则屏幕上只有中间一块有影像。 */
-    if (boxW >= fullW * 0.985 && boxH >= fullH * 0.985) {
+    const canvas = map.getCanvas();
+    const cssW = (canvas && canvas.clientWidth) || 1024;
+
+    /* 一、视野基本就是整幅：用整幅缩略图。这一张是缓存里的，最便宜，
+       也保证"刚打开、没缩放"时不多花一次重投影。 */
+    if (visW >= fullW * 0.985 && visH >= fullH * 0.985) {
       const shown = rasterBox && Math.abs(rasterBox[0] - full[0]) < fullW * 0.01 &&
         Math.abs(rasterBox[2] - full[2]) < fullW * 0.01;
       if (shown) return;
       const whole = t.corners && t.corners.length === 4 ? t.corners : cornersOf(t);
       if (src && src.updateImage) {
-        applyImage(t, rasterUrl(t), whole, boxOfCorners(whole) || full.slice());
+        applyImage(rasterUrl(t), whole, full.slice());
       } else {
-        setImage(rasterUrl(t), whole, t);
+        setImage(rasterUrl(t), whole, t, full.slice());
       }
       return;
     }
+
+    /* 二、已经盖住视野，并且没有放大到需要更细的图：什么都不做。
+       这条就是"平移不该让图层变"：分辨率只跟缩放有关，平移不改变缩放，
+       所以只要还在这一张的覆盖范围内，就不重新出图。
+       之前的写法比的是"拉伸比"，整幅缩略图 512 铺在 1440 宽的窗口上，
+       一平移就会被判成"不够清楚"而重画，这才是用户看到的毛病。 */
+    if (rasterBox && coversBox(rasterBox, vis) &&
+        map.getZoom() - rasterZoom < 0.6 &&
+        cssW <= (rasterW || 0) * 1.15 + 1) return;
+
+    /* 三、要重取：框比视野大一圈（每边 25%），夹在数据范围内，
+       这样接下来的平移还能用上这一张。 */
+    const padW = visW * 0.25, padH = visH * 0.25;
+    const box = [
+      Math.max(full[0], vis[0] - padW), Math.max(full[1], vis[1] - padH),
+      Math.min(full[2], vis[2] + padW), Math.min(full[3], vis[3] + padH),
+    ];
+    const boxW = box[2] - box[0], boxH = box[3] - box[1];
+    if (!(boxW > 0 && boxH > 0)) return;
     /* 顺序必须是「左上、右上、右下、左下」——MapLibre 的 image source 按这个顺序
        贴四角。写成（西,南）打头就是整张图转了 180°，用户看到的正是倒过来的影像 */
     const corners = [[box[0], box[3]], [box[2], box[3]], [box[2], box[1]], [box[0], box[1]]];
-    const cssW = (map.getCanvas() && map.getCanvas().clientWidth) || 1024;
+    /* 像素数按"框比视野大多少"跟着放大，否则外扩出来的余量会摊薄清晰度 */
+    const ratio = Math.max(boxW / visW, boxH / visH);
     const maxSide = Math.max(1024, Math.min(2048,
-      Math.round(cssW * (window.devicePixelRatio || 1))));
+      Math.round(cssW * (window.devicePixelRatio || 1) * ratio)));
     const url = rasterUrl(t, box, maxSide);
     if (src && src.updateImage) {
-      applyImage(t, url, corners, box.slice());
+      applyImage(url, corners, box.slice());
     } else {
       try { setImage(url, corners, t); } catch { /* 样式重建中 */ }
-      rasterBox = box.slice();
     }
   }
 
@@ -471,6 +503,14 @@
     const ys = ring.map((p) => p[1]);
     return [Math.min.apply(null, xs), Math.min.apply(null, ys),
       Math.max.apply(null, xs), Math.max.apply(null, ys)];
+  }
+
+  /* a 是否完整盖住 b（留一点余量，免得贴边时来回抖） */
+  function coversBox(a, b) {
+    if (!a || !b) return false;
+    const mx = Math.max(1e-9, b[2] - b[0]) * 0.001;
+    const my = Math.max(1e-9, b[3] - b[1]) * 0.001;
+    return a[0] <= b[0] + mx && a[1] <= b[1] + my && a[2] >= b[2] - mx && a[3] >= b[3] - my;
   }
 
   function setExtentRing(ring) {
@@ -816,7 +856,8 @@
       emit('gis:drawn', { kind: 'skip' });
       return;
     }
-    setImage(rasterUrl(t), t.corners && t.corners.length === 4 ? t.corners : cornersOf(t), t);
+    setImage(rasterUrl(t), t.corners && t.corners.length === 4 ? t.corners : cornersOf(t), t,
+      t.wgs || null);
     setExtentRing(t.ring || null);
     emit('gis:drawn', { kind: 'raster' });
     if (!keepView) fitTo(t.wgs || boxFromRing(t.ring));
@@ -1335,7 +1376,7 @@
         const same = Math.abs(r.width - lastW) < 1 && Math.abs(r.height - lastH) < 1;
         lastW = r.width; lastH = r.height;
         resizeCam = cameraKey();
-        if (!same) map.resize();
+        if (!same) map.resize();   // 画布尺寸变了由 cssW 判断，别清 rasterZoom
         /* map.resize() 只改视口，不发 moveend；栅格贴图还盖着旧视野那块框，
            屏幕上就剩一部分有影像。画布尺寸真的变了就按新视野补一张。 */
         if (data && data.kind === 'raster') scheduleRasterRefresh();
@@ -1391,9 +1432,21 @@
       /* 贴图没取回来不是地图坏了：收掉转圈，给一句人话就行，
          别把整个界面压成「初始化失败」 */
       if (e.sourceId === 'gis-image') {
-        rasterDone();
+        /* 大文件第一次取图可能失败（引擎还在忙、或这一张实在太大）：
+           先自己重试一次，转圈不撤，用户看到的是"还在读"，而不是一条报错。
+           第二次仍失败才说一句人话，MapLibre 的英文原话只写进控制台。 */
         rasterSeq += 1;
-        emit('gis:rasterfail', { message: String((err && err.message) || err).slice(0, 120) });
+        const t = rasterTarget;
+        if (t && rasterRetry < 1 && map.getSource('gis-image')) {
+          rasterRetry += 1;
+          if (window.console) window.console.debug('贴图失败，重试一次：', err);
+          setTimeout(() => {
+            if (rasterTarget === t) { rasterZoom = -999; refreshRaster(); }
+          }, 700);
+          return;
+        }
+        rasterDone();
+        emit('gis:rasterfail', { message: '已自动重试，仍未取到影像数据' });
         return;
       }
       fail('初始化', err);
@@ -1402,7 +1455,10 @@
     /* image source 换图成功后会发一次 sourceDataType=metadata 的 sourcedata，
        这就是「新贴图已经换上去」的信号 */
     map.on('sourcedata', (e) => {
-      if (e && e.sourceId === 'gis-image' && e.sourceDataType === 'metadata') rasterDone();
+      if (e && e.sourceId === 'gis-image' && e.sourceDataType === 'metadata') {
+        rasterRetry = 0;
+        rasterDone();
+      }
     });
     map.on('dragstart', () => { userMoved = true; });
     map.on('wheel', () => { userMoved = true; });

@@ -4,19 +4,21 @@
 这里管三件事——展开文件夹、把结果存成报告（供以后对比）、把结果和环境打成诊断包。
 """
 
-import io
 import json
+import math
 import os
 import sys
 import time
 import zipfile
 from pathlib import Path
 
-from . import __version__
+from . import __version__, verdict, xlsx
 from . import inspect as engine
-from . import verdict
-from . import xlsx
 from .textutil import clean_text
+
+# 表格行：单元格里既有文字也有数字（序号、结论是数字格）。
+# 不写死成 str，否则第一张表推断出的类型会跟后面两张不一致
+Rows = list[list[tuple[object, int]]]
 
 SKIP_EXT = {".hdr", ".ovr", ".rrd"}    # 只是配件，不单独体检
 DIR_LIMIT = 500                        # 一个文件夹最多体检这么多，超了先给前 500 个
@@ -65,7 +67,7 @@ def jsonable(obj):
         return {k: jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [jsonable(v) for v in obj]
-    if isinstance(obj, float) and (obj != obj or obj in (float("inf"), float("-inf"))):
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return None
     return obj
 
@@ -78,7 +80,7 @@ def build(results, with_verdict=False):
     """
     files = [jsonable(r) for r in results]
     if with_verdict:
-        for item, raw in zip(files, results):
+        for item, raw in zip(files, results, strict=True):
             if isinstance(item, dict):
                 item["verdict"] = jsonable(verdict.judge(raw))
     return {
@@ -94,7 +96,7 @@ def norm(path):
 
 def save(report, path):
     text = json.dumps(report, ensure_ascii=False, indent=2, default=str)
-    with io.open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8") as fh:  # pi-lens-ignore: unchecked-throwing-call-python -- 写不进去要让调用方看到
         fh.write(clean_text(text))
     return path
 
@@ -102,7 +104,7 @@ def save(report, path):
 def load(path):
     """读一份报告的全文；文件不存在或坏了返回 None。"""
     try:
-        with io.open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except (OSError, ValueError):
         return None
@@ -127,20 +129,20 @@ def environment_text():
     try:
         from osgeo import gdal, osr
         rows.append(("GDAL", gdal.VersionInfo("RELEASE_NAME")))
-        rows.append(("PROJ", "%d.%d.%d" % (osr.GetPROJVersionMajor(),
-                                          osr.GetPROJVersionMinor(),
-                                          osr.GetPROJVersionMicro())))
+        proj = (osr.GetPROJVersionMajor(), osr.GetPROJVersionMinor(),
+                osr.GetPROJVersionMicro())
+        rows.append(("PROJ", f"{proj[0]}.{proj[1]}.{proj[2]}"))
         rows.append(("GDAL 数据目录", gdal.GetConfigOption("GDAL_DATA") or ""))
         rows.append(("PROJ 数据目录", ";".join(osr.GetPROJSearchPaths() or [])))
-    except Exception as exc:
+    except Exception as exc:   # noqa: BLE001 - GDAL 没装或坏了，缺这几行不影响诊断包
         rows.append(("GDAL", f"读不到：{exc}"))
     try:
         from . import cache
         st = cache.stats()
         rows.append(("缓存目录", str(st.get("path") or "")))
         rows.append(("缓存占用", str(st.get("size_label") or "")))
-    except Exception:
-        pass
+    except Exception as exc:   # noqa: BLE001 - 缺缓存那两行不影响诊断包，但要写清为什么缺
+        rows.append(("缓存目录", f"读不到：{exc}"))
     return "".join(f"{k}：{v}\n" for k, v in rows if v)
 
 
@@ -200,7 +202,7 @@ def check_workbook(results):
     for f in files:
         counts[f["level"]] = counts.get(f["level"], 0) + 1
 
-    overview = [
+    overview: Rows = [
         [("图览版本", xlsx.BOLD), (__version__, xlsx.TEXT)],
         [("生成时间", xlsx.BOLD), (time.strftime("%Y-%m-%d %H:%M:%S"), xlsx.TEXT)],
         [("体检文件数", xlsx.BOLD), (len(files), xlsx.TEXT)],
@@ -208,22 +210,22 @@ def check_workbook(results):
         [("要留意", xlsx.BOLD), (counts["warn"], xlsx.TEXT)],
         [("未发现问题", xlsx.BOLD), (counts["ok"], xlsx.TEXT)],
         [("结论分档", xlsx.BOLD),
-         ("有问题：打开或使用时会出错，须处理；要留意：可用，但部分项目不理想；"
-          "未发现问题：各项检查均通过。", xlsx.TEXT)],
+         (("有问题：打开或使用时会出错，须处理；要留意：可用，但部分项目不理想；"
+           "未发现问题：各项检查均通过。"), xlsx.TEXT)],
         [("怎么看", xlsx.BOLD),
-         ("“体检明细”中每个数据占若干行，一行对应一个检查项目，表头带筛选，"
-          "可按结论或检查项目分组查看。“文件清单”中每个数据一行，便于整体浏览。"
-          "同一包内的 体检结果.json 是同一份数据的原始记录，供程序读取。", xlsx.TEXT)],
+         (("“体检明细”中每个数据占若干行，一行对应一个检查项目，表头带筛选，"
+           "可按结论或检查项目分组查看。“文件清单”中每个数据一行，便于整体浏览。"
+           "同一包内的 体检结果.json 是同一份数据的原始记录，供程序读取。"), xlsx.TEXT)],
     ]
 
-    listing = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("结论", xlsx.HEAD),
+    listing: Rows = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("结论", xlsx.HEAD),
                 ("格式与规模", xlsx.HEAD), ("路径", xlsx.HEAD)]]
     for i, f in enumerate(files, start=1):
         listing.append([(i, xlsx.NUM), (f["name"], xlsx.BOLD),
                         (verdict.LEVEL_LABEL.get(f["level"], ""), xlsx.NUM),
                         (f["facts"], xlsx.TEXT), (f["path"], xlsx.DIM)])
 
-    detail = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("检查项目", xlsx.HEAD),
+    detail: Rows = [[("序号", xlsx.HEAD), ("文件名", xlsx.HEAD), ("检查项目", xlsx.HEAD),
                ("结果", xlsx.HEAD), ("结论", xlsx.HEAD), ("说明", xlsx.HEAD),
                ("建议", xlsx.HEAD)]]
     for i, f in enumerate(files, start=1):
@@ -231,7 +233,7 @@ def check_workbook(results):
         for row in rows:
             detail.append([(i, xlsx.NUM), (f["name"], xlsx.TEXT),
                            (row.get("label") or "", xlsx.TEXT),
-                           (verdict.LEVEL_LABEL.get(row.get("level"), ""), xlsx.NUM),
+                           (verdict.LEVEL_LABEL.get(str(row.get("level") or ""), ""), xlsx.NUM),
                            (row.get("title") or "", xlsx.TEXT),
                            (row.get("detail") or "", xlsx.TEXT),
                            (row.get("hint") or "", xlsx.DIM)])
@@ -262,7 +264,7 @@ def write_zip(results, zip_path):
 
 
 def default_zip_name():
-    return "图览诊断包-%s.zip" % time.strftime("%Y%m%d-%H%M%S")
+    return f"图览诊断包-{time.strftime('%Y%m%d-%H%M%S')}.zip"
 
 
 def write_zip_at(results, folder):

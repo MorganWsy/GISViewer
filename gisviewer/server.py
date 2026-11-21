@@ -606,7 +606,8 @@ def _bbox_label(bbox):
     拖动停下时算出来的框总是差最后几位，不取整就等于没有缓存；
     5 位小数在赤道上约 1 米，比屏幕像素粗得多，取整看不出来。
     """
-    return ",".join(f"{float(v):.5f}" for v in bbox)
+    # 调用方已按「四个数字」校过，这里只是格式化，不是一次新的解析
+    return ",".join(f"{float(v):.5f}" for v in bbox)  # pi-lens-ignore: unchecked-numeric-parse-python
 
 
 def _png_size(body):
@@ -617,6 +618,27 @@ def _png_size(body):
         return w, h
     except Exception:  # noqa: BLE001  （转成界面能看懂的失败，不往上抛）
         return 0, 0
+
+
+def _blank_value(src, band):
+    """空白像元填什么值：文件声明了 NoData 就用它，没声明就按数据类型借一个放不进原类型的数。
+
+    QGIS 的做法与此一致：重投影必须有一个 NoData，才能把数据范围之外画成透明；
+    源数据没有声明时，它临时把数据类型升一档借一个（QGIS 工单 #3733）。
+    这里的数组本来就转成了 float64，不必真换类型，取一个原类型放不下的数即可：
+    无符号取 -1（uint8 的合法值是 0~255），有符号取最小值再减一（int16 取 -32769），
+    两者都不会与真实像元相撞。浮点数据本身有 NaN，照旧用 NaN。
+    """
+    import numpy as np  # pyright: ignore[reportMissingImports]
+
+    nd = src.nodata
+    if nd is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            return float(nd)  # pi-lens-ignore: unchecked-numeric-parse-python -- 上面已兜住
+    dtype = np.dtype(src.dtypes[band - 1])
+    if dtype.kind == "f":
+        return math.nan
+    return np.iinfo(dtype).min - 1.0   # int 减浮点，结果就是浮点，不必先转
 
 
 def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None,
@@ -657,7 +679,7 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None,
         window = None
 
         if bbox and len(bbox) == 4:
-            box = [float(v) for v in bbox]
+            box = list(bbox)   # 上游已转成数字，这里只换个容器
             src_box = box
             if not geographic and crs is not None:
                 # 视野是经纬度，先换成数据自己的投影，才能按窗口读原像素
@@ -722,10 +744,14 @@ def raster_grid(target, indexes, max_side=512, resampling="bilinear", bbox=None,
         arrays = []
         for i in want:
             raw = src.read(i, out_shape=(small_h, small_w), masked=True, **read_kw)
+            # 空白处按 NoData 处理，不是随手塞 NaN：先转浮点（整型数组填不了 NaN），
+            # 再填 _blank_value 给的哨兵值，重投影时把它当 NoData 挖掉
+            blank = _blank_value(src, i)
+            raw_f = raw.astype("float64").filled(blank)
             buf = np.full((out_h, out_w), np.nan, dtype="float64")
-            reproject(source=raw.filled(np.nan).astype("float64"), destination=buf,
+            reproject(source=raw_f, destination=buf,
                       src_transform=src_tf, src_crs=src.crs,
-                      src_nodata=np.nan,
+                      src_nodata=blank,
                       dst_transform=dst_tf, dst_crs="EPSG:3857", dst_nodata=np.nan,
                       resampling=res)
             arrays.append(np.ma.masked_invalid(buf))
@@ -1156,6 +1182,23 @@ class Handler(BaseHTTPRequestHandler):
         # fast=True：矢量跳过"数个数、量范围"这两步全文件扫描，先把界面立起来，
         # 缺的数字由页面在取数完成后回填（见 app.js 里 gis:vector 的处理）
         result = cached_safe_inspect(path, histograms=False, quick=fast)
+        # 打开的那一刻就要知道"要不要问建金字塔"：inspect 里已经有宽高、字节数和
+        # 金字塔级数，这里只补一个纯计算的结论，不再单独发一次请求（第一次请求
+        # 要排在大图渲染后面，实测能等到一秒多，弹窗就慢了）
+        if result.get("ok") and result.get("kind") == "raster":
+            result = dict(result)
+            width = _as_int(result.get("width"), 0)
+            height = _as_int(result.get("height"), 0)
+            size = _as_int((result.get("file") or {}).get("size_bytes"), 0)
+            result["pyramid"] = {
+                "exists": bool(pyramid.current(path)),
+                "levels": list(pyramid.LEVELS),
+                "recommend": pyramid.suggest(width, height, size,
+                                             bool(result.get("overview_levels"))),
+                "width": width,
+                "height": height,
+                "size": size,
+            }
         return self._send(200, mark_temp_copy(result))
 
     def _histogram(self, query):
@@ -1339,8 +1382,10 @@ class Handler(BaseHTTPRequestHandler):
         path = str((query.get("path") or [""])[0]).strip()
         if not _readable(path):
             return self._send(404, {"ok": False, "error": {"title": "找不到这个文件"}})
+        # probe=0：只报文件本身的信息，不去读像元猜数据类型（大文件冷盘上要一秒）
+        probe = str((query.get("probe") or ["1"])[0]) != "0"
         try:
-            return self._send(200, pyramid.status(path))
+            return self._send(200, pyramid.status(path, probe=probe))
         except Exception as exc:  # noqa: BLE001
             return self._send(200, {"ok": False, "error": {
                 "title": "读不了这份影像", "detail": labels.friendly_error(exc)[:200]}})
@@ -1391,7 +1436,7 @@ class Handler(BaseHTTPRequestHandler):
                 if v is None:
                     return self._send(400, {"ok": False, "error": {
                         "title": "视野范围不是四个数字", "detail": raw_bbox[:60]}})
-                bbox.append(float(v))
+                bbox.append(v)
         max_side = min(2048, max(256, _as_int((query.get("max") or ["512"])[0], 512)))
         # 整幅缩略图落盘缓存；视野图每次拖动都不同，只留在内存里热一下，
         # 免得每拖一次就往 thumb 分片写一张，下次启动又被 prune 清掉

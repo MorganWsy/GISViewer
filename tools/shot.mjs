@@ -67,7 +67,8 @@ sweepProfiles();
 async function findTarget() {
   for (let i = 0; i < 80; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
+      /* 本机 DevTools 调试端口只有 http，没有加密版；这里不是往外部发数据 */
+      const res = await fetch(`http://127.0.0.1:${port}/json/list`);  // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
       const list = await res.json();
       const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
       if (page) return page;

@@ -141,6 +141,7 @@
 * { box-sizing: border-box; }
 
 /* hidden 属性必须能盖住带 display 的类规则，否则设置弹窗关不上 */
+/* pi-lens-ignore: no-important -- hidden 要盖住各种带 display 的类规则 */
 [hidden] { display: none !important; }
 
 /* 界面字号只放大面板和控件，地图画布不参与，否则点选取点会跟着偏。
@@ -487,6 +488,7 @@ body.native-drop .empty { border-color: transparent; background: transparent; }
 
 /* 拖动窗口那阵把上一帧拉伸到新尺寸，停手后 map.resize() 再摆正：
    中间帧既不留白也不反复重绘 */
+/* pi-lens-ignore: no-important -- MapLibre 把画布宽高写成内联样式 */
 #map.resizing canvas { width: 100% !important; height: 100% !important; }
 
 /* 地图占主区，右栏宽度可拖，拖完记在本地 */
@@ -918,14 +920,18 @@ table.chip-table td {
 .map-legend {
   display: flex;
   flex-direction: column;
-  width: 204px;
+  /* 宽度跟着内容走，但封顶：图例里的文字再长也不会把地图挤窄，
+     超出的部分在 .legend-val 上省略，鼠标悬停有提示气泡（见 app.js 的 legendRow） */
+  width: auto;
+  min-width: 150px;
+  max-width: 280px;
   max-height: 42vh;
   padding: 6px 8px;
   background: var(--overlay);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
-  transition: width 0.2s ease, margin 0.2s ease;
+  transition: margin 0.2s ease;
   margin: 0 0 6px 6px;
 }
 
@@ -938,7 +944,8 @@ table.chip-table td {
 }
 .legend-head { display: flex; align-items: center; gap: 4px; }
 .legend-head .fold-btn { margin-left: auto; }
-.legend-head .combo { flex: none; width: 124px; min-width: 0; }
+/* 下拉框跟着最长的那一项走，同样封顶；按钮里的 .combo-label 已经把超出的字省略掉 */
+.legend-head .combo { flex: 0 1 auto; width: auto; min-width: 88px; max-width: 156px; }
 /* 图例这颗下拉平时就是一行字加箭头：不要边框、压扁内边距，展开时才描边；
    宽度够放下"波段200"与"三波段合成"，不再截字 */
 .legend-head .combo-btn {
@@ -965,9 +972,17 @@ table.chip-table td {
   max-height: min(34vh, var(--legend-max, 320px));
   overflow-y: auto;
 }
-.legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; min-width: 0; }
 .legend-swatch { flex: none; width: 30px; height: 16px; border: 1px solid var(--line); border-radius: 3px; }
-.legend-val { font-size: 13px; font-family: var(--font-num); white-space: nowrap; }
+.legend-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-family: var(--font-num);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .legend-blank { font-size: 13px; color: var(--text-dim); }
 
 /* 地图底部一行：图例靠左，比例尺和读数合成一条靠右。
@@ -1060,7 +1075,12 @@ table.chip-table td {
    看起来就连成一整块了。组内高亮只换底色，边框仍用分隔线色 */
 #map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on { border-color: var(--line); }
 
-#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on:hover { background: var(--accent); }
+/* 亮着的按钮（底图关着、值分布开着）悬停不再变样：底色已是主色，
+   图标若跟着变主色就看不见了，看起来像按钮突然空了一块 */
+#map .maplibregl-ctrl-group button.maplibregl-ctrl-icon.on:hover {
+  background: var(--accent);
+  color: #fff;
+}
 
 .map-pop {
   position: absolute;
@@ -1366,7 +1386,9 @@ table.attr-table .attr-copy svg { width: 13px; height: 13px; }
 .attr-load .load-spin { width: 15px; height: 15px; border-width: 2px; }
 
 /* 左键是点选，不显示抓手；只有按住中键拖动时才变抓手 */
+/* pi-lens-ignore: no-important -- 光标也是 MapLibre 写的内联样式 */
 #map canvas { cursor: default !important; }
+/* pi-lens-ignore: no-important -- 同上，中键拖动时换成抓手 */
 #map canvas.mid-pan { cursor: grabbing !important; }
 
 /* 识别弹窗挂在 #map 里面，而 #map 自己不占层级：不给它一个比浮层高的数，
