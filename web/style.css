@@ -3428,7 +3428,7 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* 左右两枚小标签跟着输入框走，宽度固定，两行的输入框因此左边对齐 */
 .cmp-tag {
   flex: none;
-  width: 22px;
+  width: 26px;
   font-size: 12px;
   line-height: var(--ctl-h);
   color: var(--text-dim);
@@ -3454,18 +3454,20 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* 字段结构与属性内容并排：两者都是"逐条清单"，左右各占一半正好把宽屏用满 */
 .cmp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; align-items: start; }
 /* 配对方式那一行：下拉吃掉剩余宽度，按钮靠右 */
-.cmp-align { display: flex; align-items: center; gap: 6px; }
-.cmp-align .cmp-tag { line-height: 26px; }
+/* 与上面两行输入框同一套几何：22px 标签位 + 0 间距，下拉的左边缘才和输入框对齐 */
+.cmp-align { display: flex; align-items: center; gap: 0; }
+.cmp-align .cmp-run { margin-left: 8px; }
 /* controls.js 会把原生 select 换成 .combo，能看见的是那颗按钮，
    所以宽度和高度要给 .combo 与 .combo-btn，给 select 是不生效的 */
 .cmp-align .combo { flex: 1 1 auto; min-width: 0; }
 .cmp-align .combo-btn {
-  height: 26px;
+  height: var(--ctl-h);
   min-height: 0;
   padding: 0 26px 0 8px;
-  font-size: 12.5px;
+  font-size: 13px;
 }
-/* 一句话结论：贴着分隔线，下面各段自己带标题，不再重复写"共几处" */
+/* 一句话结论与段标题用同一号字、同一个颜色：两者都是"这一块在说什么"，
+   字号或颜色不一样时，读的人会以为层级不同，而它们的层级其实一样 */
 .cmp-sum {
   padding: 7px 9px 7px 2px;
   font-size: 13px;
@@ -3479,16 +3481,18 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
   align-items: baseline;
   gap: 6px;
   padding: 4px 0 3px;
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 13px;
+  line-height: 19px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
 }
 .cmp-sec-hd .cmp-cnt { font-weight: 400; color: var(--text-dim); }
 /* 表头对照：三列固定宽度，差异行整行浅底色；值用等宽数字字体，位数对得上 */
 .cmp-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+/* 首列不设左内边距：段标题在 x=0 起排，表格文字也要从 x=0 起排，
+   否则表格会整体右移 6px，看起来"没对齐" */
 .cmp-table th, .cmp-table td {
-  padding: 3px 6px;
+  padding: 3px 6px 3px 0;
   font-size: 12.5px;
   line-height: 17px;
   text-align: left;
@@ -3759,3 +3763,12 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cv-cmp td.cv-same { color: var(--text-dim); }
 .cv-cmp td.cv-diff { color: var(--warn-ico); font-weight: 600; }
 .cv-cmp td.num { font-variant-numeric: tabular-nums; }
+
+/* 对比浮层：内容要能选字复制（表格里的数值最常被复制走），
+   底边距比通用浮层再收一半，视觉上不再吊着一块空白 */
+#cmpPop { padding-bottom: 3px; }
+#cmpPop, #cmpPop * { user-select: text; }
+/* 拖动条的可视高度只有 5px，纯按它算锚点会让人"找不到箭头"，
+   把命中区上下各放 2px，气泡才能对着那根横条 */
+.attr-grip i { top: -2px; height: 9px; }
+.attr-grip i::after { top: 3px; }

@@ -1276,7 +1276,7 @@ function refreshCacheSize() {
 /* 矢量与范围线的颜色走 CSS 变量，改完让地图重取一次调色板 */
 function applyDataColor() {
   const hex = /^#[0-9a-fA-F]{6}$/.test(config.vector_color) ? config.vector_color : '#d9781f';
-  const rgb = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16)).join(', ');
+  const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
   const root = document.documentElement.style;
   root.setProperty('--map-data', hex);
   root.setProperty('--map-extent', hex);
@@ -1340,6 +1340,8 @@ function showCmpPop() {
   markBtn('cmpBtn', true);
   placeCmpPop();
   syncCmpRun();
+  // 上次填过的右边可能还在：打开就先把配对下拉备齐
+  refreshCmpKeys();
 }
 
 function hideCmpPop() {
@@ -1501,15 +1503,38 @@ function renderCmpSample(sample, host) {
   if (note) host.appendChild(el('div', 'cmp-more', note));
 }
 
-function syncCmpKeys(d) {
+/* 只要两边都填上了就去问一次共有字段：不点"开始对比"也能选配对方式，
+   否则下拉里永远只有"按行号对齐"，人会以为这个功能没做 */
+let cmpKeysTimer = 0;
+function refreshCmpKeys() {
+  clearTimeout(cmpKeysTimer);
+  cmpKeysTimer = 0;
+  const a = (($('cmpPathA') || {}).value || '').trim();
+  const b = (($('cmpPathB') || {}).value || '').trim();
+  if (!a || !b) {
+    syncCmpKeys('', []);
+    return;
+  }
+  cmpKeysTimer = setTimeout(() => {
+    cmpKeysTimer = 0;
+    const q = '/api/compare/keys?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b);
+    fetch(q).then((r) => r.json()).then((d) => {
+      if (!d || !d.ok) return;
+      // 用户在等结果的这段时间里改了路径：这一份就作废，别把旧字段名贴上去
+      const now = (($('cmpPathA') || {}).value || '').trim();
+      if (now !== a) return;
+      syncCmpKeys(d.kind || '', d.common || []);
+    }).catch(() => {});
+  }, 450);
+}
+
+function syncCmpKeys(kind, list) {
   const sel = $('cmpKeySel');
   if (!sel) return;
-  const sample = d.sample || {};
-  const list = sample.common_fields_list || [];
   const want = sel.value;
   sel.textContent = '';
-  if (d.kind !== 'vector') {
-    const only = el('option', null, '影像没有要素可配对');
+  if (kind !== 'vector') {
+    const only = el('option', null, kind ? '影像没有要素可配对' : '先选好两份文件');
     only.value = '';
     sel.appendChild(only);
     sel.disabled = true;
@@ -1518,7 +1543,7 @@ function syncCmpKeys(d) {
   const plain = el('option', null, '按行号对齐（不配对要素）');
   plain.value = '';
   sel.appendChild(plain);
-  list.forEach((name) => {
+  (list || []).forEach((name) => {
     const o = el('option', null, '按「' + name + '」配对要素');
     o.value = name;
     sel.appendChild(o);
@@ -1532,7 +1557,7 @@ function syncCmpKeys(d) {
 
 function renderCompare(d) {
   clearCmpResult();
-  syncCmpKeys(d);
+  syncCmpKeys(d.kind || '', (d.sample && d.sample.common_fields_list) || []);
   const sum = $('cmpSummary');
   if (sum) sum.textContent = d.summary || '';
   const metaSec = $('cmpMetaSec');

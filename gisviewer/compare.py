@@ -75,7 +75,16 @@ def _num(v, digits=6):
     return str(v)
 
 
-def _box(box):
+# 范围里四个数的顺序固定是 左、下、右、上（也就是 minX、minY、maxX、maxY）。
+# 投影坐标系用"左右上下"，地理坐标系用"西东南北"——同一件事两种行话说；
+# 读的人如果分不清哪个数是经度、哪个是纬度，这一行就等于白给。
+BOX_LABELS = {
+    "projected": ("左", "下", "右", "上"),
+    "geographic": ("西", "南", "东", "北"),
+}
+
+
+def _box(box, kind=""):
     """范围写成一句话。矢量那边给的是 {left,right,bottom,top}，栅格这边是四元组，
     两种形状都收，界面上就不必关心来源。"""
     if not box:
@@ -86,7 +95,10 @@ def _box(box):
         values = list(box)[:4]
     if len(values) < 4 or any(v is None for v in values):
         return ""
-    # 括号是给人看的：四段数字并排时，没有括号会分不清这是不是一个整体
+    names = BOX_LABELS.get(kind or "")
+    if names:
+        return "(" + ", ".join(f"{n} {_num(v)}" for n, v in zip(names, values, strict=True)) + ")"
+    # 坐标系没记下来时不贴方向：随便标一个就是编
     return "(" + ", ".join(_num(v) for v in values) + ")"
 
 
@@ -202,6 +214,7 @@ def _vector_side(path, layer_index, key=None):
         "extent": layer.get("extent"),
         "extent_wgs84": layer.get("extent_wgs84"),
         "crs": crs.get("label") or "",
+        "crs_kind": crs.get("kind") or "",
         "crs_epsg": crs.get("epsg"),
         "unit": layer.get("unit_label") or "",
         "fields": fields,
@@ -251,6 +264,7 @@ def _raster_side(path):
         "extent": info.get("extent"),
         "extent_wgs84": info.get("extent_wgs84"),
         "crs": crs.get("label") or "",
+        "crs_kind": crs.get("kind") or "",
         "crs_epsg": crs.get("epsg"),
         "nodata": info.get("nodata_values"),
         "compression": info.get("compression_label") or "",
@@ -278,7 +292,7 @@ def _vector_meta(a, b):
         _row("要素个数", a["features"], b["features"]),
         _row("顶点总数", a["vertices"], b["vertices"]),
         _row("字段个数", len(a["fields"]), len(b["fields"])),
-        _row("范围", _box(a["extent"]), _box(b["extent"])),
+        _row("范围", _box(a["extent"], a["crs_kind"]), _box(b["extent"], b["crs_kind"])),
         _row("坐标系", a["crs"], b["crs"]),
     ]
     if a["partial"] or b["partial"]:
@@ -296,7 +310,7 @@ def _raster_meta(a, b):
         _row("波段数", a["band_count"], b["band_count"]),
         _row("数据类型", a["data_types"], b["data_types"]),
         _row("像元大小", a["pixel_size"], b["pixel_size"]),
-        _row("范围", _box(a["extent"]), _box(b["extent"])),
+        _row("范围", _box(a["extent"], a["crs_kind"]), _box(b["extent"], b["crs_kind"])),
         _row("坐标系", a["crs"], b["crs"]),
         _row("无数据值", a["nodata"], b["nodata"]),
         _row("压缩", a["compression"], b["compression"]),
@@ -443,6 +457,37 @@ def _sample_diff(a, b, key=None):
         "common_fields_list": common,
         "note": "按行号对齐（第 1 行对第 1 行），不按主键配对",
     }
+
+
+def keys(path_a, path_b, layer_a=0, layer_b=0):
+    """只取两边共有的字段名，给"配对方式"那枚下拉用。
+
+    这里不扫要素：开一次图层、读一遍字段定义就够，几十万要素的文件也是毫秒级。
+    """
+    left, right = str(path_a or "").strip(), str(path_b or "").strip()
+    if not left or not right:
+        return {"kind": "", "common": [], "ready": False}
+    for p in (left, right):
+        if not os.path.exists(p):
+            return {"kind": "", "common": [], "ready": False, "reason": "有一份文件找不到了"}
+    kind_a, kind_b = _kind(left), _kind(right)
+    if kind_a != kind_b:
+        return {"kind": kind_a or kind_b or "", "common": [], "ready": False, "reason": "两份不是同一类"}
+    if kind_a != "vector":
+        return {"kind": kind_a or "", "common": [], "ready": False, "reason": "影像没有要素可配对"}
+
+    names = []
+    for path, index in ((left, layer_a), (right, layer_b)):
+        src = _open(vector.read_target(path))
+        if src is None:
+            return {"kind": "vector", "common": [], "ready": False, "reason": "有一份文件打不开"}
+        if index < 0 or index >= src.GetLayerCount():
+            return {"kind": "vector", "common": [], "ready": False, "reason": "图层序号超出了范围"}
+        defn = src.GetLayerByIndex(index).GetLayerDefn()
+        names.append([defn.GetFieldDefn(i).GetName() for i in range(defn.GetFieldCount())])
+    common = [n for n in names[0] if n in names[1]]
+    return {"kind": "vector", "common": common, "ready": bool(common),
+            "fields_a": len(names[0]), "fields_b": len(names[1])}
 
 
 def compare(path_a, path_b, layer_a=0, layer_b=0, key=None):

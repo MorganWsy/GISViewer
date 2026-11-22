@@ -55,6 +55,15 @@ STEPS = (
     " out.convOpen = vis('#convPop');"
     " q('#convBtn').click(); await wait(150);"
     " out.convClosed = !vis('#convPop');"
+    # 对比浮层只认顶栏那颗按钮：点外面、按 Esc 都不该收（否则选字复制会被打断）
+    " q('#cmpBtn').click(); await wait(250);"
+    " out.cmpOpen = vis('#cmpPop');"
+    " document.body.click(); await wait(200);"
+    " out.cmpStaysOutside = vis('#cmpPop');"
+    " document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(200);"
+    " out.cmpStaysEsc = vis('#cmpPop');"
+    " q('#cmpBtn').click(); await wait(250);"
+    " out.cmpClosed = !vis('#cmpPop');"
     " q('#legendFold').click(); await wait(200);"
     " out.legendFolded = vis('#legendTab');"
     " q('#legendTab').click(); await wait(200);"
@@ -154,6 +163,10 @@ def main():
             "checkClosed": True,
             "convOpen": True,
             "convClosed": True,
+            "cmpOpen": True,
+            "cmpStaysOutside": True,
+            "cmpStaysEsc": True,
+            "cmpClosed": True,
             "legendFolded": True,
             "legendBack": True,
             "layerChip": True,

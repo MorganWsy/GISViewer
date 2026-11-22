@@ -180,7 +180,7 @@ function copyAttrCol(c, colIdx) {
   const emit = (values) => {
     if (key === null) {
       const lines = ['行号'];
-      values.forEach((v, i) => lines.push(String(i + 1)));
+      values.forEach((_v, i) => lines.push(String(i + 1)));
       copyText(lines.join('\n'), '已复制行号列 ' + values.length + ' 行');
       return;
     }
@@ -427,7 +427,7 @@ function escapeTopLayer(e, typing) {
   if (!$('pickPop').hidden) { hidePickPop(); return; }
   if (!$('checkPop').hidden) { hideCheckPop(); return; }
   if (!$('convPop').hidden) { hideConvPop(); return; }
-  if (!$('cmpPop').hidden) { hideCmpPop(); return; }
+
   if (!$('layerPop').hidden) { hideLayerPop(); return; }
   if (!$('settings').hidden) { $('cfgClose').click(); return; }
   if (!$('errToast').hidden) { hideErrToast(); return; }

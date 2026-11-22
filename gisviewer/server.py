@@ -1008,6 +1008,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._identify(query)
         if route == "/api/geomtypes":
             return self._geomtypes(query)
+        if route == "/api/compare/keys":
+            return self._compare_keys(query)
         if route == "/api/compare":
             return self._compare(query)
         if route == "/api/convert_formats":
@@ -1488,6 +1490,18 @@ class Handler(BaseHTTPRequestHandler):
         w, h = _png_size(png)
         return self._send(200, png, "image/png", {"X-Image-Width": str(w), "X-Image-Height": str(h),
                                                  "X-Cache": "hit" if hit else "miss"})
+
+    def _compare_keys(self, query):
+        """两份文件共有的字段名，只给下拉用，不扫要素。"""
+        from . import compare as cmp
+
+        a = str((query.get("a") or [""])[0]).strip()
+        b = str((query.get("b") or [""])[0]).strip()
+        for path in (a, b):
+            if path and not _readable(path):
+                return self._send(200, {"ok": True, "ready": False, "kind": "", "common": [], "reason": "有一份文件读不到"})
+        return self._send(200, {"ok": True, **cmp.keys(a, b, _as_int((query.get("layer_a") or ["0"])[0]),
+                                                         _as_int((query.get("layer_b") or ["0"])[0]))})
 
     def _compare(self, query):
         """两份同类文件的对照。只读：不改任何一侧，也不在磁盘上留东西。

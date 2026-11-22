@@ -181,16 +181,14 @@
       </div>
       <!-- 配对方式：默认按行号，选一个两边都有的字段就改成按这个字段配对 -->
       <div class="cmp-align">
-        <!-- 空的标签位只是占位：让下拉的左边和上面两个输入框对齐，
-             配对方式这件事由下拉自己的选项说明，不再另写一个"配对" -->
-        <span class="cmp-tag" aria-hidden="true"></span>
+        <span class="cmp-tag">配对</span>
         <select id="cmpKeySel" aria-label="要素配对方式">
           <option value="">按行号对齐（不配对要素）</option>
         </select>
         <button id="cmpRun" class="cmp-run" type="button">开始对比</button>
       </div>
     </div>
-    <div class="cp-result" id="cmpResult" hidden>
+    <div class="cp-result cmp-result" id="cmpResult" hidden>
       <div class="cmp-sum"><b class="cmp-sum-k">对比总结：</b><span id="cmpSummary"></span></div>
       <div class="cmp-sec" id="cmpMetaSec"></div>
       <div class="cmp-cols">
@@ -341,7 +339,7 @@
       </div>
       <!-- 属性表浮在地图里面：切文件时地图不用重排，也就不会抖 -->
       <div id="attrPanel" class="map-attr" hidden>
-        <div class="attr-grip" id="attrGrip" data-tip="拖动调整高度" aria-label="拖动调整高度"><i></i></div>
+        <div class="attr-grip" id="attrGrip" role="separator" aria-label="拖动调整高度"><i data-tip="拖动调整高度"></i></div>
         <div class="attr-head">
           <svg class="attr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="1.6"/><path d="M3.6 9.4h16.8M9.6 9.4v10M3.6 14.2h16.8"/></svg>
           <span class="attr-title">属性表</span>

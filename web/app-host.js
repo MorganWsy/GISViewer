@@ -74,6 +74,8 @@ const hostHandlers = {
       if (!right) return;
       right.value = String(value || '');
       syncCmpRun();
+      // 文件一落地就去看两边共有哪些字段：不用先点一次"开始对比"
+      refreshCmpKeys();
       return;
     }
     const where = toConv ? $('convPath') : $('checkPath');
@@ -1152,8 +1154,9 @@ function wireComparePopover() {
   $('cmpPathA').addEventListener('input', (e) => {
     e.target.dataset.auto = e.target.value.trim() ? '0' : '1';
     syncCmpRun();
+    refreshCmpKeys();
   });
-  $('cmpPathB').addEventListener('input', syncCmpRun);
+  $('cmpPathB').addEventListener('input', () => { syncCmpRun(); refreshCmpKeys(); });
   // 两个框里回车都直接开始对比，省得再去点按钮
   [$('cmpPathA'), $('cmpPathB')].forEach((box) => {
     box.addEventListener('keydown', (e) => {
@@ -1447,7 +1450,8 @@ function wireRecentMenu() {
   });
 }
 
-/* 打开、体检、互转三块浮层点外面收起 */
+/* 打开、体检、互转三块浮层点外面收起。
+   对比浮层不在此列：它要能选字复制，点外面就收会打断这个动作，显隐只由顶栏按钮决定 */
 function wirePopoverDismiss() {
   // "打开"菜单点到别处就收掉；点按钮自身除外（它自己负责开/关）
   document.addEventListener('click', (e) => {
@@ -1457,14 +1461,6 @@ function wirePopoverDismiss() {
     // 提示气泡挂在 body 上、不在浮层里：点气泡（选字、复制）不算"点在外面"
     if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
     hidePickPop();
-  });
-  // 对比浮层同理
-  document.addEventListener('click', (e) => {
-    const pop = $('cmpPop');
-    if (!pop || pop.hidden) return;
-    const onBtn = e.target && e.target.closest ? e.target.closest('#cmpBtn') : null;
-    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
-    hideCmpPop();
   });
   // 体检浮层同理：点外面收掉，点自己的按钮不算（否则按下去就没了）
   document.addEventListener('click', (e) => {

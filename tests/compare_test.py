@@ -91,6 +91,13 @@ def main():
           str(meta.get("顶点总数")))
     check("要素个数写在表头里", int(meta.get("要素个数", {}).get("a") or 0) == 4,
           str(meta.get("要素个数")))
+    box = meta.get("范围", {})
+    check("范围带方向标签：地理坐标系用东南西北",
+          box.get("a", "").startswith("(西 ") and "北 " in box.get("a", ""), box.get("a"))
+
+    only = compare.keys(str(MIXED), str(MIXED))
+    check("只读字段名：给出共有字段", only["ready"] and "名称" in only["common"], str(only.get("common")))
+    check("只读字段名：影像没有可配对字段", compare.keys(str(TIFF), str(TIFF))["ready"] is False)
 
     with tempfile.TemporaryDirectory() as tmp:
         changed = mutated_copy(Path(tmp) / "mixed_int.geojson")
@@ -107,6 +114,13 @@ def main():
     check("同一份影像：表头一致", raster["diff"]["meta"] == 0, raster["summary"])
     check("同一份影像：带波段信息", "波段数" in rows_of(raster), str(list(rows_of(raster))))
     check("同一份影像：不列属性段", raster["sample"]["rows_compared"] == 0)
+    rbox = rows_of(raster).get("范围", {})
+    # 这份影像是什么坐标系，标签就该是那一套：投影用左右上下，地理用东南西北
+    side = compare._raster_side(str(TIFF))  # noqa: SLF001 - 测试要拿到这一侧自己的坐标系
+    want = {"projected": ("左", "上"), "geographic": ("西", "北")}.get(side["crs_kind"], ())
+    check("范围带方向标签与坐标系一致：投影左右上下，地理东南西北",
+          bool(want) and rbox.get("a", "").startswith(f"({want[0]} ") and f"{want[1]} " in rbox.get("a", ""),
+          f"{side['crs_kind']} / {rbox.get('a')}")
 
     other = compare.compare(str(TIFF), str(TIFF2))
     check("两份影像：报出差异", other["diff"]["meta"] >= 1, other["summary"])
