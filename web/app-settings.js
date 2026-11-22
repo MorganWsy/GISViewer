@@ -1462,6 +1462,40 @@ function runCompare() {
 }
 
 /* 表头对照：一行一项，两边值并排；不同的整行标注底色 */
+/* 复制这张表：制表符分隔 + CRLF，粘到 Excel / WPS 里正好一列一列。
+   这两个字符用 fromCharCode 拼，源码里不写转义，免得被外层工具吃掉。 */
+const CMP_TAB = String.fromCharCode(9);
+const CMP_EOL = String.fromCharCode(13, 10);
+function copyCmpMeta(btn) {
+  const rows = cmpMetaRows || [];
+  if (!rows.length) return;
+  const cell = (v) => (v === '' || v === null || v === undefined ? '' : String(v));
+  const lines = [['项目', '左', '右'].join(CMP_TAB)];
+  rows.forEach((r) => lines.push([cell(r.label), cell(r.a), cell(r.b)].join(CMP_TAB)));
+  const text = lines.join(CMP_EOL);
+  const flash = () => {
+    if (!btn) return;
+    btn.classList.add('done');
+    setTimeout(() => btn.classList.remove('done'), 1200);
+  };
+  // 编辑器里没有剪贴板权限时会 reject，此时退回旧接口
+  const fallback = () => {
+    const ta = el('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); flash(); } catch { /* 复制失败就保持原样 */ }
+    ta.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(flash).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
 function renderCmpMeta(rows, host) {
   const table = el('table', 'cmp-table');
   const head = el('thead');
@@ -1487,11 +1521,13 @@ function renderCmpMeta(rows, host) {
 /* 字段差异：只在一边有的字段、类型/宽度变了的字段，各占一段 */
 function renderCmpFields(fields, host) {
   const lines = [];
-  (fields.only_a || []).forEach((n) => lines.push(['只在左边', n]));
-  (fields.only_b || []).forEach((n) => lines.push(['只在右边', n]));
+  const quoted = (n) => '「' + n + '」';
+  (fields.only_a || []).forEach((n) => lines.push(['只在左边', quoted(n)]));
+  (fields.only_b || []).forEach((n) => lines.push(['只在右边', quoted(n)]));
   (fields.changed || []).forEach((item) => {
     (item.diffs || []).forEach((d) => {
-      lines.push([item.name + ' · ' + d.what, (d.a === null ? '（无）' : d.a) + ' → ' + (d.b === null ? '（无）' : d.b)]);
+      lines.push([quoted(item.name) + ' · ' + d.what,
+        (d.a === null ? '（无）' : d.a) + ' → ' + (d.b === null ? '（无）' : d.b)]);
     });
   });
   if (!lines.length) {
@@ -1526,7 +1562,7 @@ function renderCmpSample(sample, host) {
   cells.forEach((cell) => {
     const line = el('div', 'cmp-line');
     const where = (sample.mode === 'key' ? '要素 ' + cell.row : '第 ' + cell.row + ' 行') +
-      ' · ' + cell.field;
+      ' · 「' + cell.field + '」';
     line.appendChild(el('span', 'cmp-where', where));
     const val = el('span', 'cmp-val');
     val.appendChild(el('b', null, '左 '));
@@ -1596,11 +1632,14 @@ function syncCmpKeys(kind, list) {
     sel.appendChild(group);
   }
   // 上一次选的字段如果这份数据里没有，就退回按行号
-  sel.value = list.indexOf(want) >= 0 ? want : '';
+  sel.value = (list || []).includes(want) ? want : '';
   sel.disabled = !list.length;
   // 选项是刚换的，自定义下拉要跟着重建（原生 select 已经退成 1px 的替身）
   if (window.syncSelect) window.syncSelect(sel);
 }
+
+// 上一次对比的表头行：复制按钮要用（段标题是渲染时现场建的，拿不到数据）
+let cmpMetaRows = [];
 
 function renderCompare(d) {
   // 不清空、只覆盖：先把结果区亮出来，再逐段换内容，
@@ -1615,8 +1654,9 @@ function renderCompare(d) {
   const sum = $('cmpSummary');
   if (sum) sum.textContent = d.summary || '';
   const metaSec = $('cmpMetaSec');
+  cmpMetaRows = d.rows || [];
   if (metaSec && (d.rows || []).length) {
-    metaSec.appendChild(cmpSectionHead('表头与元信息', d.diff ? d.diff.meta : 0));
+    metaSec.appendChild(cmpSectionHead('表头与元信息', d.diff ? d.diff.meta : 0, null, true));
     renderCmpMeta(d.rows, metaSec);
   }
   if (d.kind === 'vector') {
@@ -1642,10 +1682,18 @@ function renderCompare(d) {
   if (res) res.hidden = false;
 }
 
-function cmpSectionHead(title, count, note) {
+function cmpSectionHead(title, count, note, withCopy) {
   const hd = el('div', 'cmp-sec-hd', title);
   if (note) hd.appendChild(el('span', 'cmp-cnt', note));
   else if (count) hd.appendChild(el('span', 'cmp-cnt', count + ' 处不同'));
   else hd.appendChild(el('span', 'cmp-cnt', '一致'));
+  if (withCopy) {
+    const btn = el('button', 'cmp-copy');
+    btn.type = 'button';
+    btn.setAttribute('data-tip', '复制这张表，可直接粘贴到 Excel');
+    setSVG(btn, COPY_ICO);
+    btn.addEventListener('click', () => copyCmpMeta(btn));
+    hd.appendChild(btn);
+  }
   return hd;
 }

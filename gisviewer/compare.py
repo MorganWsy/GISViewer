@@ -4,7 +4,7 @@
 
 - 元信息：大小、修改时间、格式、图层、几何类型、要素个数、顶点总数、范围、坐标系
 - 字段：名称、类型、宽度、精度，标出只在一边出现的、类型或宽度不同的
-- 内容：前若干行逐格对照。**按行号对齐**，不做按主键的配对。真要逐要素比对，
+- 内容：前若干行逐格对照。**按行号配对**，不做按唯一字段的配对。真要逐要素比对，
   得先由用户指定一个能唯一标识要素的字段（ArcGIS Pro 的 Feature Compare 就叫它
   Sort Field），那是数据质检流程，不属于"看一眼"的范围，这里不做，也不假装做了。
 - 栅格：尺寸、波段、数据类型、像元大小、范围、坐标系、NoData、压缩、金字塔、统计
@@ -162,7 +162,7 @@ def _vector_side(path, layer_index, key=None):
         if key not in names:
             raise CompareError(f"{os.path.basename(target)}里没有「{key}」这个字段",
                                detail="两份要按同一个字段配对，所以这个字段两边都得有。",
-                               hint="换一个两边都有的字段，或者改回按行号对齐。")
+                               hint="换一个两边都有的字段，或者改回按行号配对。")
         key_at = names.index(key)
     rows = []
     keyed = {}
@@ -376,7 +376,7 @@ def _keyed_diff(a, b, names_a, names_b, common, key):
     """按用户指定的字段配对：同一个值算同一个要素。
 
     键重复时只比第一个，重复的次数写进备注；只在一侧出现的键单独计数，
-    这种"多出来 / 少掉"的结论按行号对齐是看不出来的。
+    这种"多出来 / 少掉"的结论按行号配对是看不出来的。
     """
     index_a = {n: i for i, n in enumerate(names_a)}
     index_b = {n: i for i, n in enumerate(names_b)}
@@ -467,7 +467,7 @@ def _sample_diff(a, b, key=None):
         "cells_truncated": len(cells) >= MAX_CELLS,
         "common_fields": len(common),
         "common_fields_list": common,
-        "note": "按行号对齐（第 1 行对第 1 行），不按主键配对",
+        "note": "按行号配对（第 1 行对第 1 行），不按唯一字段配对",
     }
 
 

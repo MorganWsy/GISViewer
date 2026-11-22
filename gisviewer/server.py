@@ -1301,7 +1301,7 @@ class Handler(BaseHTTPRequestHandler):
                                                            "detail": str(exc)[:200]}})
 
         # 同一次视野（重开文件、来回平移）重复来取数时直接搬上次的结果。
-        # 只进进程内 LRU，不落盘：单条几 MB，落盘会把 prune 的预算吃光。
+        # 内存 + 磁盘各一层：重启后回到同一个视野能直接读回上一份响应。
         # 键里带上抽稀容差和 bbox，视野一变就自然换键。翻页请求不占缓存。
         vkey = None
         if _cacheable(path) and offset == 0:
@@ -1310,7 +1310,7 @@ class Handler(BaseHTTPRequestHandler):
                              f"layer={layer};limit={limit};tol={tolerance:.6g};"
                              f"box={box};g={1 if with_geometry else 0}")
             started = time.perf_counter()
-            hit = cache.load_vec(vkey)
+            hit = cache.load_vec(vkey, disk=_cacheable(path))
             if hit is not None:
                 # 索引刚建好、或后台建索引已经结束，旧响应里的 indexed/indexing
                 # 就过期了：别把“正在建索引”的旧图一直喂给前端。命中时只做两次
@@ -1340,7 +1340,7 @@ class Handler(BaseHTTPRequestHandler):
             with contextlib.suppress(Exception):
                 body = json.dumps(data, ensure_ascii=False, default=str)
                 if len(body) < 48 * 1024 * 1024:
-                    cache.save_vec(vkey, data, len(body))
+                    cache.save_vec(vkey, data, len(body), disk=_cacheable(path))
         return self._send(200, data)
 
     def _vindex_prebuild(self, path, layer):
@@ -1524,7 +1524,7 @@ class Handler(BaseHTTPRequestHandler):
                     "title": "找不到这个文件", "detail": path}})
         layer_a = _as_int((query.get("layer_a") or ["0"])[0], 0)
         layer_b = _as_int((query.get("layer_b") or ["0"])[0], 0)
-        # 给了 key 就按这个字段配对要素；不给就按行号对齐
+        # 给了 key 就按这个字段配对要素；不给就按行号配对
         key = (query.get("key") or [""])[0].strip() or None
         try:
             data = cmp.compare(a, b, layer_a, layer_b, key)

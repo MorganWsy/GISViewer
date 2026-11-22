@@ -205,7 +205,8 @@ def main(argv=None):
         need(status == 200 and again.get("ok"), "第二次取数失败")
         need((again.get("gisviewer") or {}).get("cached") is True, "同一视野第二次没有命中内存缓存")
         vec_dir = Path(tmp) / "cache" / "vec"
-        need(not vec_dir.exists() or not list(vec_dir.rglob("*.json")), "vector 结果不该落盘")
+        # 这个响应现在两层都存：内存给同进程，磁盘给重启后的同一个视野
+        need(vec_dir.exists() and list(vec_dir.rglob("*.json")), "vector 结果没有落盘（重启后就白算了）")
 
     @check("histogram 直方图")
     def _(cli):

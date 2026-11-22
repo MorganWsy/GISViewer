@@ -44,6 +44,8 @@ VIEW_MEM_ITEMS = 24             # 视野贴图：来回拖一下重复率高，2
 VIEW_MEM_BYTES = 48 * 1024 * 1024  # 视野贴图内存上限
 VEC_MEM_ITEMS = 8               # 矢量视野响应：条数少，单条大
 VEC_MEM_BYTES = 64 * 1024 * 1024  # 矢量响应内存上限
+VEC_BYTES = 256 * 1024 * 1024    # 落盘的那份：单独预算，不挤信息栏那些小条目
+VEC_MAX_SAVE = 16 * 1024 * 1024  # 单条超过这个就不落盘（多半是容差被设成 0）
 SCAN_FILES = 500                # 目录指纹最多数这么多文件，再大就退回目录 mtime
 # 载荷结构版本：缓存里存的东西改了形状（信息栏多一行、直方图多一项）就加一。
 # 只靠版本号不够——同一个版本号下 rebuild 过、装了不同构建的副本，
@@ -149,23 +151,54 @@ def _mem_put(k, v):
             _mem.popitem(last=False)
 
 
-def load_vec(k):
-    """矢量响应的内存命中；不读写磁盘。"""
+def load_vec(k, disk=True):
+    """矢量响应：先内存，再磁盘。
+
+    disk=False 用于临时副本（每轮路径都不一样，落盘只会白占预算）。
+    磁盘命中顺手塞回内存，连着平移时就不用反复解析 JSON。
+    """
     if not k:
         return None
     with _lock:
         item = _vec_mem.get(k)
-        if item is None:
-            return None
-        _vec_mem.move_to_end(k)
-        return item[0]
+        if item is not None:
+            _vec_mem.move_to_end(k)
+            return item[0]
+    if not disk:
+        return None
+    path = _entry("vec", k, ".json")
+    try:
+        with open(path, encoding="utf-8") as fh:  # noqa: PTH123
+            value = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    with suppress(OSError):
+        os.utime(path, None)   # 读过就算用过，prune 按 mtime 从旧到新删
+    if isinstance(value, dict):
+        _remember_vec(k, value, path.stat().st_size)
+    return value
 
 
-def save_vec(k, value, size):
-    """存一份矢量响应；按条数和总字节双重淘汰，单条超过 48 MB 的调用方不存。"""
-    global _vec_bytes
+def save_vec(k, value, size, disk=True):
+    """存一份矢量响应：内存 + 磁盘（超过 VEC_MAX_SAVE 只进内存）。"""
     if not k:
         return
+    if disk and size <= VEC_MAX_SAVE:
+        path = _entry("vec", k, ".json")
+        tmp = path.with_suffix(".part")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps(value, ensure_ascii=False, default=str), encoding="utf-8")
+            os.replace(tmp, path)
+        except (OSError, TypeError, ValueError):
+            with suppress(OSError):
+                tmp.unlink()
+    _remember_vec(k, value, size)
+
+
+def _remember_vec(k, value, size):
+    """内存那一层的淘汰：条数和字节双限，单条大响应不挤掉一堆小响应。"""
+    global _vec_bytes
     with _lock:
         old = _vec_mem.pop(k, None)
         if old is not None:
@@ -360,6 +393,8 @@ def prune(max_bytes=MAX_BYTES):
     pyramid_bytes = 0
     view_entries = []
     view_bytes = 0
+    vec_entries = []
+    vec_bytes = 0
     for path in root.rglob("*"):
         try:
             if not path.is_file():
@@ -374,6 +409,12 @@ def prune(max_bytes=MAX_BYTES):
                 # 混在总预算里会把信息栏、直方图这些真正小又常用的条目挤掉
                 view_entries.append((st.st_mtime, st.st_size, path))
                 view_bytes += st.st_size
+                continue
+            if rel.parts and rel.parts[0] == "vec":
+                # 视野响应也有自己的一份预算：一条 0.5–2 MB，混进总预算会把
+                # 信息栏、直方图那些几十 KB 又常用的条目先挤出去
+                vec_entries.append((st.st_mtime, st.st_size, path))
+                vec_bytes += st.st_size
                 continue
             if rel.parts and rel.parts[0] == "pyramid":
                 # 金字塔副本按自己的预算单独收（见 PYRAMID_BYTES），
@@ -392,6 +433,15 @@ def prune(max_bytes=MAX_BYTES):
         try:
             path.unlink()
             pyramid_bytes -= size
+        except OSError:
+            continue
+    vec_entries.sort(key=lambda item: item[0])
+    for _mtime, size, path in vec_entries:
+        if vec_bytes <= VEC_BYTES:
+            break
+        try:
+            path.unlink()
+            vec_bytes -= size
         except OSError:
             continue
     view_entries.sort(key=lambda item: item[0])
