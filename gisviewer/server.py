@@ -1306,8 +1306,10 @@ class Handler(BaseHTTPRequestHandler):
         vkey = None
         if _cacheable(path) and offset == 0:
             box = ",".join(f"{v:.4f}" for v in bbox) if bbox else "-"
+            # 容差按 3 位有效数字归并：同样的视野在不同窗口尺寸下算出来的
+            # 抽稀容差会差在小数第 6 位上，按原值做键就永远命中不了
             vkey = cache.key("vec", path,
-                             f"layer={layer};limit={limit};tol={tolerance:.6g};"
+                             f"layer={layer};limit={limit};tol={tolerance:.3g};"
                              f"box={box};g={1 if with_geometry else 0}")
             started = time.perf_counter()
             hit = cache.load_vec(vkey, disk=_cacheable(path))

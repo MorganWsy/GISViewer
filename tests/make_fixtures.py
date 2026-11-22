@@ -213,7 +213,8 @@ def make_multivar_nc():
     if path.exists():
         return [path]
     try:
-        from netCDF4 import Dataset as NC
+        # 这个库是可选的：只有生成 netCDF 多变量样例时才需要
+        from netCDF4 import Dataset as NC  # pyright: ignore[reportMissingImports]
     except Exception:
         print("  跳过 netCDF 多变量样例：本环境没有 netCDF4 库，请用带 netCDF4 的解释器单独生成")
         return []
