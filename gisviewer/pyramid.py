@@ -18,7 +18,6 @@ ArcGIS Pro 和 QGIS 的做法是首次打开时问一句“要不要建金字塔
 from __future__ import annotations
 
 import contextlib
-import shutil
 import threading
 import time
 from pathlib import Path
@@ -245,6 +244,21 @@ def building(target):
     return bool(job and job["thread"].is_alive())
 
 
+def _predictor(dtype):
+    """压缩预测器只能按数据类型挑，挑错了 GDAL 直接拒绝建文件。
+
+    3（浮点预测器）只认 float32 / float64；整型用它就会抛
+    `PREDICTOR=3 is only supported with Float32 or Float64`。
+    整型用 2（水平差分，uint8 也能用），其它类型不设预测器。
+    """
+    name = str(dtype or "").lower()
+    if name in ("float32", "float64"):
+        return 3
+    if name.startswith(("int", "uint")):
+        return 2
+    return 1
+
+
 def _base_side(src):
     """副本底图的长边：按单波段字节数压预算，别为了 4096 把内存吃光。"""
     cell = _ITEM_BYTES.get(str(src.dtypes[0]), 4) if src.dtypes else 4
@@ -279,7 +293,9 @@ def build(target, resample="average", blocking=False):
                 _CACHE[str(target)] = (Path(target).stat().st_mtime, dest)
         except Exception as exc:  # noqa: BLE001
             job["error"] = f"{type(exc).__name__}: {exc}"[:200]
-            shutil.rmtree(part, ignore_errors=True)
+            # part 是文件不是目录，rmtree 会把 NotADirectoryError 吞掉、文件留在原地
+            with contextlib.suppress(OSError):
+                Path(part).unlink(missing_ok=True)
         finally:
             job["done"] = job["total"]
 
@@ -329,7 +345,7 @@ def _write(target, dest, resample, job):
             "driver": "GTiff", "width": out_w, "height": out_h, "count": src.count,
             "dtype": src.dtypes[0], "crs": src.crs, "transform": tf,
             "nodata": src.nodata, "tiled": True, "blockxsize": 256, "blockysize": 256,
-            "compress": "deflate", "predictor": 2 if str(src.dtypes[0]).startswith("int") else 3,
+            "compress": "deflate", "predictor": _predictor(src.dtypes[0]),
             "BIGTIFF": "IF_SAFER",
         }
         tile = 1024

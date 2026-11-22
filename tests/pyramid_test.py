@@ -27,6 +27,28 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(("PASS " if ok else "FAIL ") + name + (f"  {detail}" if detail else ""))
 
 
+def _make_raster(path: Path, dtype: str) -> Path:
+    """造一张够大的单波段影像（金字塔的门槛是 12 兆像素）。"""
+    import numpy as np  # pyright: ignore[reportMissingImports]
+    import rasterio  # pyright: ignore[reportMissingImports]
+    from rasterio.transform import from_origin  # pyright: ignore[reportMissingImports]
+
+    width, height = 4000, 3200
+    rng = np.random.default_rng(7)
+    if dtype == "uint8":
+        data = rng.integers(0, 9, size=(height, width), dtype="uint8")
+    elif dtype == "int16":
+        data = rng.integers(-1000, 3000, size=(height, width), dtype="int16")
+    else:
+        data = rng.random((height, width), dtype="float32") * 300
+    # 路径是本测试里自己拼出来的临时文件，不是外部输入
+    with rasterio.open(path, "w", driver="GTiff", width=width, height=height, count=1,  # pi-lens-ignore: python-path-traversal
+                       dtype=dtype, crs="EPSG:4326",
+                       transform=from_origin(100, 30, 0.001, 0.001)) as dst:
+        dst.write(data, 1)
+    return path
+
+
 def main() -> int:
     # 放在函数里：要先改好 sys.path 才能 import，模块级再 import 就被 E402 挡了
     from gisviewer import cache, pyramid
@@ -83,9 +105,22 @@ def main() -> int:
             break
         import time
 
-        time.sleep(0.1)
+        time.sleep(0.1)  # pi-lens-ignore: python-sleep-in-test -- 等后台线程收尾，没有可等的事件
     leftovers = list((DATA / "cache" / "pyramid").glob("*.part"))
     check("取消后不留半成品", not leftovers, f"{len(leftovers)} 个 .part")
+
+    # 数据类型决定压缩预测器：整型用浮点预测器会被 GDAL 直接拒绝
+    # （实测报错 `PREDICTOR=3 is only supported with Float32 or Float64`）
+    check("float32 用浮点预测器", pyramid._predictor("float32") == 3)
+    check("uint8 不用浮点预测器", pyramid._predictor("uint8") == 2)
+    check("int16 不用浮点预测器", pyramid._predictor("int16") == 2)
+    for name, dtype in (("uint8", "uint8"), ("int16", "int16"), ("float32", "float32")):
+        made = _make_raster(DATA / f"dtype-{name}.tif", dtype)
+        res2 = pyramid.build(str(made), "nearest" if name != "float32" else "average", blocking=True)
+        check(f"{name} 影像能建副本", res2.get("ok") is True and not res2.get("error"),
+              str(res2.get("error", ""))[:70])
+        check(f"{name} 副本有层级",
+              pyramid.status(str(made)).get("pyramid", {}).get("levels") == list(pyramid.LEVELS))
 
     print()
     print(f"金字塔副本：{len(CHECKS)} 项通过，{len(FAILED)} 项失败")
