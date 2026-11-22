@@ -566,12 +566,15 @@ def _summary(old, fields, sample, kind):
     rows = sample["rows_diff"]
     only_a = sample.get("only_a_count", 0)
     only_b = sample.get("only_b_count", 0)
+    # 结论一律以配对方式开头：同一份数据换一种配对，结论可以完全不同，
+    # 不写清楚的话看的人不知道这句是"按行号"还是"按某个字段"得来的
+    lead = "按「" + str(sample.get("key")) + "」配对" if sample.get("mode") == "key" else "按行号配对"
     if not old and not fields and not rows and not only_a and not only_b:
         if kind == "raster":
             return "两份影像的表头信息一致。像素上的差异不在这张表里，得叠在一起看。"
         if sample.get("mode") == "key":
-            return f"表头、字段与按「{sample.get('key')}」配对的 {sample['rows_compared']} 个要素都一致。"
-        return f"表头、字段与对比的 {sample['rows_compared']} 行属性都一致。"
+            return f"{lead}，表头、字段与 {sample['rows_compared']} 个要素都一致。"
+        return f"{lead}，表头、字段与对比的 {sample['rows_compared']} 行属性都一致。"
     parts = []
     if old:
         parts.append(f"{old} 项表头不同")
@@ -584,8 +587,4 @@ def _summary(old, fields, sample, kind):
             parts.append(f"{rows} 行属性不同")
     if only_a or only_b:
         parts.append(f"另有 {only_a + only_b} 个要素只在一边")
-    text = "，".join(parts) + "。"
-    # 按字段配对时把字段名写进结论：同一份数据换一种配对方式，结论可能完全不同
-    if sample.get("mode") == "key":
-        return f"按「{sample.get('key')}」配对：{text}"
-    return text
+    return lead + "，" + "，".join(parts) + "。"

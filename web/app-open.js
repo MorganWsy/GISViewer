@@ -20,7 +20,7 @@ function wireChrome() {
     if (e.button !== 0) return;
     /* 最近打开和"打开"菜单都挂在顶栏里：点它们时不能去拖窗口，
        否则这一下被系统拖动循环接走，列表项的 click 永远回不来（点不开就是这个原因） */
-    if (e.target.closest('input, button, label, select, .combo, .no-drag, #recentPop, #pickPop, #checkPop, #convPop')) return;
+    if (e.target.closest('input, button, label, select, .combo, .no-drag, .check-pop, #recentPop, #pickPop')) return;
     /* 顶栏空白处一按下，窗口就交给系统拖动循环了，这一下之后的 click 再也回不到页面，
        所以浮窗只能在这里主动收掉，不能等外面的 document click */
     hideRecent();
@@ -1065,7 +1065,7 @@ function showRecent() {
   if (!pop || !input || !(config.recent || []).length) return;
   // 有弹窗开着就不凑热闹：这时候点不到路径框，别在弹窗后面露出一块列表
   if (!$('settings').hidden) return;
-  hidePickPop();
+  closeSiblingPops('recentPop');
   placeRecent();
   pop.hidden = false;
 }
@@ -1096,7 +1096,7 @@ function showPickPop() {
   const pop = $('pickPop');
   const btn = $('filePickBtn');
   if (!pop || !btn) return;
-  hideRecent();
+  closeSiblingPops('pickPop');
   pop.textContent = '';
   const mk = (label, note, action) => {
     const item = el('button');

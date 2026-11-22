@@ -36,6 +36,9 @@ MAX_BYTES = 256 * 1024 * 1024   # 磁盘缓存总容量上限（不含 vindex/py
 # 金字塔副本单独一份预算：建一次要几秒到几十秒，按“最旧”删掉很浪费，
 # 只在总量超过这条线时从最久没用的开始删
 PYRAMID_BYTES = 2 * 1024 * 1024 * 1024
+# 视野贴图也留一份到磁盘：重启软件后回到同一个视野（窗口大小没变、框也没变）
+# 就不用重算，直接读回上一张。单独一份预算，避免拖来拖去把普通缓存挤掉
+VIEW_BYTES = 128 * 1024 * 1024
 MEM_ITEMS = 48                  # 进程内热点条数（打开过的文件再接再开就是零等待）
 VIEW_MEM_ITEMS = 24             # 视野贴图：来回拖一下重复率高，20 来张够用
 VIEW_MEM_BYTES = 48 * 1024 * 1024  # 视野贴图内存上限
@@ -48,7 +51,7 @@ SCAN_FILES = 500                # 目录指纹最多数这么多文件，再大�
 SCHEMA = 2
 # 缓存根下只认这几种子目录。clear()/切换目录时按白名单删，绝不整个 rmtree——
 # 用户可能把缓存位置指到一个已经有资料的文件夹，根目录本身不是我们的。
-KINDS = ("inspect", "hist", "gtypes", "vec", "thumb", "vindex", "tiles", "pyramid")
+KINDS = ("inspect", "hist", "gtypes", "vec", "thumb", "view", "vindex", "tiles", "pyramid")
 
 _lock = threading.Lock()
 _mem = OrderedDict()            # (kind, key) -> 值；只放 JSON 结果，PNG 不进内存
@@ -191,6 +194,36 @@ def load_view(k):
         return png
 
 
+def load_view_png(k, disk=True):
+    """视野贴图：先看内存，再看磁盘。磁盘命中时回填内存，后面几次拖动就是零等待。
+
+    disk=False 给临时副本用：那些路径每轮都不一样，存了也永远不会被读到。"""
+    png = load_view(k)
+    if png is not None:
+        return png
+    if not disk:
+        return None
+    png = load_blob("view", k)
+    if png is not None:
+        save_view(k, png)
+    return png
+
+
+def drop_view_memory():
+    """只清内存里那份视野贴图，磁盘留着（重启后照样能读回来）。"""
+    global _view_bytes
+    with _lock:
+        _view_mem.clear()
+        _view_bytes = 0
+
+
+def save_view_png(k, png, disk=True):
+    """视野贴图两头都放：内存给同一会话，磁盘给下一次启动。"""
+    save_view(k, png)
+    if disk:
+        save_blob("view", k, png)
+
+
 def save_view(k, png):
     """存一张视野贴图；按条数与总字节双重淘汰，单张超过 16 MB 的不存。"""
     global _view_bytes
@@ -325,6 +358,8 @@ def prune(max_bytes=MAX_BYTES):
     index_bytes = 0
     pyramid_entries = []
     pyramid_bytes = 0
+    view_entries = []
+    view_bytes = 0
     for path in root.rglob("*"):
         try:
             if not path.is_file():
@@ -333,6 +368,12 @@ def prune(max_bytes=MAX_BYTES):
             rel = path.relative_to(root)
             if rel.parts and rel.parts[0] == "vindex":
                 index_bytes += st.st_size
+                continue
+            if rel.parts and rel.parts[0] == "view":
+                # 视野贴图单独一份预算：一张 0.3–3 MB，拖几十次就过百兆，
+                # 混在总预算里会把信息栏、直方图这些真正小又常用的条目挤掉
+                view_entries.append((st.st_mtime, st.st_size, path))
+                view_bytes += st.st_size
                 continue
             if rel.parts and rel.parts[0] == "pyramid":
                 # 金字塔副本按自己的预算单独收（见 PYRAMID_BYTES），
@@ -351,6 +392,15 @@ def prune(max_bytes=MAX_BYTES):
         try:
             path.unlink()
             pyramid_bytes -= size
+        except OSError:
+            continue
+    view_entries.sort(key=lambda item: item[0])
+    for _mtime, size, path in view_entries:
+        if view_bytes <= VIEW_BYTES:
+            break
+        try:
+            path.unlink()
+            view_bytes -= size
         except OSError:
             continue
     if total <= max_bytes:

@@ -3462,10 +3462,19 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cmp-align .combo { flex: 1 1 auto; min-width: 0; }
 /* 下拉里的分组小标题：字号比选项小一号、不抢眼，但能把两段分开 */
 .combo-group {
-  padding: 6px 10px 2px;
-  font-size: 11.5px;
-  line-height: 15px;
-  color: var(--text-dim);
+  /* 分组标题是这一段的身份，不是注释：与选项同字号、正文色，靠内边距和缩进分层 */
+  padding: 8px 10px 2px;
+  /* 与下拉里其它选项同字号（列表是 14px），字体略重作层级，不靠缩小字号 */
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+.combo-opt.in-group {
+  /* 组内成员缩进 + 比组标题小一号（14 → 13）：层级靠排版说，不靠额外文字 */
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text);
 }
 
 .cmp-align .combo-btn {
@@ -3519,7 +3528,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cmp-line {
   display: flex;
   gap: 8px;
-  padding: 2px 6px;
+  /* 水平内边距为 0：段标题没有内边距，行首再缩 6px 就错开了 */
+  padding: 2px 0;
   font-size: 12.5px;
   line-height: 17px;
   border-radius: 4px;
@@ -3528,8 +3538,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 .cmp-line .cmp-where { flex: none; width: 34%; color: var(--text-dim); }
 .cmp-line .cmp-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .cmp-line .cmp-val b { font-weight: 600; color: var(--text); }
-.cmp-none { padding: 2px 6px; font-size: 12.5px; line-height: 17px; color: var(--text-dim); }
-.cmp-more { padding: 2px 6px; font-size: 12px; color: var(--text-dim); }
+.cmp-none { padding: 2px 0; font-size: 12.5px; line-height: 17px; color: var(--text-dim); }
+.cmp-more { padding: 2px 0; font-size: 12px; color: var(--text-dim); }
 
 /* ---- 格式互转浮层：与体检浮层同一套骨架（.cp-head/.cp-field 复用），
    四项设置按四列网格对齐，下面是预检、结果与主按钮 ---- */

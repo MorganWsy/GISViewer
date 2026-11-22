@@ -468,14 +468,33 @@ function syncCheckInput(path) {
 
 /* 体检浮层：顶栏那颗按钮点开。输入和结果在同一块里——
    结果直接长在输入框下面，换个文件接着查时不用先关一个窗口再开一个 */
+/* 顶栏这几块浮层共用一条规矩：一次只有一块亮着。
+   各自只管自己怎么收，谁是"留下"的那个由调用方说清楚，免得漏一家
+   （漏过的后果：开体检时互转还亮着，两块叠在一起，按钮也同时是"开着"的样子） */
+function closeSiblingPops(keepId) {
+  const names = ['recentPop', 'pickPop', 'checkPop', 'convPop', 'cmpPop'];
+  /* 一律强制收起：正跑着的那块也让位，不然两块浮层会叠在一起。
+     请求不取消，结果落到收起的浮层里，再打开还能看到 */
+  const closers = {
+    recentPop: () => hideRecent(),
+    pickPop: () => hidePickPop(),
+    checkPop: () => hideCheckPop(true),
+    convPop: () => hideConvPop(true),
+    cmpPop: () => hideCmpPop(true),
+  };
+  names.forEach((id) => {
+    if (id === keepId) return;
+    const node = $(id);
+    if (node && !node.hidden) closers[id]();
+  });
+}
+
 function showCheckPop() {
   const pop = $('checkPop');
   const btn = $('checkBtn');
   if (!pop || !btn) return;
-  if (convBusy) return;   // 互转跑着不让换台，两块浮层叠着点不准
-  hideRecent();
-  hidePickPop();
-  hideConvPop();
+  // 互转在跑也让开：closeSiblingPops 只收面板，不停它的请求
+  closeSiblingPops('checkPop');
   placeCheckPop();
   pop.hidden = false;
   markBtn('checkBtn', true);
@@ -549,8 +568,10 @@ function setCheckBusy(on) {
 /* 关掉就把上一次的结论一起收掉：留着会让人以为那是刚查的。
    输入框里的路径留着，同一个位置再查一次不用重新粘。
    体检进行中不允许关：结果还没回来就关掉，用户会以为白跑一趟 */
-function hideCheckPop() {
-  if (checkBusy) return;
+function hideCheckPop(force) {
+  // force 只给“打开另一块浮层”用：跑着也要先让位，否则两块叠在一起；
+  // 跑着的请求继续走，结果落在收起的浮层里，再打开还在
+  if (checkBusy && !force) return;
   const pop = $('checkPop');
   if (pop) pop.hidden = true;
   markBtn('checkBtn', false);
@@ -908,10 +929,8 @@ function showConvPop() {
   const pop = $('convPop');
   const btn = $('convBtn');
   if (!pop || !btn) return;
-  if (checkBusy) return;   // 体检跑着不让换台
-  hideRecent();
-  hidePickPop();
-  hideCheckPop();
+  // 体检在跑也让开，道理同上
+  closeSiblingPops('convPop');
   placeConvPop();
   // 格式说明先画好再露出来：不然浮层先按"没有说明"的高度出现，紧接着长高两行
   loadConvFormats();
@@ -932,8 +951,8 @@ function showConvPop() {
   });
 }
 
-function hideConvPop() {
-  if (convBusy) return;
+function hideConvPop(force) {
+  if (convBusy && !force) return;
   const pop = $('convPop');
   if (pop) pop.hidden = true;
   markBtn('convBtn', false);
@@ -1317,7 +1336,7 @@ function applyLook() {
 /* ---- 两份文件对比 ----
    左边默认填当前打开的那份，右边自己挑。结果分三段，顺序按"先看结论、再看结构、
    最后看内容"排：表头（范围/坐标系/个数）、字段结构、前 20 行属性。
-   属性按行号对齐，不按主键配对——真要逐要素比对，得先由用户指定一个唯一字段，
+   属性按行号配对，不按唯一字段配对——真要逐要素比对，得先由用户指定一个唯一字段，
    那是质检流程，这里不做，也不假装做了。 */
 let cmpBusy = false;
 
@@ -1336,6 +1355,7 @@ function showCmpPop() {
     a.value = current.path;
     a.dataset.auto = '1';
   }
+  closeSiblingPops('cmpPop');
   pop.hidden = false;
   markBtn('cmpBtn', true);
   placeCmpPop();
@@ -1344,8 +1364,8 @@ function showCmpPop() {
   refreshCmpKeys();
 }
 
-function hideCmpPop() {
-  if (cmpBusy) return;
+function hideCmpPop(force) {
+  if (cmpBusy && !force) return;
   const pop = $('cmpPop');
   if (pop) pop.hidden = true;
   markBtn('cmpBtn', false);
@@ -1395,7 +1415,7 @@ function clearCmpResult() {
   });
 }
 
-/* 现在选的配对字段：空串就是按行号对齐 */
+/* 现在选的配对字段：空串就是按行号配对 */
 function cmpKey() {
   const sel = $('cmpKeySel');
   return sel && !sel.disabled ? String(sel.value || '') : '';
@@ -1522,7 +1542,7 @@ function renderCmpSample(sample, host) {
 }
 
 /* 只要两边都填上了就去问一次共有字段：不点"开始对比"也能选配对方式，
-   否则下拉里永远只有"按行号对齐"，人会以为这个功能没做 */
+   否则下拉里永远只有"按行号配对"，人会以为这个功能没做 */
 let cmpKeysTimer = 0;
 // 上一次成功对比的文件对，用来判断"换了文件"要不要把配对字段退回默认
 let cmpPair = '';
@@ -1560,11 +1580,11 @@ function syncCmpKeys(kind, list) {
     sel.disabled = true;
     return;
   }
-  const plain = el('option', null, '按行号对齐（不配对要素）');
+  const plain = el('option', null, '按行号配对');
   plain.value = '';
   sel.appendChild(plain);
   // 按字段配对的那些收进一个 <optgroup>，下拉里就两段：
-  // 默认的"按行号对齐"，和一组可以选来当唯一标识的字段
+  // 默认的"按行号配对"，和一组可以选来当唯一标识的字段
   if ((list || []).length) {
     const group = el('optgroup');
     group.label = '按唯一标识字段配对';

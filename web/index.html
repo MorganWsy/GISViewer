@@ -160,11 +160,11 @@
     </div>
   </div>
   <!-- 两份文件对比：左边默认是当前打开的那份，右边自己挑一份同类文件。
-       只读，两侧都不改动；属性内容按行号对齐，不按主键配对 -->
+       只读，两侧都不改动；属性内容按行号配对，不按唯一字段配对 -->
   <div id="cmpPop" class="check-pop cmp-pop" hidden>
     <div class="cp-head">
       <span class="cp-title">两份文件对比</span>
-      <i class="tip-ico" id="cmpTip" data-tip="比同一份数据的两个版本、或者同一条数据存成的两种格式。表头、字段、前 20 行属性与顶点数逐项并排。属性默认按行号对齐；在下面挑一个两边都有的字段，就改成按这个字段配对要素"></i>
+      <i class="tip-ico" id="cmpTip" data-tip="比同一份数据的两个版本、或者同一条数据存成的两种格式。表头、字段、前 20 行属性与顶点数逐项并排。属性默认按行号配对；在下面挑一个两边都有的字段，就改成按这个字段配对要素"></i>
       <span class="cp-hint" id="cmpHint"></span>
     </div>
     <div class="cmp-pick">
@@ -183,7 +183,7 @@
       <div class="cmp-align">
         <span class="cmp-tag">配对</span>
         <select id="cmpKeySel" aria-label="要素配对方式">
-          <option value="">按行号对齐（不配对要素）</option>
+          <option value="">按行号配对</option>
         </select>
         <button id="cmpRun" class="cmp-run" type="button">开始对比</button>
       </div>

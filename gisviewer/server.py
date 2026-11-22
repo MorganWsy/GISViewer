@@ -1443,9 +1443,10 @@ class Handler(BaseHTTPRequestHandler):
                         "title": "视野范围不是四个数字", "detail": raw_bbox[:60]}})
                 bbox.append(v)
         max_side = min(2048, max(256, _as_int((query.get("max") or ["512"])[0], 512)))
-        # 整幅缩略图落盘缓存；视野图每次拖动都不同，只留在内存里热一下，
-        # 免得每拖一次就往 thumb 分片写一张，下次启动又被 prune 清掉
+        # 整幅缩略图落盘缓存在 thumb 分片；视野图另有 view 分片（自己的预算），
+        # 存一份是为了重启后回到同一个视野不用重算。临时副本路径每轮都变，不落盘
         cacheable = _cacheable(path) and bbox is None
+        view_disk = _cacheable(path)
         hit = False
         try:
             if edges and len(edges) >= 3 and len(colors) == len(edges) - 1:
@@ -1458,12 +1459,12 @@ class Handler(BaseHTTPRequestHandler):
                 hit = png is not None
                 if png is None and bbox is not None:
                     vk = cache.key("view", path, label + ";bbox=" + _bbox_label(bbox))
-                    png = cache.load_view(vk)
+                    png = cache.load_view_png(vk, disk=view_disk)
                     hit = png is not None
                     if png is None:
                         png, _w, _h = class_image(path, band_index, edges, colors, fill=fill,
                                                   max_side=max_side, bbox=bbox)
-                        cache.save_view(vk, png)
+                        cache.save_view_png(vk, png, disk=view_disk)
                 elif png is None:
                     png, _w, _h = class_image(path, band_index, edges, colors, fill=fill,
                                               max_side=max_side, bbox=bbox)
@@ -1476,11 +1477,11 @@ class Handler(BaseHTTPRequestHandler):
                 if png is None and bbox is not None:
                     vk = cache.key("view", path, f"bands={band_count};max={max_side};bbox="
                                    + _bbox_label(bbox))
-                    png = cache.load_view(vk)
+                    png = cache.load_view_png(vk, disk=view_disk)
                     hit = png is not None
                     if png is None:
                         png, _w, _h = thumbnail(path, band_count, max_side=max_side, bbox=bbox)
-                        cache.save_view(vk, png)
+                        cache.save_view_png(vk, png, disk=view_disk)
                 elif png is None:
                     png, _w, _h = thumbnail(path, band_count, max_side=max_side, bbox=bbox)
                     cache.save_blob("thumb", k, png)

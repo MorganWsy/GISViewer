@@ -143,7 +143,8 @@
         c.list.appendChild(el('div', 'combo-group', item.group));
       }
       prevGroup = item.group;
-      const opt = el('div', 'combo-opt');
+      // 组内选项缩进一号：分组标题是身份，选项是它的成员，缩进就能看出归属
+      const opt = el('div', item.group ? 'combo-opt in-group' : 'combo-opt');
       opt.setAttribute('role', 'option');
       opt.appendChild(el('span', 'combo-label', item.label));
       if (item.grad) {

@@ -67,6 +67,16 @@ STEPS = (
     " out.cmpStaysEsc = vis('#cmpPop');"
     " q('#cmpBtn').click(); await wait(250);"
     " out.cmpClosed = !vis('#cmpPop');"
+    # 顶栏浮层互斥：一次只亮一块，开新的那块要把上一块收掉
+    " q('#checkBtn').click(); await wait(250);"
+    " q('#cmpBtn').click(); await wait(250);"
+    " out.cmpClosesCheck = !vis('#checkPop');"
+    " q('#convBtn').click(); await wait(250);"
+    " out.convOpened = vis('#convPop');"
+    " out.convClosesCmp = !vis('#cmpPop');"
+    " q('#checkBtn').click(); await wait(250);"
+    " out.checkClosesConv = !vis('#convPop');"
+    " q('#checkBtn').click(); await wait(200);"
     " q('#legendFold').click(); await wait(200);"
     " out.legendFolded = vis('#legendTab');"
     " q('#legendTab').click(); await wait(200);"
@@ -170,6 +180,10 @@ def main():
             "cmpOpen": True,
             "cmpStaysOutside": True,
             "cmpStaysEsc": True,
+            "cmpClosesCheck": True,
+            "convOpened": True,
+            "convClosesCmp": True,
+            "checkClosesConv": True,
             "cmpClosed": True,
             "legendFolded": True,
             "legendBack": True,

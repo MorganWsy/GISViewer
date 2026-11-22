@@ -108,6 +108,8 @@ def main():
     check("同一份文件：字段没有差异", same["diff"]["fields"] == 0)
     check("同一份文件：属性没有差异", same["diff"]["sample_rows"] == 0)
     check("同一份文件：结论说明一致", "一致" in same["summary"], same["summary"])
+    check("结论先写配对方式（按行号）", same["summary"].startswith("按行号配对，"), same["summary"])
+    check("结论里不出现全角冒号", "：" not in same["summary"], same["summary"])
     meta = rows_of(same)
     check("表头有 11 行", len(same["rows"]) == 11, str(len(same["rows"])))
     check("几何类型写在表头里", "几何类型" in meta)
@@ -185,6 +187,8 @@ def main():
         check("按字段比：配对方式写进结果", by_key["sample"]["mode"] == "key",
               str(by_key["sample"]["mode"]))
         check("按字段比：结论提到字段名", "名称" in by_key["summary"], by_key["summary"])
+        check("按字段比：结论以“按「字段」配对，”开头",
+              by_key["summary"].startswith("按「名称」配对，"), by_key["summary"])
         check("按字段比：没有只在一边的键", by_key["diff"]["only_a"] == 0
               and by_key["diff"]["only_b"] == 0, str(by_key["diff"]))
         check("按字段比：选项列表里有这个字段", "名称" in by_key["sample"]["common_fields_list"],

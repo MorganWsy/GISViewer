@@ -112,7 +112,29 @@ def main():
     check(server._cache_fell_back is True, "回退标志为真")
     check("不可用" in note2, "回退说明包含原因")
 
-    # 7. 清空默认目录同样安全
+    # 7. 视野贴图落盘：重启后回到同一视野不该重算
+    view_key = cache.key("view", str(ROOT / "tests" / "fixtures" / "mixed.geojson"),
+                         "bands=1;max=1024;bbox=1,2,3,4")
+    png = bytes([137, 80, 78, 71, 13, 10, 26, 10]) + b"0" * 200
+    cache.save_view_png(view_key, png)
+    disk_copy = cache.blob_path("view", view_key)
+    check(disk_copy is not None and disk_copy.is_file(), "视野贴图写进了 view 分片")
+    # 后面几条要反复问这个路径存不存在；上面那条已经断言过不是 None
+    saved_file = disk_copy if disk_copy is not None else Path()
+    # 只清内存那一层，模拟"进程刚重启、内存是空的"
+    cache.drop_view_memory()
+    check(cache.load_view_png(view_key, disk=False) is None, "临时副本不落盘时不读磁盘")
+    check(cache.load_view_png(view_key) == png, "重启后从磁盘读回同一张")
+
+    # 8. view 有自己的预算：不能被普通 256 MB 预算连带删掉
+    for i in range(6):
+        cache.save_json("inspect", str(i) * 40, {"i": i})
+    cache.prune(max_bytes=1)
+    check(saved_file.is_file(), "view 不计入普通预算，prune 不删它")
+    cache.clear()
+    check(not saved_file.exists(), "清空缓存时 view 一起删")
+
+    # 9. 清空默认目录同样安全
     cache.save_json("inspect", "b" * 40, {"ok": True})
     cache.clear()
     check((DATA / "cache" / server.CACHE_MARK).is_file(), "默认目录清空后标记还在")
