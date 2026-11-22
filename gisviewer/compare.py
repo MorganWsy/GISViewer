@@ -86,7 +86,8 @@ def _box(box):
         values = list(box)[:4]
     if len(values) < 4 or any(v is None for v in values):
         return ""
-    return "  ".join(_num(v) for v in values)
+    # 括号是给人看的：四段数字并排时，没有括号会分不清这是不是一个整体
+    return "(" + ", ".join(_num(v) for v in values) + ")"
 
 
 def _open(target):
@@ -122,7 +123,7 @@ def _cell(feat, index, width=60):
     return text if len(text) <= width else text[: width - 3] + "..."
 
 
-def _vector_side(path, layer_index):
+def _vector_side(path, layer_index, key=None):
     target = str(path)
     try:
         info = vector.inspect(target)
@@ -143,7 +144,17 @@ def _vector_side(path, layer_index):
     if ds is None:
         raise CompareError("这份矢量打不开", detail=os.path.basename(target),
                            hint="换一个文件试试；如果它本来就是坏文件，数据体检里能看出原因。")
+    names = [(f.get("name") or "") for f in fields]
+    key_at = None
+    if key:
+        if key not in names:
+            raise CompareError(f"{os.path.basename(target)}里没有「{key}」这个字段",
+                               detail="两份要按同一个字段配对，所以这个字段两边都得有。",
+                               hint="换一个两边都有的字段，或者改回按行号对齐。")
+        key_at = names.index(key)
     rows = []
+    keyed = {}
+    dup_keys = 0
     vertices = 0
     scanned = 0
     partial = False
@@ -153,8 +164,17 @@ def _vector_side(path, layer_index):
         lyr.ResetReading()
         for feat in lyr:
             vertices += _points(feat.GetGeometryRef())
-            if len(rows) < SAMPLE_ROWS:
-                rows.append([_cell(feat, i) for i in range(len(fields))])
+            if key_at is None:
+                if len(rows) < SAMPLE_ROWS:
+                    rows.append([_cell(feat, i) for i in range(len(fields))])
+            else:
+                # 同一个键出现多次时只留第一个：按主键配对本就假定它唯一，
+                # 重复的事实计下来告诉用户，别悄悄覆盖掉
+                value = _cell(feat, key_at)
+                if value in keyed:
+                    dup_keys += 1
+                else:
+                    keyed[value] = [_cell(feat, i) for i in range(len(fields))]
             scanned += 1
             if scanned >= SCAN_FEATURES:
                 partial = True
@@ -186,6 +206,9 @@ def _vector_side(path, layer_index):
         "unit": layer.get("unit_label") or "",
         "fields": fields,
         "rows": rows,
+        "keyed": keyed,
+        "key": key or "",
+        "dup_keys": dup_keys,
         "vertices": vertices,
         "scanned": scanned,
         "partial": partial,
@@ -256,7 +279,6 @@ def _vector_meta(a, b):
         _row("顶点总数", a["vertices"], b["vertices"]),
         _row("字段个数", len(a["fields"]), len(b["fields"])),
         _row("范围", _box(a["extent"]), _box(b["extent"])),
-        _row("经纬度范围", _box(a["extent_wgs84"]), _box(b["extent_wgs84"])),
         _row("坐标系", a["crs"], b["crs"]),
     ]
     if a["partial"] or b["partial"]:
@@ -275,7 +297,6 @@ def _raster_meta(a, b):
         _row("数据类型", a["data_types"], b["data_types"]),
         _row("像元大小", a["pixel_size"], b["pixel_size"]),
         _row("范围", _box(a["extent"]), _box(b["extent"])),
-        _row("经纬度范围", _box(a["extent_wgs84"]), _box(b["extent_wgs84"])),
         _row("坐标系", a["crs"], b["crs"]),
         _row("无数据值", a["nodata"], b["nodata"]),
         _row("压缩", a["compression"], b["compression"]),
@@ -316,18 +337,79 @@ def _field_diff(a, b):
     return {"only_a": only_a, "only_b": only_b, "changed": changed, "order_same": order_same}
 
 
-def _sample_diff(a, b):
+def _common_fields(a, b):
+    # names_b 必须是列表：下面要按它的下标取单元格，用 set 会按任意顺序枚举，
+    # 取出来的值就串行了（同一份文件自比都会报"4 行不同"）
     names_a = [f.get("name") for f in a["fields"]]
     names_b = [f.get("name") for f in b["fields"]]
+    have = set(names_b)
+    return names_a, names_b, [n for n in names_a if n in have]
+
+
+def _keyed_diff(a, b, names_a, names_b, common, key):
+    """按用户指定的字段配对：同一个值算同一个要素。
+
+    键重复时只比第一个，重复的次数写进备注；只在一侧出现的键单独计数，
+    这种"多出来 / 少掉"的结论按行号对齐是看不出来的。
+    """
+    index_a = {n: i for i, n in enumerate(names_a)}
     index_b = {n: i for i, n in enumerate(names_b)}
-    common = [n for n in names_a if n in index_b]
+    ka, kb = a["keyed"], b["keyed"]
+    cells = []
+    rows_diff = 0
+    compared = 0
+    for k in ka:
+        if k not in kb:
+            continue
+        compared += 1
+        ra, rb = ka[k], kb[k]
+        differ = False
+        for name in common:
+            if name == key:
+                continue
+            if ra[index_a[name]] == rb[index_b[name]]:
+                continue
+            differ = True
+            if len(cells) < MAX_CELLS:
+                cells.append({"row": k, "field": name,
+                              "a": ra[index_a[name]], "b": rb[index_b[name]]})
+        if differ:
+            rows_diff += 1
+    only_a = [k for k in ka if k not in kb]
+    only_b = [k for k in kb if k not in ka]
+    notes = [f"按字段「{key}」配对"]
+    if a["dup_keys"] or b["dup_keys"]:
+        notes.append(f"同名键只比第一个（左 {a['dup_keys']} 处、右 {b['dup_keys']} 处重复）")
+    if only_a or only_b:
+        notes.append(f"{len(only_a)} 个键只在左边，{len(only_b)} 个只在右边")
+    return {
+        "mode": "key",
+        "key": key,
+        "rows_compared": compared,
+        "rows_diff": rows_diff,
+        "cells": cells,
+        "cells_truncated": len(cells) >= MAX_CELLS,
+        "common_fields": len(common),
+        "common_fields_list": common,
+        "only_a_count": len(only_a),
+        "only_b_count": len(only_b),
+        "note": "；".join(notes),
+    }
+
+
+def _sample_diff(a, b, key=None):
+    names_a, names_b, common = _common_fields(a, b)
+    if key:
+        return _keyed_diff(a, b, names_a, names_b, common, key)
+    index_a = {n: i for i, n in enumerate(names_a)}
+    index_b = {n: i for i, n in enumerate(names_b)}
     limit = min(len(a["rows"]), len(b["rows"]), SAMPLE_ROWS)
     cells = []
     rows_diff = 0
     for r in range(limit):
         differ = False
         for name in common:
-            va = a["rows"][r][names_a.index(name)]
+            va = a["rows"][r][index_a[name]]
             vb = b["rows"][r][index_b[name]]
             if va == vb:
                 continue
@@ -340,24 +422,30 @@ def _sample_diff(a, b):
         # 两边连一个同名字段都没有，逐格比就成了空转，结论得直说，
         # 否则界面会写"对比的 4 行属性完全一致"，看着像真的一致
         return {
+            "mode": "row",
+            "key": "",
             "rows_compared": 0,
             "rows_diff": 0,
             "cells": [],
             "cells_truncated": False,
             "common_fields": 0,
+            "common_fields_list": [],
             "note": "两边没有同名字段，属性内容无法按行对齐；先看上面的字段结构差异。",
         }
     return {
+        "mode": "row",
+        "key": "",
         "rows_compared": limit,
         "rows_diff": rows_diff,
         "cells": cells,
         "cells_truncated": len(cells) >= MAX_CELLS,
         "common_fields": len(common),
+        "common_fields_list": common,
         "note": "按行号对齐（第 1 行对第 1 行），不按主键配对",
     }
 
 
-def compare(path_a, path_b, layer_a=0, layer_b=0):
+def compare(path_a, path_b, layer_a=0, layer_b=0, key=None):
     """把两边各自的结论并成一张对照表。"""
     left, right = str(path_a or "").strip(), str(path_b or "").strip()
     if not left or not right:
@@ -377,24 +465,27 @@ def compare(path_a, path_b, layer_a=0, layer_b=0):
                            hint="同一条数据选两种不同格式来比，才能逐项对上。")
 
     if kind_a == "vector":
-        a = _vector_side(left, layer_a)
-        b = _vector_side(right, layer_b)
+        a = _vector_side(left, layer_a, key)
+        b = _vector_side(right, layer_b, key)
         meta = _vector_meta(a, b)
         fields = _field_diff(a, b)
-        sample = _sample_diff(a, b)
+        sample = _sample_diff(a, b, key)
         same_kind = "vector"
     else:
         a = _raster_side(left)
         b = _raster_side(right)
         meta = _raster_meta(a, b)
         fields = {"only_a": [], "only_b": [], "changed": [], "order_same": True}
-        sample = {"rows_compared": 0, "rows_diff": 0, "cells": [], "cells_truncated": False,
-                  "common_fields": 0, "note": ""}
+        sample = {"mode": "row", "key": "", "rows_compared": 0, "rows_diff": 0, "cells": [],
+                  "cells_truncated": False, "common_fields": 0, "common_fields_list": [],
+                  "note": ""}
         same_kind = "raster"
 
     diff_meta = [r for r in meta if not r["same"]]
     diff_fields = len(fields["only_a"]) + len(fields["only_b"]) + len(fields["changed"])
-    total = len(diff_meta) + diff_fields + sample["rows_diff"]
+    # 只在一边出现的键也是差异，和逐格比出来的差异一起算进总数
+    lonely = sample.get("only_a_count", 0) + sample.get("only_b_count", 0)
+    total = len(diff_meta) + diff_fields + sample["rows_diff"] + lonely
     return {
         "kind": same_kind,
         "a": a,
@@ -406,24 +497,38 @@ def compare(path_a, path_b, layer_a=0, layer_b=0):
             "meta": len(diff_meta),
             "fields": diff_fields,
             "sample_rows": sample["rows_diff"],
+            "only_a": sample.get("only_a_count", 0),
+            "only_b": sample.get("only_b_count", 0),
             "total": total,
         },
-        "summary": _summary(old=len(diff_meta), fields=diff_fields,
-                            rows=sample["rows_diff"], kind=same_kind,
-                            rows_compared=sample["rows_compared"]),
+        "summary": _summary(len(diff_meta), diff_fields, sample, same_kind),
     }
 
 
-def _summary(old, fields, rows, kind, rows_compared):
-    if not old and not fields and not rows:
+def _summary(old, fields, sample, kind):
+    rows = sample["rows_diff"]
+    only_a = sample.get("only_a_count", 0)
+    only_b = sample.get("only_b_count", 0)
+    if not old and not fields and not rows and not only_a and not only_b:
         if kind == "raster":
             return "两份影像的表头信息一致。像素上的差异不在这张表里，得叠在一起看。"
-        return f"表头、字段与对比的 {rows_compared} 行属性都一致。"
+        if sample.get("mode") == "key":
+            return f"表头、字段与按「{sample.get('key')}」配对的 {sample['rows_compared']} 个要素都一致。"
+        return f"表头、字段与对比的 {sample['rows_compared']} 行属性都一致。"
     parts = []
     if old:
         parts.append(f"{old} 项表头不同")
     if fields:
         parts.append(f"{fields} 处字段结构不同")
     if rows:
-        parts.append(f"{rows} 行属性不同")
-    return "，".join(parts) + "。"
+        if sample.get("mode") == "key":
+            parts.append(f"{rows} 个要素的属性不同")
+        else:
+            parts.append(f"{rows} 行属性不同")
+    if only_a or only_b:
+        parts.append(f"另有 {only_a + only_b} 个要素只在一边")
+    text = "，".join(parts) + "。"
+    # 按字段配对时把字段名写进结论：同一份数据换一种配对方式，结论可能完全不同
+    if sample.get("mode") == "key":
+        return f"按「{sample.get('key')}」配对：{text}"
+    return text

@@ -1509,8 +1509,10 @@ class Handler(BaseHTTPRequestHandler):
                     "title": "找不到这个文件", "detail": path}})
         layer_a = _as_int((query.get("layer_a") or ["0"])[0], 0)
         layer_b = _as_int((query.get("layer_b") or ["0"])[0], 0)
+        # 给了 key 就按这个字段配对要素；不给就按行号对齐
+        key = (query.get("key") or [""])[0].strip() or None
         try:
-            data = cmp.compare(a, b, layer_a, layer_b)
+            data = cmp.compare(a, b, layer_a, layer_b, key)
         except InspectError as exc:
             return self._send(200, {"ok": False, "error": {
                 "title": exc.title, "detail": exc.detail, "hint": exc.hint}})

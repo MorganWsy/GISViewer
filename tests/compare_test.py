@@ -48,6 +48,34 @@ def mutated_copy(target: Path) -> Path:
     return target
 
 
+def shuffled_copy(target: Path) -> Path:
+    """把第一条要素挪到最后，并把「河流」的分值改掉。
+
+    行号对齐会报"全都不同"，按字段配对只该报出一处：这一个要素被用来
+    验证"配对方式真的换了比较口径"，而不是只换了个标题。
+    """
+    data = json.loads(MIXED.read_text(encoding="utf-8"))
+    feats = data["features"]
+    for feature in feats:
+        props = feature.get("properties") or {}
+        if props.get("名称") == "河流":
+            props["分值"] = 9.9
+    feats.append(feats.pop(0))
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
+def extended_copy(target: Path) -> Path:
+    """多一个要素：按字段配对时应该报"1 个键只在右边"。"""
+    data = json.loads(MIXED.read_text(encoding="utf-8"))
+    extra = json.loads(json.dumps(data["features"][0]))
+    extra["properties"] = dict(extra["properties"] or {})
+    extra["properties"]["名称"] = "只在新版里"
+    data["features"].append(extra)
+    target.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return target
+
+
 def main():
     from gisviewer import compare
 
@@ -57,7 +85,7 @@ def main():
     check("同一份文件：属性没有差异", same["diff"]["sample_rows"] == 0)
     check("同一份文件：结论说明一致", "一致" in same["summary"], same["summary"])
     meta = rows_of(same)
-    check("表头有 12 行", len(same["rows"]) == 12, str(len(same["rows"])))
+    check("表头有 11 行", len(same["rows"]) == 11, str(len(same["rows"])))
     check("几何类型写在表头里", "几何类型" in meta)
     check("顶点总数写在表头里", int(meta.get("顶点总数", {}).get("a") or 0) == 8,
           str(meta.get("顶点总数")))
@@ -94,6 +122,33 @@ def main():
         check("文件不存在：拒绝", False)
     except compare.CompareError as exc:
         check("文件不存在：拒绝", "找不" in exc.title, exc.title)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        moved = shuffled_copy(Path(tmp) / "shuffled.geojson")
+        by_row = compare.compare(str(MIXED), str(moved))
+        by_key = compare.compare(str(MIXED), str(moved), key="名称")
+        check("打乱顺序后按行号比：报出多处不同", by_row["diff"]["sample_rows"] >= 3,
+              str(by_row["diff"]))
+        check("打乱顺序后按字段比：只剩一处不同", by_key["diff"]["sample_rows"] == 1,
+              str(by_key["diff"]))
+        check("按字段比：配对方式写进结果", by_key["sample"]["mode"] == "key",
+              str(by_key["sample"]["mode"]))
+        check("按字段比：结论提到字段名", "名称" in by_key["summary"], by_key["summary"])
+        check("按字段比：没有只在一边的键", by_key["diff"]["only_a"] == 0
+              and by_key["diff"]["only_b"] == 0, str(by_key["diff"]))
+        check("按字段比：选项列表里有这个字段", "名称" in by_key["sample"]["common_fields_list"],
+              str(by_key["sample"]["common_fields_list"]))
+
+        longer = extended_copy(Path(tmp) / "longer.geojson")
+        grown = compare.compare(str(MIXED), str(longer), key="名称")
+        check("按字段比：报出只在右边的键", grown["diff"]["only_b"] == 1, str(grown["diff"]))
+        check("按字段比：结论提到只在一边", "只在一边" in grown["summary"], grown["summary"])
+
+        try:
+            compare.compare(str(MIXED), str(moved), key="没有这个字段")
+            check("按字段比：字段不存在时拒绝", False)
+        except compare.CompareError as exc:
+            check("按字段比：字段不存在时拒绝", "字段" in exc.title, exc.title)
 
     # 顶点数必须 ≥ 要素数：面积数据一个面就有几十个顶点，这条能挡住"数错了"的实现
     counts = rows_of(same)

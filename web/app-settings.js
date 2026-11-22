@@ -1390,13 +1390,21 @@ function clearCmpResult() {
   });
 }
 
+/* 现在选的配对字段：空串就是按行号对齐 */
+function cmpKey() {
+  const sel = $('cmpKeySel');
+  return sel && !sel.disabled ? String(sel.value || '') : '';
+}
+
 function runCompare() {
   const a = (($('cmpPathA') || {}).value || '').trim();
   const b = (($('cmpPathB') || {}).value || '').trim();
   if (!a || !b || cmpBusy) return;
   setCmpHint('');
   setCmpBusy(true);
-  const url = '/api/compare?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b);
+  let url = '/api/compare?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b);
+  const key = cmpKey();
+  if (key) url += '&key=' + encodeURIComponent(key);
   fetch(url).then((r) => r.json()).then((d) => {
     if (!d || !d.ok) {
       clearCmpResult();
@@ -1468,7 +1476,8 @@ function renderCmpSample(sample, host) {
   if (!cells.length) {
     // 没有同名字段时 note 已经把原因说清楚了，不再补一句"没有可对比的属性行"重复
     if ((sample.common_fields || 0) > 0 || !note) {
-      host.appendChild(el('div', 'cmp-none', sample.rows_compared ? '对比的 ' + sample.rows_compared + ' 行属性完全一致。' : '没有可对比的属性行。'));
+      const unit = sample.mode === 'key' ? ' 个要素' : ' 行';
+      host.appendChild(el('div', 'cmp-none', sample.rows_compared ? '对比的 ' + sample.rows_compared + unit + '属性完全一致。' : '没有可对比的属性行。'));
     }
     if (note) host.appendChild(el('div', 'cmp-more', note));
     return;
@@ -1476,7 +1485,9 @@ function renderCmpSample(sample, host) {
   const list = el('div', 'cmp-list');
   cells.forEach((cell) => {
     const line = el('div', 'cmp-line');
-    line.appendChild(el('span', 'cmp-where', '第 ' + cell.row + ' 行 · ' + cell.field));
+    const where = (sample.mode === 'key' ? '要素 ' + cell.row : '第 ' + cell.row + ' 行') +
+      ' · ' + cell.field;
+    line.appendChild(el('span', 'cmp-where', where));
     const val = el('span', 'cmp-val');
     val.appendChild(el('b', null, '左 '));
     val.appendChild(document.createTextNode(cell.a === '' ? '（空）' : cell.a));
@@ -1490,8 +1501,38 @@ function renderCmpSample(sample, host) {
   if (note) host.appendChild(el('div', 'cmp-more', note));
 }
 
+function syncCmpKeys(d) {
+  const sel = $('cmpKeySel');
+  if (!sel) return;
+  const sample = d.sample || {};
+  const list = sample.common_fields_list || [];
+  const want = sel.value;
+  sel.textContent = '';
+  if (d.kind !== 'vector') {
+    const only = el('option', null, '影像没有要素可配对');
+    only.value = '';
+    sel.appendChild(only);
+    sel.disabled = true;
+    return;
+  }
+  const plain = el('option', null, '按行号对齐（不配对要素）');
+  plain.value = '';
+  sel.appendChild(plain);
+  list.forEach((name) => {
+    const o = el('option', null, '按「' + name + '」配对要素');
+    o.value = name;
+    sel.appendChild(o);
+  });
+  // 上一次选的字段如果这份数据里没有，就退回按行号
+  sel.value = list.indexOf(want) >= 0 ? want : '';
+  sel.disabled = !list.length;
+  // 选项是刚换的，自定义下拉要跟着重建（原生 select 已经退成 1px 的替身）
+  if (window.syncSelect) window.syncSelect(sel);
+}
+
 function renderCompare(d) {
   clearCmpResult();
+  syncCmpKeys(d);
   const sum = $('cmpSummary');
   if (sum) sum.textContent = d.summary || '';
   const metaSec = $('cmpMetaSec');

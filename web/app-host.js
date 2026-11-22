@@ -1161,6 +1161,8 @@ function wireComparePopover() {
     });
   });
   $('cmpRun').addEventListener('click', runCompare);
+  // 换配对字段就地重算，不用再点一次按钮
+  $('cmpKeySel').addEventListener('change', () => { if (!cmpBusy) runCompare(); });
 }
 
 /* 顶栏格式互转浮层 */

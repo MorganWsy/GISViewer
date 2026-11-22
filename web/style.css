@@ -3435,7 +3435,6 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 #cmpPathPick { right: 3px; }
 #cmpPathPick svg { width: 17px; height: auto; }
-.cmp-actions { display: flex; justify-content: flex-end; padding: 2px 0 2px; }
 .cmp-run {
   height: 28px;
   padding: 0 14px;
@@ -3449,7 +3448,23 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .cmp-run:hover { filter: brightness(1.06); }
 .cmp-run[disabled] { opacity: .5; cursor: default; filter: none; }
-.cmp-result { overflow: auto; }
+/* 结果区是浮层里唯一会撑高的部分：给它纵向滚动，浮层本身就不会顶出窗口 */
+.cmp-result { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.cmp-sum-k { font-weight: 700; }
+/* 字段结构与属性内容并排：两者都是"逐条清单"，左右各占一半正好把宽屏用满 */
+.cmp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; align-items: start; }
+/* 配对方式那一行：下拉吃掉剩余宽度，按钮靠右 */
+.cmp-align { display: flex; align-items: center; gap: 6px; }
+.cmp-align .cmp-tag { line-height: 26px; }
+/* controls.js 会把原生 select 换成 .combo，能看见的是那颗按钮，
+   所以宽度和高度要给 .combo 与 .combo-btn，给 select 是不生效的 */
+.cmp-align .combo { flex: 1 1 auto; min-width: 0; }
+.cmp-align .combo-btn {
+  height: 26px;
+  min-height: 0;
+  padding: 0 26px 0 8px;
+  font-size: 12.5px;
+}
 /* 一句话结论：贴着分隔线，下面各段自己带标题，不再重复写"共几处" */
 .cmp-sum {
   padding: 7px 9px 7px 2px;

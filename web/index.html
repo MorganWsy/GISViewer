@@ -164,7 +164,7 @@
   <div id="cmpPop" class="check-pop cmp-pop" hidden>
     <div class="cp-head">
       <span class="cp-title">两份文件对比</span>
-      <i class="tip-ico" id="cmpTip" data-tip="比同一份数据的两个版本、或者同一条数据存成的两种格式。表头、字段、前 20 行属性与顶点数逐项并排；属性按行号对齐，不按主键配对"></i>
+      <i class="tip-ico" id="cmpTip" data-tip="比同一份数据的两个版本、或者同一条数据存成的两种格式。表头、字段、前 20 行属性与顶点数逐项并排。属性默认按行号对齐；在下面挑一个两边都有的字段，就改成按这个字段配对要素"></i>
       <span class="cp-hint" id="cmpHint"></span>
     </div>
     <div class="cmp-pick">
@@ -179,15 +179,24 @@
           <svg viewBox="0 0 1251 1024" fill="currentColor" aria-hidden="true"><path opacity=".45" d="M153.6 631.466667h938.666667V204.8H153.6v426.666667zM1251.555556 824.888889H0v-682.666667h1154.844444c51.2 0 96.711111 39.822222 96.711112 85.333334v597.333333z m-472.177778-682.666667C779.377778 62.577778 711.111111 0 625.777778 0H0v142.222222h779.377778z"/><path d="M1251.555556 915.911111V358.4c0-39.822222-34.133333-68.266667-79.644445-68.266667H79.644444C34.133333 290.133333 0 324.266667 0 358.4V910.222222c0 51.2 45.511111 85.333333 96.711111 85.333334h1058.133333c51.2 5.688889 96.711111-34.133333 96.711112-79.644445"/></svg>
         </button>
       </div>
-      <div class="cmp-actions">
+      <!-- 配对方式：默认按行号，选一个两边都有的字段就改成按这个字段配对 -->
+      <div class="cmp-align">
+        <!-- 空的标签位只是占位：让下拉的左边和上面两个输入框对齐，
+             配对方式这件事由下拉自己的选项说明，不再另写一个"配对" -->
+        <span class="cmp-tag" aria-hidden="true"></span>
+        <select id="cmpKeySel" aria-label="要素配对方式">
+          <option value="">按行号对齐（不配对要素）</option>
+        </select>
         <button id="cmpRun" class="cmp-run" type="button">开始对比</button>
       </div>
     </div>
     <div class="cp-result" id="cmpResult" hidden>
-      <div class="cmp-sum" id="cmpSummary"></div>
+      <div class="cmp-sum"><b class="cmp-sum-k">对比总结：</b><span id="cmpSummary"></span></div>
       <div class="cmp-sec" id="cmpMetaSec"></div>
-      <div class="cmp-sec" id="cmpFieldSec"></div>
-      <div class="cmp-sec" id="cmpSampleSec"></div>
+      <div class="cmp-cols">
+        <div class="cmp-sec" id="cmpFieldSec"></div>
+        <div class="cmp-sec" id="cmpSampleSec"></div>
+      </div>
     </div>
     <div class="cp-busy" id="cmpBusy" hidden>
       <span class="cp-spin"></span>
