@@ -3557,6 +3557,8 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 }
 .cmp-line:nth-child(odd) { background: var(--panel-alt); }
 .cmp-line .cmp-where { flex: none; width: 34%; color: var(--text-dim); }
+/* 一条差异里有两行时（字段名 / 差在哪一项），第二行起另起一行，不用“·”分隔 */
+.cmp-line .cmp-line2 { display: block; }
 .cmp-line .cmp-val { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .cmp-line .cmp-val b { font-weight: 600; color: var(--text); }
 .cmp-none { padding: 2px 0; font-size: 12.5px; line-height: 17px; color: var(--text-dim); }

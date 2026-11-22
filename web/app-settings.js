@@ -1462,38 +1462,78 @@ function runCompare() {
 }
 
 /* 表头对照：一行一项，两边值并排；不同的整行标注底色 */
-/* 复制这张表：制表符分隔 + CRLF，粘到 Excel / WPS 里正好一列一列。
-   这两个字符用 fromCharCode 拼，源码里不写转义，免得被外层工具吃掉。 */
+/* 复制这张表：同时给剪贴板放一份 HTML 和一份纯文本。
+   只给纯文本的话，Excel 会把"要素个数 4"这类值当数字右对齐，整列看上去是歪的；
+   HTML 那格里显式写 align=left，Excel 和 WPS 都按左对齐贴进来。
+   制表符、回车用 fromCharCode 拼，源码里不写转义（编辑链路会吃掉反斜杠）。 */
 const CMP_TAB = String.fromCharCode(9);
 const CMP_EOL = String.fromCharCode(13, 10);
-function copyCmpMeta(btn) {
-  const rows = cmpMetaRows || [];
-  if (!rows.length) return;
+
+function cmpMetaText(rows) {
   const cell = (v) => (v === '' || v === null || v === undefined ? '' : String(v));
   const lines = [['项目', '左', '右'].join(CMP_TAB)];
   rows.forEach((r) => lines.push([cell(r.label), cell(r.a), cell(r.b)].join(CMP_TAB)));
-  const text = lines.join(CMP_EOL);
+  return lines.join(CMP_EOL);
+}
+
+function cmpMetaHtml(rows) {
+  const esc = (v) => String(v === '' || v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const th = (t) => '<th align="left" style="text-align:left">' + esc(t) + '</th>';
+  const td = (v) => '<td align="left" style="text-align:left">' + esc(v) + '</td>';
+  const out = ['<meta charset="utf-8"><table border="1" cellspacing="0" cellpadding="4"><tr>'];
+  out.push(th('项目') + th('左') + th('右') + '</tr>');
+  rows.forEach((r) => out.push('<tr>' + td(r.label) + td(r.a) + td(r.b) + '</tr>'));
+  out.push('</table>');
+  return out.join('');
+}
+
+function copyCmpMeta(btn) {
+  const rows = cmpMetaRows || [];
+  if (!rows.length) return;
   const flash = () => {
     if (!btn) return;
     btn.classList.add('done');
     setTimeout(() => btn.classList.remove('done'), 1200);
   };
-  // 编辑器里没有剪贴板权限时会 reject，此时退回旧接口
-  const fallback = () => {
-    const ta = el('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); flash(); } catch { /* 复制失败就保持原样 */ }
-    ta.remove();
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(flash).catch(fallback);
-  } else {
+  const plain = cmpMetaText(rows);
+  const html = cmpMetaHtml(rows);
+  const writePlain = () => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(plain).then(flash).catch(fallback);
+      return;
+    }
     fallback();
-  }
+  };
+  const writeRich = () => {
+    if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) {
+      writePlain();
+      return;
+    }
+    const item = new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([plain], { type: 'text/plain' }),
+    });
+    navigator.clipboard.write([item]).then(flash).catch(writePlain);
+  };
+  // 编辑器里没有剪贴板权限时的最后手段：塞一个隐藏的表格选中再 copy
+  const fallback = () => {
+    const box = el('div');
+    box.contentEditable = 'true';
+    box.style.position = 'fixed';
+    box.style.opacity = '0';
+    // 用 Range 解析这段 HTML：内容全是本地拼出来的表格，没有外部输入
+    box.appendChild(document.createRange().createContextualFragment(html));
+    document.body.appendChild(box);
+    const r = document.createRange();
+    r.selectNodeContents(box);
+    const sel = window.getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+    try { document.execCommand('copy'); flash(); } catch { /* 复制失败就保持原样 */ }
+    if (sel) sel.removeAllRanges();
+    box.remove();
+  };
+  writeRich();
 }
 
 function renderCmpMeta(rows, host) {
@@ -1522,11 +1562,12 @@ function renderCmpMeta(rows, host) {
 function renderCmpFields(fields, host) {
   const lines = [];
   const quoted = (n) => '「' + n + '」';
-  (fields.only_a || []).forEach((n) => lines.push(['只在左边', quoted(n)]));
-  (fields.only_b || []).forEach((n) => lines.push(['只在右边', quoted(n)]));
+  (fields.only_a || []).forEach((n) => lines.push(['只在左边', [quoted(n)]]));
+  (fields.only_b || []).forEach((n) => lines.push(['只在右边', [quoted(n)]]));
   (fields.changed || []).forEach((item) => {
     (item.diffs || []).forEach((d) => {
-      lines.push([quoted(item.name) + ' · ' + d.what,
+      // 第一列两行：字段名一行，差在哪一项一行，中间不用「·」这种分隔符
+      lines.push([[quoted(item.name), d.what],
         (d.a === null ? '（无）' : d.a) + ' → ' + (d.b === null ? '（无）' : d.b)]);
     });
   });
@@ -1537,8 +1578,23 @@ function renderCmpFields(fields, host) {
   const list = el('div', 'cmp-list');
   lines.slice(0, 40).forEach(([where, what]) => {
     const line = el('div', 'cmp-line');
-    line.appendChild(el('span', 'cmp-where', where));
-    line.appendChild(el('span', 'cmp-val', what));
+    const col = el('span', 'cmp-where');
+    const parts = Array.isArray(where) ? where : where.split(String.fromCharCode(10));
+    parts.forEach((part, k) => {
+      if (k) col.appendChild(el('span', 'cmp-line2'));
+      col.appendChild(document.createTextNode(part));
+    });
+    line.appendChild(col);
+    if (Array.isArray(what)) {
+      const val = el('span', 'cmp-val');
+      what.forEach((part, k) => {
+        if (k) val.appendChild(el('span', 'cmp-line2'));
+        val.appendChild(el('b', null, part));
+      });
+      line.appendChild(val);
+    } else {
+      line.appendChild(el('span', 'cmp-val', what));
+    }
     list.appendChild(line);
   });
   host.appendChild(list);
@@ -1562,7 +1618,7 @@ function renderCmpSample(sample, host) {
   cells.forEach((cell) => {
     const line = el('div', 'cmp-line');
     const where = (sample.mode === 'key' ? '要素 ' + cell.row : '第 ' + cell.row + ' 行') +
-      ' · 「' + cell.field + '」';
+      '「' + cell.field + '」';
     line.appendChild(el('span', 'cmp-where', where));
     const val = el('span', 'cmp-val');
     val.appendChild(el('b', null, '左 '));

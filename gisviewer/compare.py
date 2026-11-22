@@ -180,7 +180,7 @@ def _vector_side(path, layer_index, key=None):
                 if len(rows) < SAMPLE_ROWS:
                     rows.append([_cell(feat, i) for i in range(len(fields))])
             else:
-                # 同一个键出现多次时只留第一个：按主键配对本就假定它唯一，
+                # 同一个取值出现多次时只留第一个：按唯一字段配对本就假定它唯一，
                 # 重复的事实计下来告诉用户，别悄悄覆盖掉
                 value = _cell(feat, key_at)
                 if value in keyed:
@@ -405,9 +405,9 @@ def _keyed_diff(a, b, names_a, names_b, common, key):
     only_b = [k for k in kb if k not in ka]
     notes = [f"按字段「{key}」配对"]
     if a["dup_keys"] or b["dup_keys"]:
-        notes.append(f"同名键只比第一个（左 {a['dup_keys']} 处、右 {b['dup_keys']} 处重复）")
+        notes.append(f"同名取值只比第一个（左 {a['dup_keys']} 处、右 {b['dup_keys']} 处重复）")
     if only_a or only_b:
-        notes.append(f"{len(only_a)} 个键只在左边，{len(only_b)} 个只在右边")
+        notes.append(f"{len(only_a)} 个字段只在左边，{len(only_b)} 个只在右边")
     return {
         "mode": "key",
         "key": key,
@@ -467,7 +467,7 @@ def _sample_diff(a, b, key=None):
         "cells_truncated": len(cells) >= MAX_CELLS,
         "common_fields": len(common),
         "common_fields_list": common,
-        "note": "按行号配对（第 1 行对第 1 行），不按唯一字段配对",
+        "note": "",
     }
 
 
