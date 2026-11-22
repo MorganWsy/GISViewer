@@ -76,6 +76,30 @@ def extended_copy(target: Path) -> Path:
     return target
 
 
+def projected_copy(target: Path) -> Path:
+    """造一份投影坐标系的矢量（EPSG:3857，一栋 100 米见方的楼）。
+
+    用来验证两件事：坐标系那行要写明"投影坐标系"，范围要换成左右上下。
+    地理坐标系那份（mixed.geojson）走的是另一套标签，两边都能覆盖到。
+    """
+    from osgeo import ogr, osr
+
+    drv = ogr.GetDriverByName("GPKG")
+    ds = drv.CreateDataSource(str(target))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(3857)
+    lyr = ds.CreateLayer("building", srs, ogr.wkbPolygon)
+    lyr.CreateField(ogr.FieldDefn("name", ogr.OFTString))
+    feat = ogr.Feature(lyr.GetLayerDefn())
+    feat.SetField("name", "building")
+    feat.SetGeometry(ogr.CreateGeometryFromWkt(
+        "POLYGON((12000000 3000000, 12000100 3000000, 12000100 3000100, "
+        "12000000 3000100, 12000000 3000000))"))
+    lyr.CreateFeature(feat)
+    ds = None
+    return target
+
+
 def main():
     from gisviewer import compare
 
@@ -94,6 +118,19 @@ def main():
     box = meta.get("范围", {})
     check("范围带方向标签：地理坐标系用东南西北",
           box.get("a", "").startswith("(西 ") and "北 " in box.get("a", ""), box.get("a"))
+    check("坐标系那行写明是地理坐标系",
+          "地理坐标系" in meta.get("坐标系", {}).get("a", ""), meta.get("坐标系", {}).get("a"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        proj = projected_copy(Path(tmp) / "building.gpkg")
+        info = compare.compare(str(proj), str(proj))
+        rows = rows_of(info)
+        check("坐标系那行写明是投影坐标系",
+              "投影坐标系" in rows.get("坐标系", {}).get("a", ""),
+              rows.get("坐标系", {}).get("a"))
+        check("投影坐标系的范围用左右上下",
+              rows.get("范围", {}).get("a", "").startswith("(左 "),
+              rows.get("范围", {}).get("a"))
 
     only = compare.keys(str(MIXED), str(MIXED))
     check("只读字段名：给出共有字段", only["ready"] and "名称" in only["common"], str(only.get("common")))

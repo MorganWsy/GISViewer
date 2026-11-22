@@ -3460,6 +3460,14 @@ table.attr-table td b { color: var(--accent); font-weight: 700; }
 /* controls.js 会把原生 select 换成 .combo，能看见的是那颗按钮，
    所以宽度和高度要给 .combo 与 .combo-btn，给 select 是不生效的 */
 .cmp-align .combo { flex: 1 1 auto; min-width: 0; }
+/* 下拉里的分组小标题：字号比选项小一号、不抢眼，但能把两段分开 */
+.combo-group {
+  padding: 6px 10px 2px;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--text-dim);
+}
+
 .cmp-align .combo-btn {
   height: var(--ctl-h);
   min-height: 0;

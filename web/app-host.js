@@ -1164,8 +1164,8 @@ function wireComparePopover() {
     });
   });
   $('cmpRun').addEventListener('click', runCompare);
-  // 换配对字段就地重算，不用再点一次按钮
-  $('cmpKeySel').addEventListener('change', () => { if (!cmpBusy) runCompare(); });
+  // 换配对字段只记下选择，不自动开跑：对比的入口只有"开始对比"这一颗按钮
+  $('cmpKeySel').addEventListener('change', () => setCmpHint(''));
 }
 
 /* 顶栏格式互转浮层 */
@@ -1450,35 +1450,12 @@ function wireRecentMenu() {
   });
 }
 
-/* 打开、体检、互转三块浮层点外面收起。
-   对比浮层不在此列：它要能选字复制，点外面就收会打断这个动作，显隐只由顶栏按钮决定 */
+/* 顶栏那几块浮层（打开、对比、体检、互转）一律只认各自的按钮：
+   浮层里有输入框和可选中复制的文字，点外面就收会打断这些动作。
+   这里只保留"打开另一块浮层时，把上一块收掉"，避免两块叠在一起。 */
 function wirePopoverDismiss() {
-  // "打开"菜单点到别处就收掉；点按钮自身除外（它自己负责开/关）
-  document.addEventListener('click', (e) => {
-    const pop = $('pickPop');
-    if (!pop || pop.hidden) return;
-    const onBtn = e.target && e.target.closest ? e.target.closest('#filePickBtn') : null;
-    // 提示气泡挂在 body 上、不在浮层里：点气泡（选字、复制）不算"点在外面"
-    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
-    hidePickPop();
-  });
-  // 体检浮层同理：点外面收掉，点自己的按钮不算（否则按下去就没了）
-  document.addEventListener('click', (e) => {
-    const pop = $('checkPop');
-    if (!pop || pop.hidden) return;
-    const onBtn = e.target && e.target.closest ? e.target.closest('#checkBtn') : null;
-    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
-    hideCheckPop();
-  });
-  // 互转浮层同理
-  document.addEventListener('click', (e) => {
-    const pop = $('convPop');
-    if (!pop || pop.hidden) return;
-    const onBtn = e.target && e.target.closest ? e.target.closest('#convBtn') : null;
-    // 松手时浏览器补发的 click 会落到气泡上：这一下不能当成"点外面"把浮层关掉
-    if (pop.contains(e.target) || onBtn || tipInBubble(e.target)) return;
-    hideConvPop();
-  });
+  /* 互斥已经写在各自的 show*Pop 里（showCheckPop 收互转与选择文件，
+     showConvPop 收体检与选择文件），这里不需要再加一层点击监听 */
 }
 
 /* 属性表里的搜索框 */

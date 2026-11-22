@@ -424,9 +424,8 @@ function escapeTopLayer(e, typing) {
   if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
   if (!$('updPop').hidden) { closeUpdPop(); return; }
   if (!$('recentPop').hidden) { hideRecent(); return; }
-  if (!$('pickPop').hidden) { hidePickPop(); return; }
-  if (!$('checkPop').hidden) { hideCheckPop(); return; }
-  if (!$('convPop').hidden) { hideConvPop(); return; }
+  /* 顶栏那几块浮层不归 Esc 管：显隐只认各自的按钮，
+     否则在浮层里选字、按 Esc 取消输入时会连带把它收掉 */
 
   if (!$('layerPop').hidden) { hideLayerPop(); return; }
   if (!$('settings').hidden) { $('cfgClose').click(); return; }

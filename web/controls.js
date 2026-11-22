@@ -10,13 +10,29 @@
     return node;
   }
 
-  function itemsOf(select) {
-    return Array.from(select.options).map((o) => ({
+  function oneOption(o, group) {
+    return {
       value: o.value,
       label: o.textContent.trim(),
       // 色带这类选项带 data-grad，列表和按钮上都画一条真实的渐变
       grad: o.getAttribute('data-grad') || '',
-    }));
+      // 分组名来自 <optgroup>，列表里渲染成一段小标题；空串表示不分组
+      group: group || '',
+    };
+  }
+
+  function itemsOf(select) {
+    // 逐个走 select.children 而不是 select.options：后者是拍平的，
+    // 分不出某个选项属于哪个 <optgroup>
+    const out = [];
+    Array.from(select.children).forEach((node) => {
+      if (node.tagName === 'OPTGROUP') {
+        Array.from(node.children).forEach((o) => out.push(oneOption(o, node.label)));
+      } else if (node.tagName === 'OPTION') {
+        out.push(oneOption(node, ''));
+      }
+    });
+    return out;
   }
 
   function closeAll() {
@@ -120,7 +136,13 @@
     c.btn.disabled = !items.length;
     c.wrap.classList.toggle('has-bar', !!(current && current.grad));
     c.list.textContent = '';
+    let prevGroup = '';
     items.forEach((item) => {
+      // 换组时插一段小标题，视觉上就是两段：不配对的默认项，与按字段配对的一组
+      if (item.group && item.group !== prevGroup) {
+        c.list.appendChild(el('div', 'combo-group', item.group));
+      }
+      prevGroup = item.group;
       const opt = el('div', 'combo-opt');
       opt.setAttribute('role', 'option');
       opt.appendChild(el('span', 'combo-label', item.label));

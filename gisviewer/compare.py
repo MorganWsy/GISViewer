@@ -215,6 +215,7 @@ def _vector_side(path, layer_index, key=None):
         "extent_wgs84": layer.get("extent_wgs84"),
         "crs": crs.get("label") or "",
         "crs_kind": crs.get("kind") or "",
+        "crs_kind_label": crs.get("kind_label") or "",
         "crs_epsg": crs.get("epsg"),
         "unit": layer.get("unit_label") or "",
         "fields": fields,
@@ -265,12 +266,23 @@ def _raster_side(path):
         "extent_wgs84": info.get("extent_wgs84"),
         "crs": crs.get("label") or "",
         "crs_kind": crs.get("kind") or "",
+        "crs_kind_label": crs.get("kind_label") or "",
         "crs_epsg": crs.get("epsg"),
         "nodata": info.get("nodata_values"),
         "compression": info.get("compression_label") or "",
         "overviews": info.get("overview_levels") or [],
         "bands": bands,
     }
+
+
+def _crs_text(side):
+    """坐标系那一行：名字后面带上它属于哪一类。
+
+    只写"EPSG:3857 · WGS 84 / Pseudo-Mercator"时，读的人还得自己分辨这是投影还是地理，
+    而这一条恰恰决定了门口那行范围该用米还是用度。"""
+    parts = [side.get("crs") or "", side.get("crs_kind_label") or ""]
+    text = " · ".join(x for x in parts if x)
+    return text or "未记录坐标系"
 
 
 def _same(a, b):
@@ -293,7 +305,7 @@ def _vector_meta(a, b):
         _row("顶点总数", a["vertices"], b["vertices"]),
         _row("字段个数", len(a["fields"]), len(b["fields"])),
         _row("范围", _box(a["extent"], a["crs_kind"]), _box(b["extent"], b["crs_kind"])),
-        _row("坐标系", a["crs"], b["crs"]),
+        _row("坐标系", _crs_text(a), _crs_text(b)),
     ]
     if a["partial"] or b["partial"]:
         note = f"顶点只统计到第 {min(a['scanned'], b['scanned'])} 个要素"
@@ -311,7 +323,7 @@ def _raster_meta(a, b):
         _row("数据类型", a["data_types"], b["data_types"]),
         _row("像元大小", a["pixel_size"], b["pixel_size"]),
         _row("范围", _box(a["extent"], a["crs_kind"]), _box(b["extent"], b["crs_kind"])),
-        _row("坐标系", a["crs"], b["crs"]),
+        _row("坐标系", _crs_text(a), _crs_text(b)),
         _row("无数据值", a["nodata"], b["nodata"]),
         _row("压缩", a["compression"], b["compression"]),
         _row("金字塔", "、".join(str(x) for x in a["overviews"]) or "无",

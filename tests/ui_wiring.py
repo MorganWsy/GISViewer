@@ -49,7 +49,10 @@ STEPS = (
     " out.themeChanged = q('#themeBtn').dataset.mode !== mode0;"
     " q('#checkBtn').click(); await wait(150);"
     " out.checkOpen = vis('#checkPop');"
+    # 体检浮层和对比浮层一样只认按钮：点外面不收，再点按钮才收
     " document.body.click(); await wait(150);"
+    " out.checkStaysOutside = vis('#checkPop');"
+    " q('#checkBtn').click(); await wait(150);"
     " out.checkClosed = !vis('#checkPop');"
     " q('#convBtn').click(); await wait(200);"
     " out.convOpen = vis('#convPop');"
@@ -160,6 +163,7 @@ def main():
             "settingsClosedAgain": True,
             "themeChanged": True,
             "checkOpen": True,
+            "checkStaysOutside": True,
             "checkClosed": True,
             "convOpen": True,
             "convClosed": True,

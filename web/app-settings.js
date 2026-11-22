@@ -1367,6 +1367,9 @@ function setCmpBusy(on) {
   if (mask) mask.hidden = !on;
   const run = $('cmpRun');
   if (run) run.disabled = !!on;
+  // 忙的时候把高度钉住：结果区一进一出会让整块浮层呼吸一下
+  const pop = $('cmpPop');
+  if (pop) pop.style.minHeight = on ? pop.offsetHeight + 'px' : '';
 }
 
 function syncCmpRun() {
@@ -1402,7 +1405,19 @@ function runCompare() {
   const a = (($('cmpPathA') || {}).value || '').trim();
   const b = (($('cmpPathB') || {}).value || '').trim();
   if (!a || !b || cmpBusy) return;
+  // 换了文件对就把配对字段退回"按行号"：上一对里选的字段在新的一对里多半不存在，
+  // 直接发给服务端会被判"没有这个字段"，白跑一次
+  const pair = a + '|' + b;
+  if (cmpPair && cmpPair !== pair) {
+    const sel = $('cmpKeySel');
+    if (sel) {
+      sel.selectedIndex = 0;
+      if (window.syncSelect) window.syncSelect(sel);
+    }
+  }
   setCmpHint('');
+  // 先量好当前高度再进忙碌态：换配对方式重跑时，旧结果留在原位，
+  // 浮层不会先缩没再撑开（上一版就是这一缩一涨被看成"抖动"）
   setCmpBusy(true);
   let url = '/api/compare?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b);
   const key = cmpKey();
@@ -1412,9 +1427,12 @@ function runCompare() {
       clearCmpResult();
       const err = (d && d.error) || {};
       setCmpHint(err.title || '对比失败');
+      // 字段不在了这类失败，顺手把下拉的选项刷新一遍
+      refreshCmpKeys();
       if (err.detail || err.hint) showErrToast(err.title || '对比失败', err.detail, err.hint);
       return;
     }
+    cmpPair = pair;
     renderCompare(d);
   }).catch(() => {
     clearCmpResult();
@@ -1506,6 +1524,8 @@ function renderCmpSample(sample, host) {
 /* 只要两边都填上了就去问一次共有字段：不点"开始对比"也能选配对方式，
    否则下拉里永远只有"按行号对齐"，人会以为这个功能没做 */
 let cmpKeysTimer = 0;
+// 上一次成功对比的文件对，用来判断"换了文件"要不要把配对字段退回默认
+let cmpPair = '';
 function refreshCmpKeys() {
   clearTimeout(cmpKeysTimer);
   cmpKeysTimer = 0;
@@ -1543,11 +1563,18 @@ function syncCmpKeys(kind, list) {
   const plain = el('option', null, '按行号对齐（不配对要素）');
   plain.value = '';
   sel.appendChild(plain);
-  (list || []).forEach((name) => {
-    const o = el('option', null, '按「' + name + '」配对要素');
-    o.value = name;
-    sel.appendChild(o);
-  });
+  // 按字段配对的那些收进一个 <optgroup>，下拉里就两段：
+  // 默认的"按行号对齐"，和一组可以选来当唯一标识的字段
+  if ((list || []).length) {
+    const group = el('optgroup');
+    group.label = '按唯一标识字段配对';
+    list.forEach((name) => {
+      const o = el('option', null, name);
+      o.value = name;
+      group.appendChild(o);
+    });
+    sel.appendChild(group);
+  }
   // 上一次选的字段如果这份数据里没有，就退回按行号
   sel.value = list.indexOf(want) >= 0 ? want : '';
   sel.disabled = !list.length;
@@ -1556,7 +1583,14 @@ function syncCmpKeys(kind, list) {
 }
 
 function renderCompare(d) {
-  clearCmpResult();
+  // 不清空、只覆盖：先把结果区亮出来，再逐段换内容，
+  // 这样重跑时高度只会从旧内容过渡到新内容，不会先塌成一条线
+  const box = $('cmpResult');
+  if (box) box.hidden = false;
+  ['cmpSummary', 'cmpMetaSec', 'cmpFieldSec', 'cmpSampleSec'].forEach((id) => {
+    const node = $(id);
+    if (node) node.textContent = '';
+  });
   syncCmpKeys(d.kind || '', (d.sample && d.sample.common_fields_list) || []);
   const sum = $('cmpSummary');
   if (sum) sum.textContent = d.summary || '';
