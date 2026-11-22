@@ -1289,6 +1289,7 @@ class Handler(BaseHTTPRequestHandler):
             offset = max(0, int((query.get("offset") or ["0"])[0]))
             tolerance = max(0.0, float((query.get("tolerance") or ["0"])[0]))
             with_geometry = (query.get("geom") or ["1"])[0] != "0"
+            whole = (query.get("full") or ["0"])[0] == "1"
             bbox = None
             raw_bbox = (query.get("bbox") or [""])[0]
             if raw_bbox:
@@ -1302,15 +1303,30 @@ class Handler(BaseHTTPRequestHandler):
 
         # 同一次视野（重开文件、来回平移）重复来取数时直接搬上次的结果。
         # 内存 + 磁盘各一层：重启后回到同一个视野能直接读回上一份响应。
-        # 键里带上抽稀容差和 bbox，视野一变就自然换键。翻页请求不占缓存。
+        #
+        # 两种情况分开做键：
+        #   整幅（full=1，打开文件时的默认视野）：键只认文件、图层、条数，
+        #     容差改由数据范围决定（宽度 / 2048），与窗口尺寸无关。
+        #     于是不管什么窗口、什么层级，打开同一份数据永远是同一格缓存。
+        #   局部视野：键里带 bbox 与抽稀容差，视野一变就自然换键。
+        # 翻页请求不占缓存。
         vkey = None
         if _cacheable(path) and offset == 0:
             box = ",".join(f"{v:.4f}" for v in bbox) if bbox else "-"
-            # 容差按 3 位有效数字归并：同样的视野在不同窗口尺寸下算出来的
-            # 抽稀容差会差在小数第 6 位上，按原值做键就永远命中不了
+            # 整幅请求：容差改由数据范围决定（宽度 / 2048），与窗口尺寸、层级无关。
+            # tolerance 是 0 表示用户明确要"看全精度"，那种不动它，另开一格缓存。
+            exact = tolerance <= 0
+            if whole and bbox and not exact:
+                tolerance = round((bbox[2] - bbox[0]) / 2048.0, 9)
+            # 局部视野的容差按 3 位有效数字归并：同样的视野在不同窗口尺寸下
+            # 算出来的抽稀容差会差在小数第 6 位上，按原值做键就永远命中不了
+            if not whole:
+                tail = f"box={box};tol={tolerance:.3g}"
+            else:
+                tail = "all=1;exact=1" if exact else "all=1"
             vkey = cache.key("vec", path,
-                             f"layer={layer};limit={limit};tol={tolerance:.3g};"
-                             f"box={box};g={1 if with_geometry else 0}")
+                             f"layer={layer};limit={limit};{tail};"
+                             f"g={1 if with_geometry else 0}")
             started = time.perf_counter()
             hit = cache.load_vec(vkey, disk=_cacheable(path))
             if hit is not None:

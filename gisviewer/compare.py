@@ -407,7 +407,7 @@ def _keyed_diff(a, b, names_a, names_b, common, key):
     if a["dup_keys"] or b["dup_keys"]:
         notes.append(f"同名取值只比第一个（左 {a['dup_keys']} 处、右 {b['dup_keys']} 处重复）")
     if only_a or only_b:
-        notes.append(f"{len(only_a)} 个字段只在左边，{len(only_b)} 个只在右边")
+        notes.append(f"{len(only_a)} 个要素只在左边，{len(only_b)} 个只在右边")
     return {
         "mode": "key",
         "key": key,

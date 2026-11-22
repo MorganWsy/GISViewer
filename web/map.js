@@ -674,7 +674,11 @@
       '&limit=' + drawLimit +
       // 别用 toExponential：0 会写成 "0.00e+0"，查询串里的 + 会被当成空格，服务端解析就炸了
       '&tolerance=' + String(tol) +
-      (boxOk ? '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',') : '');
+      (boxOk ? '&bbox=' + bbox.map((v) => v.toFixed(5)).join(',') : '') +
+      /* 视野把整个数据范围都装下了（打开文件时的默认视野就是这种）：
+         告诉服务端按"整幅"做缓存键，容差也由数据范围定，
+         这样换个窗口尺寸、换个层级再打开，还是同一格缓存 */
+      (boxOk && cur && cur.wgs && bboxInside(cur.wgs, bbox) ? '&full=1' : '');
     const mine = ++token;
     const wanted = data;
     const busy = document.getElementById('vecBusy');
