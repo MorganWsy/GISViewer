@@ -1105,16 +1105,16 @@ function offsetRow(band, phys) {
    多波段时再挂一张逐波段表 */
 function railRasterBands(rail, d, band, phys) {
   rail.sec('波段');
-  rail.row('名称', (d.bands || []).map((b) => b.description).filter(Boolean).slice(0, 8).join('、'));
+  rail.row(t('rail.bandName'), (d.bands || []).map((b) => b.description).filter(Boolean).slice(0, 8).join('、'));
   /* 类型名用 GDAL 的叫法（Int16、Float32）。前面再挂"16 位"是同一件事说两遍，
      两个写法并排反而让人怀疑自己看错；位数、取值范围与代码里的写法都放进气泡 */
   const multiTypes = (d.data_types || []).length > 1 ? d.data_types : null;
-  rail.row('数据类型', d.type_label + (multiTypes ? '（多类型）' : ''),
+  rail.row(t('rail.dataType'), d.type_label + (multiTypes ? '（多类型）' : ''),
     dtypeTip(d.type_label, multiTypes));
   /* 单位与换算系数是文件自己写的，原样给出：缩放系数乘上偏移就是物理值，
      上面"统计"那一段已经按它换算了。来自文件属性时，气泡里写出属性名，
      用户拿 Python 读同一份数据时按这个名字取 */
-  rail.row('数值单位', phys.unit, band.unit_key
+  rail.row(t('rail.unit'), phys.unit, band.unit_key
     ? ['单位取自文件属性 ' + band.unit_key + '。', '用代码读同一个属性就能拿到同样的单位。']
     : null);
   const scale = scaleRow(band, phys);
@@ -1122,7 +1122,7 @@ function railRasterBands(rail, d, band, phys) {
   const offset = offsetRow(band, phys);
   if (offset) rail.row(offset[0], offset[1], offset[2]);
   const palette = band.palette_count || d.palette_count || 0;
-  rail.row('色表', palette ? palette + ' 项' : '无');
+  rail.row(t('rail.colormap'), palette ? palette + ' 项' : '无');
   rail.row('NoData', nodataText(band) || '未设置', band.nodata_key
     ? ['无效值标记取自文件属性 ' + band.nodata_key + '。', '读数据时应先按它做掩膜，否则统计会被填充值带偏。']
     : null);
@@ -1150,7 +1150,7 @@ function railRaster(rail, d) {
 
   if (d.multi_variable) {
     rail.sec('变量');
-    rail.row('变量数', (d.variables || []).length);
+    rail.row(t('rail.variables'), (d.variables || []).length);
     rail.node(variableTable(d));
     rail.sec('坐标');
     rail.many(crsRows(crs));
@@ -1192,11 +1192,11 @@ function railGeomType(rail, primary) {
   if (geomLabel.includes('混合')) {
     /* 先把类型本身写出来，"各类型各有多少个"交给后台数——大文件要几秒，
        不能让人盯着一句"正在统计…"干等。数完把这一格换成明细 */
-    rail.row('几何类型', primary.geometry_counts_text || geomLabel);
+    rail.row(t('rail.geomType'), primary.geometry_counts_text || geomLabel);
     if (!primary.geometry_counts_text) fillGeomTypes(primary, geomLabel);
     return;
   }
-  rail.row('几何类型', geomLabel +
+  rail.row(t('rail.geomType'), geomLabel +
     (primary.geometry_type ? '（' + primary.geometry_type + '）' : ''));
 }
 
@@ -1213,13 +1213,13 @@ function railVector(rail, d) {
   const primary = layers.find((l) => !l.error) || layers[0] || {};
 
   rail.sec('空间');
-  rail.row('数据类型', (d.driver_label || '矢量数据') + ' 要素类');
+  rail.row(t('rail.dataType'), (d.driver_label || '矢量数据') + ' 要素类');
   railGeomType(rail, primary);
-  rail.row('要素数', count(primary.feature_count) ||
+  rail.row(t('rail.featureCount'), count(primary.feature_count) ||
     (primary.quick ? '统计中…' : null));
-  rail.row('Z 值坐标', primary.has_z ? '有' : '无');
-  rail.row('M 值坐标', primary.has_m ? '有' : '无');
-  if (primary.attr_encoding && primary.field_count) rail.row('属性表编码', primary.attr_encoding);
+  rail.row(t('rail.hasZ'), primary.has_z ? '有' : '无');
+  rail.row(t('rail.hasM'), primary.has_m ? '有' : '无');
+  if (primary.attr_encoding && primary.field_count) rail.row(t('rail.encoding'), primary.attr_encoding);
   rail.many(vectorExtentRows(primary));
 
   rail.sec('坐标');
@@ -1349,7 +1349,7 @@ function railTileset(rail, d) {
   if (d.layers && d.layers.length) {
     const s = d.sample_tile || {};
     rail.node(tileLayerTable(d.layers));
-    rail.row('取样', '第 ' + s.z + ' 级第 ' + s.x + ',' + s.y + ' 张');
+    rail.row(t('rail.sampleTile'), '第 ' + s.z + ' 级第 ' + s.x + ',' + s.y + ' 张');
   }
 }
 
@@ -1361,7 +1361,7 @@ function railArchive(rail, d) {
       const name = layer.member || '包内文件';
       const err = layer.error || {};
       showErrToast(name + '：' + (err.title || '读取失败'), err.detail, err.hint);
-      rail.row('读取失败', name + (err.title ? '：' + err.title : ''));
+      rail.row(t('rail.readFailed'), name + (err.title ? '：' + err.title : ''));
       return;
     }
     // 一份数据时不必再标成员名，用这个软件的人看得懂下面就是包内那份数据
@@ -1493,7 +1493,7 @@ function renderRail(data, notes) {
   if (data && data.ok) {
     const painter = RAIL_PAINTERS[data.kind];
     if (painter) painter(rail, data);
-    else rail.row('格式', data.driver_label || '未知');
+    else rail.row(t('rail.format'), data.driver_label || '未知');
     if (notes) railNotes(data);
   }
   rail.render($('rail'));
@@ -1757,10 +1757,10 @@ function buildRampPop() {
   pop.appendChild(el('div', 'ramp-pop-title', t('ramp.title')));
   const auto = el('div', 'ramp-grid');
   auto.appendChild(rampItem(rampInfo(guess.ramp || config.ramp), 'auto',
-    t('ramp.autoWith', rampName(guess.ramp || config.ramp)), raster.rampAuto));
+    t('ramp.autoNamed', rampName(guess.ramp || config.ramp)), raster.rampAuto));
   pop.appendChild(auto);
   [['ramp.cont', false], ['ramp.cat', true]].forEach(([titleKey, discrete]) => {
-    const list = RAMP_LIST.filter((r) => !!r.discrete === discrete);
+    const list = RAMP_LIST.filter((r) => Boolean(r.discrete) === discrete);
     if (!list.length) return;
     pop.appendChild(el('div', 'ramp-pop-title', t(titleKey)));
     const grid = el('div', 'ramp-grid');
