@@ -516,7 +516,7 @@ def view_prefs():
             "nodata": NODATA_FILL[nodata], "cfg": cfg}
 
 
-def band_stats_and_hist(target, info, band_index):
+def band_stats_and_hist(target, info, band_index, ramp=None):
     """单独请求一个波段的值分布，避免拖慢主信息。"""
     load_engine()
     if not info.get("height") or not info.get("width"):
@@ -535,7 +535,10 @@ def band_stats_and_hist(target, info, band_index):
         out["discrete"] = discrete
     else:
         prefs = view_prefs()
-        got = raster.classify(hist, prefs["k"], prefs["ramp"])
+        # 色带可以由界面按图层指定；没给或写错就退回设置里的默认
+        pick = ramp if ramp in formats.RAMPS else prefs["ramp"]
+        got = raster.classify(hist, prefs["k"], pick)
+        out["ramp"] = pick
         if got:
             out["classes"] = got["classes"]
             out["method"] = got["method"]
@@ -583,19 +586,20 @@ def cached_safe_inspect(path, **kwargs):
     return result
 
 
-def cached_band_stats(target, info, band_index):
+def cached_band_stats(target, info, band_index, ramp=None):
     """直方图 + 分级。分级跟设置里的色带、级数有关，键里带上它们。"""
     if not _cacheable(target):
-        return band_stats_and_hist(target, info, band_index)
+        return band_stats_and_hist(target, info, band_index, ramp)
     prefs = view_prefs()
+    pick = ramp if ramp in formats.RAMPS else prefs["ramp"]
     k = cache.key("hist", target,
-                  f"band={band_index};k={prefs['k']};ramp={prefs['ramp']}")
+                  f"band={band_index};k={prefs['k']};ramp={pick}")
     started = time.perf_counter()
     hit = cache.load_json("hist", k)
     if hit is not None:
         # 和 inspect 一致：命中时标上 cached 并把耗时改写成读缓存的时间
         return _stamp_elapsed(hit, started)
-    out = band_stats_and_hist(target, info, band_index)
+    out = band_stats_and_hist(target, info, band_index, ramp)
     if isinstance(out, dict) and out.get("ok"):
         cache.save_json("hist", k, out)
     return out
@@ -1218,7 +1222,8 @@ class Handler(BaseHTTPRequestHandler):
         if not info.get("ok"):
             return self._send(200, info)
         target = (info.get("file") or {}).get("path") or path
-        return self._send(200, cached_band_stats(target, info, band_index))
+        ramp = (query.get("ramp") or [""])[0].strip()
+        return self._send(200, cached_band_stats(target, info, band_index, ramp or None))
 
     def _column(self, query):
         """整列复制用：只返回某一列的全部取值，不碰几何、不碰别的字段。"""

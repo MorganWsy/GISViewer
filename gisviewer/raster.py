@@ -20,6 +20,118 @@ EXACT_HISTOGRAM_LIMIT = 400_000_000
 MAX_IDENTIFY_BANDS = 200   # 一次点识别把所有波段都读出来（每波段只读 1 个像元，代价可忽略）
 
 
+# 按名字挑色带的词表：顺序是从具体到宽泛，命中就停
+_RAMP_BY_NAME = (
+    (("ndvi", "evi", "植被指数"), "ndvi"),
+    (("ndwi", "mndwi", "水体指数", "water index"), "ndwi"),
+    (("precip", "rainfall", "降水", "降雨"), "precip"),
+    (("night", "夜间灯光", "灯光", "viirs", "dmsp"), "night"),
+    (("land cover", "landcover", "landuse", "land use", "土地利用", "土地覆盖",
+      "地表覆盖", "clcd", "nlcd", "corine"), "tab10"),
+    (("slope", "坡度", "坡向", "aspect"), "slope"),
+    (("elev", "dem", "srtm", "aster", "高程", "海拔", "altitude", "地形"), "terrain"),
+    (("temp", "lst", "气温", "温度", "地温"), "temp"),
+    (("soil", "土壤"), "earth"),
+    (("population", "人口"), "inferno"),
+)
+
+
+def _is_integer(dtype):
+    """GDAL 的整型类型名：Byte、UInt16、Int16、UInt32、Int32、Int64、UInt64。"""
+    text = str(dtype or "").lower()
+    return text in ("byte", "int8", "uint8") or text.startswith(("int", "uint"))
+
+
+def _categorical_ramp(band):
+    """分类数据用定性色带：自带调色板，或整型且取值很少。"""
+    if (band.get("palette_count") or 0) > 1:
+        return {"ramp": "set1", "basis": "colortable", "hint": ""}
+    uniq = (band.get("statistics") or {}).get("unique_count")
+    dtype = band.get("type")
+    if _is_integer(dtype) and isinstance(uniq, int) and 1 < uniq <= 24:
+        return {"ramp": "tab10" if uniq > 8 else "set1", "basis": "values", "hint": ""}
+    return None
+
+
+def _file_name(path):
+    """只取文件名：路径里的目录名（比如临时目录 Temp）不能参与匹配。"""
+    text = str(path or "").replace("\\", "/").rstrip("/")
+    return text.rsplit("/", 1)[-1] if "/" in text else text
+
+
+def _ramp_by_text(info):
+    """按文件名、波段描述、数据集标题里的关键词挑色带。"""
+    bands = info.get("bands") or []
+    text = " ".join([
+        _file_name(info.get("file")),
+        " ".join(str(b.get("description") or "") for b in bands),
+        str((info.get("dataset_metadata") or {}).get("TITLE") or ""),
+    ]).lower()
+    for keys, ramp in _RAMP_BY_NAME:
+        for key in keys:
+            if key in text:
+                return {"ramp": ramp, "basis": "name", "hint": key}
+    return None
+
+
+def _probe_unique(ds, band_index=1, size=192):
+    """整型数据取中间一小块，数一下有几个不同取值。
+
+    只看一眼（192×192 的一小块），不扫全图：打开文件时多花几毫秒，
+    换来"分类图不用灰色"这件事，值。
+    """
+    import numpy as np
+
+    height, width = ds.RasterYSize, ds.RasterXSize
+    if not height or not width:
+        return None
+    band = ds.GetRasterBand(band_index)
+    if not band:
+        return None
+    sh, sw = min(size, height), min(size, width)
+    y0, x0 = max(0, (height - sh) // 2), max(0, (width - sw) // 2)
+    array = band.ReadAsArray(x0, y0, sw, sh)
+    if array is None:
+        return None
+    flat = np.asarray(array).reshape(-1)
+    nodata = band.GetNoDataValue()
+    if nodata is not None:
+        flat = flat[flat != nodata]
+    return int(np.unique(flat).size) if flat.size else None
+
+
+def _probe_ramp(ds, first):
+    """整型数据没带统计值时，用小采样判断该不该当分类图。"""
+    uniq = (first.get("statistics") or {}).get("unique_count")
+    if not isinstance(uniq, int):
+        uniq = _probe_unique(ds, first.get("index") or 1)
+    if not isinstance(uniq, int) or not 1 < uniq <= 24:
+        return None
+    return {"ramp": "tab10" if uniq > 8 else "set1", "basis": "values", "hint": ""}
+
+
+def suggest_ramp(path, info, ds=None):
+    """按数据类型与名字挑一套合适的色带。
+
+    先看元信息；整型数据元信息里没有唯一值个数时，用已经打开的 ds 取中间
+    一小块数一下取值（大图上也只是读一个块）。basis 说明依据：
+    colortable（自带调色板）、values（取值很少，当分类看）、name（按名字认出来）、
+    default（认不出，用默认色带）。hint 是命中的关键词，界面可以写进提示。
+    """
+    bands = info.get("bands") or []
+    first = bands[0] if bands else {}
+    got = _categorical_ramp(first)
+    if got:
+        return got
+    # 没有统计值时补一次小采样：整型数据里分类图很常见（土地利用、掩膜、编码产品）
+    if ds is not None and _is_integer(first.get("type")):
+        got = _probe_ramp(ds, first)
+        if got:
+            return got
+    info = dict(info, file=str(path or ""))
+    return _ramp_by_text(info) or {"ramp": RAMP_DEFAULT, "basis": "default", "hint": ""}
+
+
 def _number(value, digits=6):
     if value is None:
         return None
@@ -485,6 +597,7 @@ def inspect(target, real_path=None, file_size=None):
 
     info["variables"] = variables
     info["is_multidimensional"] = bool(variables)
+    info["ramp"] = suggest_ramp(target, info, ds)
 
     del ds
     return info

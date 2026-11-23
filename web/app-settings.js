@@ -96,7 +96,10 @@ async function loadConfig() {
         return true;
       });
     }
-    if (data.ramps) paintRampSwatches(data.ramps);
+    if (data.ramps) {
+      RAMP_LIST = data.ramps;
+      paintRampSwatches(data.ramps);
+    }
     if (data.version) {
       // 版本号不在界面上露脸了，只留给标题栏和更新检查
       document.title = '图览 ' + data.version;

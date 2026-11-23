@@ -9,7 +9,7 @@
 param(
   [switch]$SkipShell,
   [switch]$Offline,
-  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'pyramid', 'compare', 'api', 'ui')]
+  [ValidateSet('all', 'syntax', 'shell', 'sweep', 'cache', 'vindex', 'auth', 'raster', 'ramp', 'pyramid', 'compare', 'api', 'ui')]
   [string]$Only = 'all'
 )
 $ErrorActionPreference = 'Stop'
@@ -191,6 +191,13 @@ if ((Want 'raster') -and (-not $Offline)) {
   Section '栅格按视野重采样'
   & $py (Join-Path $root 'tests/raster_view.py')
   Record '栅格视野重采样' ($LASTEXITCODE -eq 0) '见上方逐条结果'
+}
+
+# ---------- 4bb2. 色带挑选与指定 ----------
+if ((Want 'ramp') -and (-not $Offline)) {
+  Section '色带挑选与指定'
+  & $py (Join-Path $root 'tests/ramp_test.py')
+  Record '色带挑选' ($LASTEXITCODE -eq 0) '见上方逐条结果'
 }
 
 # ---------- 4bc. 金字塔副本 ----------

@@ -318,11 +318,13 @@
         <div class="card-note" id="histNote"></div>
       </div>
       <div class="map-bar">
+        <div id="rampPop" class="ramp-pop" hidden></div>
         <div id="legend" class="map-legend" hidden>
           <button id="legendTab" class="fold-tab" data-tip="展开图例" aria-label="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>图例</span></button>
           <div class="fold-wrap" id="legendFoldWrap"><div class="fold-in">
             <div class="legend-head">
               <select id="legendBand" class="legend-band"></select>
+              <button id="legendRamp" class="legend-ramp" data-tip="色带：点击更换" aria-label="色带：点击更换" hidden><i id="legendRampBar"></i></button>
               <button id="legendFold" class="fold-btn" data-tip="收起图例" aria-label="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
             </div>
             <div id="legendBody" class="legend-body"></div>

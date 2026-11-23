@@ -943,6 +943,73 @@ table.chip-table td {
   border-bottom-left-radius: 0;
 }
 .legend-head { display: flex; align-items: center; gap: 4px; }
+/* 色带：图例顶部那条细彩条，点开是一张带预览的清单 */
+.legend-ramp {
+  flex: none;
+  width: 48px;
+  height: 16px;
+  padding: 1px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  cursor: pointer;
+  overflow: hidden;
+}
+.legend-ramp > i { display: block; width: 100%; height: 100%; border-radius: 2px; }
+.legend-ramp:hover { border-color: var(--accent); }
+.legend-ramp[hidden] { display: none; }
+
+.ramp-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 9;
+  width: 326px;
+  max-height: min(58vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+}
+.ramp-pop[hidden] { display: none; }
+.ramp-pop-title {
+  margin: 2px 2px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ramp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+.ramp-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ramp-item:hover { background: var(--panel-alt); }
+.ramp-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.ramp-item > i {
+  flex: none;
+  width: 34px;
+  height: 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.ramp-item > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ramp-item.auto { grid-column: 1 / -1; }
 .legend-head .fold-btn { margin-left: auto; }
 /* 下拉框跟着最长的那一项走，同样封顶；按钮里的 .combo-label 已经把超出的字省略掉 */
 .legend-head .combo { flex: 0 1 auto; width: auto; min-width: 88px; max-width: 156px; }

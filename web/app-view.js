@@ -1658,6 +1658,151 @@ function setChip(d) {
 /* ---------- 波段显示：图例、值分布和影像样式共用同一份分级 ---------- */
 
 let raster = null;
+
+/* ---------- 色带：每个图层自己一套，按文件记住 ---------- */
+
+/* 记住的是"用户选了什么"，不是"最后算出哪套颜色"：选过自动就记 auto，
+   下次打开还是按数据类型重新判断；选了具体色带就一直用它。 */
+const RAMP_STORE = 'tulan.ramps.v1';
+const RAMP_STORE_MAX = 300;
+let RAMP_LIST = [];
+
+function rampKeyOf(path) {
+  return String(path || '').replace(/[\/]+/g, '/').toLowerCase();
+}
+
+function rampStore() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RAMP_STORE));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch { return {}; }
+}
+
+function rampInfo(key) {
+  return RAMP_LIST.find((r) => r && r.value === key) || null;
+}
+
+function rampName(key) {
+  const got = rampInfo(key);
+  return got ? got.label : key;
+}
+
+function rampGradient(ramp) {
+  const colors = (ramp && ramp.colors) || [];
+  if (!colors.length) return 'transparent';
+  if (!ramp.discrete) return 'linear-gradient(to right, ' + colors.join(', ') + ')';
+  /* 分类色带必须硬分界：插值会把相邻两类混成第三种颜色，图例就看不清了 */
+  const step = 100 / colors.length;
+  const parts = colors.map((c, i) => c + ' ' + (i * step).toFixed(2) + '% ' + ((i + 1) * step).toFixed(2) + '%');
+  return 'linear-gradient(to right, ' + parts.join(', ') + ')';
+}
+
+function savedRamp(path) {
+  const got = rampStore()[rampKeyOf(path)];
+  return got === 'auto' || rampInfo(got) ? got : '';
+}
+
+function rememberRamp(path, value) {
+  const key = rampKeyOf(path);
+  if (!key) return;
+  const map = rampStore();
+  delete map[key];          // 重插到末尾：淘汰时先丢最久没动的
+  map[key] = value;
+  const keys = Object.keys(map);
+  while (keys.length > RAMP_STORE_MAX) delete map[keys.shift()];
+  try { localStorage.setItem(RAMP_STORE, JSON.stringify(map)); } catch { /* 存不下就算了 */ }
+}
+
+/* 打开文件时定这一层用哪套色带：用户上次选的优先，其次按数据类型推荐 */
+function pickRamp(path, data) {
+  const saved = savedRamp(path);
+  const guess = (data && data.ramp) || {};
+  const fallback = guess.ramp || config.ramp;
+  if (saved === 'auto') return { ramp: fallback, auto: true };
+  if (saved) return { ramp: saved, auto: false };
+  return { ramp: fallback, auto: true };
+}
+
+function paintRampControl() {
+  const btn = $('legendRamp');
+  if (!btn) return;
+  const show = !!(raster && raster.count && raster.band !== 'rgb');
+  btn.hidden = !show;
+  if (!show) return;
+  $('legendRampBar').style.background = rampGradient(rampInfo(raster.ramp));
+  const name = raster.rampAuto ? '自动（' + rampName(raster.ramp) + '）' : rampName(raster.ramp);
+  btn.setAttribute('data-tip', '色带：' + name + '。点击更换');
+  btn.setAttribute('aria-label', '色带：' + name);
+}
+
+function rampItem(ramp, value, label, on) {
+  const b = el('button', 'ramp-item' + (on ? ' on' : '') + (value === 'auto' ? ' auto' : ''));
+  b.type = 'button';
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const bar = el('i');
+  bar.style.background = rampGradient(ramp);
+  b.appendChild(bar);
+  b.appendChild(el('span', '', label));
+  b.addEventListener('click', () => chooseRamp(value));
+  return b;
+}
+
+function buildRampPop() {
+  const pop = $('rampPop');
+  pop.textContent = '';
+  const guess = (current && current.data && current.data.ramp) || {};
+  pop.appendChild(el('div', 'ramp-pop-title', '色带'));
+  const auto = el('div', 'ramp-grid');
+  auto.appendChild(rampItem(rampInfo(guess.ramp || config.ramp), 'auto',
+    '自动，按数据类型（' + rampName(guess.ramp || config.ramp) + '）', raster.rampAuto));
+  pop.appendChild(auto);
+  [['连续数据', false], ['分类数据', true]].forEach(([title, discrete]) => {
+    const list = RAMP_LIST.filter((r) => !!r.discrete === discrete);
+    if (!list.length) return;
+    pop.appendChild(el('div', 'ramp-pop-title', title));
+    const grid = el('div', 'ramp-grid');
+    list.forEach((r) => {
+      const on = raster.rampAuto === false && raster.ramp === r.value;
+      grid.appendChild(rampItem(r, r.value, r.label, on));
+    });
+    pop.appendChild(grid);
+  });
+}
+
+function rampPopOpen() {
+  const pop = $('rampPop');
+  return !!pop && !pop.hidden;
+}
+
+function showRampPop(on) {
+  const pop = $('rampPop');
+  if (!pop) return;
+  if (on) { buildRampPop(); pop.hidden = false; return; }
+  pop.hidden = true;
+}
+
+function toggleRampPop() {
+  if (rampPopOpen()) { showRampPop(false); return; }
+  if (!raster || raster.band === 'rgb') return;
+  showRampPop(true);
+}
+
+function chooseRamp(value) {
+  if (!raster || raster.band === 'rgb') return;
+  const guess = (current && current.data && current.data.ramp) || {};
+  raster.rampAuto = value === 'auto';
+  raster.ramp = value === 'auto' ? (guess.ramp || config.ramp) : value;
+  rememberRamp(raster.path, value);
+  raster.cache = {};          // 值分布的分级颜色跟着色带走，旧结果不能再用
+  paintRampControl();
+  showRampPop(false);
+  const band = raster.band;
+  loadTip(true, '正在按新色带重画…');
+  loadBandStats(band).then((res) => {
+    if (!res || raster.band !== band) { loadTip(false); return; }
+    applyBandStyle(res);
+  });
+}
 /* 图层带属性时打开文件就自动展开属性表，用户手动关过就不再自动弹 */
 let attrAuto = false;
 
@@ -1669,6 +1814,8 @@ function stackedStage() {
 
 function resetRasterView() {
   raster = null;
+  showRampPop(false);
+  paintRampControl();
   $('histBtn').hidden = true;
   $('attrBtn').hidden = true;
   closeHist();
@@ -1736,10 +1883,13 @@ async function setupRaster(d) {
   const path = d.read_path || (d.file || {}).path;
   const total = d.band_count || (d.bands || []).length || 1;
   if (!path) { resetRasterView(); return; }
-  raster = { path, count: total, cache: {}, band: null, style: null };
+  const pick = pickRamp(path, d);
+  raster = { path, count: total, cache: {}, band: null, style: null,
+    ramp: pick.ramp, rampAuto: pick.auto };
   const choice = (total >= 3 && config.raster_default !== 'single') ? 'rgb' : 1;
   raster.band = choice;
   buildBandSelector();
+  paintRampControl();
   $('histBtn').hidden = choice === 'rgb';
   if (choice === 'rgb') {
     renderLegend(null);
@@ -1780,6 +1930,7 @@ async function selectBand(choice, force) {
   }
   paintHistTitle();
   $('histBtn').hidden = choice === 'rgb';
+  paintRampControl();
   if (choice === 'rgb') {
     renderLegend(null);
     GisMap.restyle({ band: null, bands: 3, edges: null, colors: null, scheme: null });
@@ -1796,7 +1947,8 @@ async function loadBandStats(index) {
   if (raster.cache[index]) return raster.cache[index];
   let res;
   try {
-    res = await fetch('/api/histogram?path=' + encodeURIComponent(raster.path) + '&band=' + index);
+    res = await fetch('/api/histogram?path=' + encodeURIComponent(raster.path) +
+      '&band=' + index + '&ramp=' + encodeURIComponent(raster.ramp || ''));
     res = await res.json();
   } catch (err) {
     renderLegendError('值分布读取失败：' + err.message);
@@ -2162,6 +2314,7 @@ function renderLegend(res) {
       body.appendChild(legendRow(color, phys && phys.on
         ? num(at(v), digits) : String(Math.round(v))));
     });
+    paintRampControl();
     syncMapHeight();
     return;
   }
@@ -2173,6 +2326,7 @@ function renderLegend(res) {
   const body = legendBody(true);
   items.forEach((c) => body.appendChild(legendRow(c.color,
     num(at(c.lo), digits) + ' ~ ' + num(at(c.hi), digits))));
+  paintRampControl();
   syncMapHeight();   // 行数变了，能长多高跟着变；这一步顺带量一次哪几行被省略
 }
 

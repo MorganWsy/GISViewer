@@ -52,6 +52,12 @@ RAMP_META = {
     "forest":   ("林地绿（Forest）", False),
     "earth":    ("土黄地貌（Earth）", False),
     "gray":     ("灰阶（Gray）", False),
+    "ndvi":     ("植被指数（棕到绿）", False),
+    "ndwi":     ("水体指数（棕到蓝）", False),
+    "precip":   ("降水量（白到深蓝）", False),
+    "night":    ("夜间灯光（黑到亮黄）", False),
+    "temp":     ("气温（冷蓝到暖红）", False),
+    "slope":    ("坡度（浅黄到深棕）", False),
     # 分类
     "set1":     ("分类·鲜明八色（Set1）", True),
     "set2":     ("分类·柔和八色（Set2）", True),
@@ -59,6 +65,36 @@ RAMP_META = {
     "dark2":    ("分类·深色八色（Dark2）", True),
     "accent":   ("分类·点缀八色（Accent）", True),
     "tab10":    ("分类·Tableau 十色", True),
+}
+
+# 英文界面用的色带名；缺的按中文名兜底，不至于整块空掉
+RAMP_LABEL_EN = {
+    "viridis": "Viridis (teal to yellow)",
+    "plasma": "Plasma (purple to orange)",
+    "inferno": "Inferno (black to yellow)",
+    "magma": "Magma (black to cream)",
+    "cividis": "Cividis (colorblind friendly)",
+    "turbo": "Turbo (high contrast rainbow)",
+    "spectral": "Spectral (red to blue)",
+    "redblue": "Red blue (cool low, warm high)",
+    "terrain": "Terrain (green to brown to white)",
+    "ocean": "Ocean (deep blue)",
+    "fire": "Fire",
+    "forest": "Forest",
+    "earth": "Earth (muted soil tones)",
+    "gray": "Grayscale",
+    "ndvi": "NDVI (brown to green)",
+    "ndwi": "NDWI (brown to blue)",
+    "precip": "Precipitation (white to deep blue)",
+    "night": "Night lights (black to yellow)",
+    "temp": "Temperature (cool to warm)",
+    "slope": "Slope (pale to dark brown)",
+    "set1": "Qualitative Set1",
+    "set2": "Qualitative Set2",
+    "paired": "Qualitative Paired",
+    "dark2": "Qualitative Dark2",
+    "accent": "Qualitative Accent",
+    "tab10": "Qualitative Tableau 10",
 }
 
 RAMPS = {
@@ -120,6 +156,36 @@ RAMPS = {
     ),
     "gray": (
         (20, 20, 20), (70, 70, 70), (120, 120, 120), (170, 170, 170), (220, 220, 220), (250, 250, 250),
+    ),
+    # 归一化植被指数：裸土棕、过渡黄、植被绿，跟遥感教材上的习惯一致
+    "ndvi": (
+        (120, 69, 25), (170, 120, 60), (214, 186, 130), (240, 230, 200),
+        (196, 222, 140), (120, 186, 90), (56, 150, 60), (20, 100, 40),
+    ),
+    # 水体指数：陆地棕黄、水面蓝，越过 0 一眼能看出来
+    "ndwi": (
+        (120, 80, 40), (170, 130, 85), (214, 190, 150), (240, 236, 220),
+        (176, 214, 232), (110, 176, 214), (48, 128, 182), (14, 70, 128),
+    ),
+    # 降水量：越湿越蓝，干旱区留白
+    "precip": (
+        (247, 252, 240), (222, 235, 247), (198, 219, 239), (158, 202, 225),
+        (107, 174, 214), (66, 146, 198), (33, 113, 181), (8, 69, 148), (5, 40, 90),
+    ),
+    # 夜间灯光：黑底上由暗橙到亮黄，弱的微光与强的城镇都能分辨
+    "night": (
+        (4, 4, 6), (18, 12, 10), (44, 22, 12), (86, 40, 16), (140, 62, 18),
+        (196, 92, 22), (238, 136, 34), (252, 190, 66), (255, 236, 150),
+    ),
+    # 气温这类有正负、以 0 为界的数据：冷蓝到白再到暖红
+    "temp": (
+        (49, 54, 149), (88, 122, 190), (140, 178, 215), (196, 220, 237), (244, 244, 244),
+        (250, 214, 172), (244, 165, 120), (214, 96, 70), (170, 20, 40),
+    ),
+    # 坡度：缓坡浅黄，陡坡深棕，陡崖压到暗红
+    "slope": (
+        (255, 246, 216), (246, 222, 152), (232, 190, 106), (208, 152, 74),
+        (176, 112, 56), (140, 78, 44), (108, 52, 34), (78, 30, 24),
     ),
     # 分类型：互不相同的色，用来分开相邻类别
     "set1": (

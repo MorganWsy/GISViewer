@@ -421,6 +421,7 @@ function setAttrMore(c, busy) {
 /* Esc 一层层往回收：先关最上面的浮层，再关识别弹窗；属性表不归它管 */
 function escapeTopLayer(e, typing) {
   const t = e.target;
+  if (rampPopOpen()) { showRampPop(false); return; }
   if (!$('closeAsk').hidden) { hideCloseAsk(); toShell('closechoice:cancel'); return; }
   if (!$('updPop').hidden) { closeUpdPop(); return; }
   if (!$('recentPop').hidden) { hideRecent(); return; }

@@ -128,10 +128,12 @@ function switchState(boxId, hostKey, value, failPrefix) {
 
 /* 三套全局快捷键的回报：hotkey / hotkey2 / hotkey3 是当前值，
    带 Ok 是刚改成功，带 Failed 是新组合键被占了、壳已经退回旧的 */
+const HK_NO = { hotkey: 1, hotkey2: 2, hotkey3: 3 };
+
 function hostHotkey(name, value) {
   const m = /^(hotkey|hotkey2|hotkey3)(Ok|Failed)?$/.exec(name);
   if (!m) return false;
-  const no = m[1] === 'hotkey' ? 1 : m[1] === 'hotkey2' ? 2 : 3;
+  const no = HK_NO[m[1]] || 1;
   const row = HK_ROWS[no];
   if (m[2] === 'Ok') {
     host[row.host] = String(value || '');
@@ -1379,6 +1381,14 @@ function wireGlobalKeys() {
 /* 地图右上角的底图、值分布、属性表按钮 */
 function wireMapTools() {
   $('baseBtn').addEventListener('click', toggleBasemap);
+  $('legendRamp').addEventListener('click', toggleRampPop);
+  /* 点地图、点图例别处都收起色带清单；点清单内部不拦 */
+  document.addEventListener('pointerdown', (e) => {
+    if (!rampPopOpen()) return;
+    const t = e.target;
+    if (t.closest('#rampPop') || t.closest('#legendRamp')) return;
+    showRampPop(false);
+  }, true);
   $('histBtn').addEventListener('click', toggleHist);
   $('attrBtn').addEventListener('click', () => { attrAuto = false; toggleAttr(); });
   $('chipClose').addEventListener('click', () => { hideLayerPop(); closeLayer(); });
@@ -1645,7 +1655,7 @@ function applyForcedTheme(params) {
 /* 启动时该打开哪个文件：启动期间拖进来的最要紧，其次是地址栏的 ?path=，最后问壳要预载路径 */
 function openBootDoc(params) {
   if (pendingPaths.length) {
-    const dropped = pendingPaths[pendingPaths.length - 1];
+    const dropped = pendingPaths.at(-1);
     pendingPaths = [];
     openDropped(dropped);
     return;
