@@ -229,7 +229,7 @@
       </svg>
     </button>
     <button id="themeBtn" class="ibtn" type="button"></button>
-    <button id="settingsBtn" class="ibtn" type="button" data-tip="设置：**底图**、**密钥**、**显示**与**快捷键**" aria-label="设置：底图、密钥、显示与快捷键">
+    <button id="settingsBtn" class="ibtn" type="button" data-i18n-tip="chrome.settings" data-tip="设置：**底图**、**密钥**、**显示**与**快捷键**" aria-label="设置：底图、密钥、显示与快捷键">
       <svg viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M656 576a144.064 144.064 0 0 1 140.448 112H864a32 32 0 0 1 3.744 63.776L864 752l-67.584 0.032a144.064 144.064 0 0 1-280.832 0L160 752a32 32 0 0 1-3.744-63.776L160 688h355.552A144.064 144.064 0 0 1 656 576z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z m-288-480c69.12 0 126.816 48.64 140.8 113.6H864a32 32 0 0 1 3.744 63.776L864 337.6l-355.936 0.032a144.064 144.064 0 0 1-280.128 0L160 337.6a32 32 0 0 1-3.744-63.776L160 273.6h67.2A144.064 144.064 0 0 1 368 160z m0 64a80 80 0 1 0 0 160 80 80 0 0 0 0-160z"/></svg>
     </button>
     <input id="filePick" type="file" multiple hidden>
@@ -320,12 +320,12 @@
       <div class="map-bar">
         <div id="rampPop" class="ramp-pop" hidden></div>
         <div id="legend" class="map-legend" hidden>
-          <button id="legendTab" class="fold-tab" data-tip="展开图例" aria-label="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span>图例</span></button>
+          <button id="legendTab" class="fold-tab" data-i18n-tip="chrome.expandLegend" data-tip="展开图例" aria-label="展开图例"><svg class="ico-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg><span data-i18n="legend.title">图例</span></button>
           <div class="fold-wrap" id="legendFoldWrap"><div class="fold-in">
             <div class="legend-head">
               <select id="legendBand" class="legend-band"></select>
-              <button id="legendRamp" class="legend-ramp" data-tip="色带：点击更换" aria-label="色带：点击更换" hidden><i id="legendRampBar"></i></button>
-              <button id="legendFold" class="fold-btn" data-tip="收起图例" aria-label="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+              <button id="legendRamp" class="legend-ramp" data-i18n-tip="chrome.ramp" data-tip="色带：点击更换" aria-label="色带：点击更换" hidden><i id="legendRampBar"></i></button>
+              <button id="legendFold" class="fold-btn" data-i18n-tip="chrome.collapseLegend" data-tip="收起图例" aria-label="收起图例"><svg class="ico-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
             </div>
             <div id="legendBody" class="legend-body"></div>
           </div></div>
@@ -405,102 +405,102 @@
     <div class="pyr-head">
       <svg class="pyr-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.2 21 7.6 12 12 3 7.6z"/><path d="M3.4 12.2 12 16.4l8.6-4.2M3.4 16.6 12 20.8l8.6-4.2"/></svg>
       <div class="pyr-titles">
-        <h3 id="paTitle">创建金字塔</h3>
-        <p class="pyr-sub">为影像生成一组逐级降采样的显示副本</p>
+        <h3 id="paTitle" data-i18n="pyr.title">创建金字塔</h3>
+        <p class="pyr-sub" data-i18n="pyr.sub">为影像生成一组逐级降采样的显示副本</p>
       </div>
     </div>
     <dl class="pyr-table">
-      <div><dt>原始尺寸</dt><dd id="paSize">—</dd></div>
-      <div><dt>文件大小</dt><dd id="paBytes">—</dd></div>
-      <div><dt>副本层级</dt><dd id="paLevels">—</dd></div>
-      <div><dt>保存位置</dt><dd>本机缓存目录</dd></div>
+      <div><dt data-i18n="pyr.fact.size">原始尺寸</dt><dd id="paSize">—</dd></div>
+      <div><dt data-i18n="pyr.fact.bytes">文件大小</dt><dd id="paBytes">—</dd></div>
+      <div><dt data-i18n="pyr.fact.levels">副本层级</dt><dd id="paLevels">—</dd></div>
+      <div><dt data-i18n="pyr.fact.where">保存位置</dt><dd data-i18n="pyr.where.value">本机缓存目录</dd></div>
     </dl>
     <div class="pyr-methods">
-      <span class="pyr-label" id="paMethodLabel">采样方法</span>
+      <span class="pyr-label" id="paMethodLabel" data-i18n="pyr.method">采样方法</span>
       <div class="pyr-grid" role="radiogroup" aria-labelledby="paMethodLabel">
         <label class="pyr-m">
           <input type="radio" name="paMethod" value="average" checked>
           <span class="pyr-m-body">
-            <span class="pyr-m-top"><b>平均值</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
-            <span class="pyr-m-sub">区域等权汇总，取值不越界</span>
+            <span class="pyr-m-top"><b data-i18n="pyr.m.average">平均值</b><em class="pyr-tag cont" data-i18n="pyr.tag.cont">连续数据</em><i class="pyr-rec" hidden data-i18n="pyr.rec">推荐</i></span>
+            <span class="pyr-m-sub" data-i18n="pyr.d.average">区域等权汇总，取值不越界</span>
           </span>
         </label>
         <label class="pyr-m">
           <input type="radio" name="paMethod" value="bilinear">
           <span class="pyr-m-body">
-            <span class="pyr-m-top"><b>双线性</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
-            <span class="pyr-m-sub">邻域加权插值，过渡更连续</span>
+            <span class="pyr-m-top"><b data-i18n="pyr.m.bilinear">双线性</b><em class="pyr-tag cont" data-i18n="pyr.tag.cont">连续数据</em><i class="pyr-rec" hidden data-i18n="pyr.rec">推荐</i></span>
+            <span class="pyr-m-sub" data-i18n="pyr.d.bilinear">邻域加权插值，过渡更连续</span>
           </span>
         </label>
         <label class="pyr-m">
           <input type="radio" name="paMethod" value="cubic">
           <span class="pyr-m-body">
-            <span class="pyr-m-top"><b>三次卷积</b><em class="pyr-tag cont">连续数据</em><i class="pyr-rec" hidden>推荐</i></span>
-            <span class="pyr-m-sub">锐度最好，边缘可能过冲</span>
+            <span class="pyr-m-top"><b data-i18n="pyr.m.cubic">三次卷积</b><em class="pyr-tag cont" data-i18n="pyr.tag.cont">连续数据</em><i class="pyr-rec" hidden data-i18n="pyr.rec">推荐</i></span>
+            <span class="pyr-m-sub" data-i18n="pyr.d.cubic">锐度最好，边缘可能过冲</span>
           </span>
         </label>
         <label class="pyr-m">
           <input type="radio" name="paMethod" value="nearest">
           <span class="pyr-m-body">
-            <span class="pyr-m-top"><b>最近邻</b><em class="pyr-tag cat">分类数据</em><i class="pyr-rec" hidden>推荐</i></span>
-            <span class="pyr-m-sub">只取原值，不生成新的类别</span>
+            <span class="pyr-m-top"><b data-i18n="pyr.m.nearest">最近邻</b><em class="pyr-tag cat" data-i18n="pyr.tag.cat">分类数据</em><i class="pyr-rec" hidden data-i18n="pyr.rec">推荐</i></span>
+            <span class="pyr-m-sub" data-i18n="pyr.d.nearest">只取原值，不生成新的类别</span>
           </span>
         </label>
       </div>
     </div>
     <p class="pyr-hint"><b class="pyr-hint-k">说明：</b><span id="paHint"></span></p>
-    <p class="pyr-note">副本保存在本机缓存目录，不会改动原文件及其所在文件夹。创建过程在后台进行，可以随时取消。</p>
+    <p class="pyr-note" data-i18n="pyr.note">副本保存在本机缓存目录，不会改动原文件及其所在文件夹。创建过程在后台进行，可以随时取消。</p>
     <label class="pyr-remember">
       <input type="checkbox" id="paNever">
-      <span>以后不再询问</span>
+      <span data-i18n="pyr.never">以后不再询问</span>
     </label>
     <div class="pyr-actions">
-      <button id="paSkip" class="btn ghost" type="button">暂不创建</button>
-      <button id="paBuild" class="btn" type="button">创建</button>
+      <button id="paSkip" class="btn ghost" type="button" data-i18n="pyr.skip">暂不创建</button>
+      <button id="paBuild" class="btn" type="button" data-i18n="pyr.build">创建</button>
     </div>
   </div>
 </div>
 
 <div id="settings" class="modal" hidden>
   <div class="modal-card set-card">
-    <div class="card-title">设置
-      <button id="cfgClose" class="modal-x" aria-label="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
+    <div class="card-title"><span data-i18n="set.title">设置</span>
+      <button id="cfgClose" class="modal-x" data-i18n-tip="chrome.closeSettings" aria-label="关闭设置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.6 6.6l10.8 10.8M17.4 6.6L6.6 17.4"/></svg></button>
     </div>
     <div class="set-main">
       <nav class="set-nav" id="setNav">
-        <button type="button" data-sec="base">底图</button>
-        <button type="button" data-sec="render">栅格与矢量</button>
-        <button type="button" data-sec="look">外观</button>
-        <button type="button" data-sec="file">文件</button>
-        <button type="button" data-sec="sys">系统</button>
-        <button type="button" data-sec="about">关于</button>
+        <button type="button" data-sec="base" data-i18n="set.nav.base">底图</button>
+        <button type="button" data-sec="render" data-i18n="set.nav.render">栅格与矢量</button>
+        <button type="button" data-sec="look" data-i18n="set.nav.look">外观</button>
+        <button type="button" data-sec="file" data-i18n="set.nav.file">文件</button>
+        <button type="button" data-sec="sys" data-i18n="set.nav.sys">系统</button>
+        <button type="button" data-sec="about" data-i18n="set.nav.about">关于</button>
       </nav>
       <div class="set-body" id="setBody">
 
       <section class="set-pane" data-sec="base">
       <div class="field">
-        <label for="cfgBasemap">底图</label>
+        <label for="cfgBasemap" data-i18n="set.base.label">底图</label>
         <select id="cfgBasemap">
-          <option value="none">无底图</option>
-          <option value="tianditu_img">天地图影像</option>
-          <option value="tianditu_vec">天地图矢量</option>
-          <option value="esri">Esri 卫星影像</option>
-          <option value="osm">OpenStreetMap</option>
-          <option value="amap">高德影像</option>
+          <option value="none" data-i18n="set.base.none">无底图</option>
+          <option value="tianditu_img" data-i18n="set.base.tdtImg">天地图影像</option>
+          <option value="tianditu_vec" data-i18n="set.base.tdtVec">天地图矢量</option>
+          <option value="esri" data-i18n="set.base.esri">Esri 卫星影像</option>
+          <option value="osm" data-i18n="set.base.osm">OpenStreetMap</option>
+          <option value="amap" data-i18n="set.base.amap">高德影像</option>
         </select>
       </div>
       <!-- 底图不同，要不要密钥、有没有注记都不一样：这行小字照当前底图说清楚，
            下面的密钥与注记也按底图显隐（见 app.js 的 paintBasemapFields） -->
       <p class="hint bm-hint" id="bmHint"></p>
       <div class="field inline" id="cfgAnnotationField">
-        <label for="cfgAnnotation">天地图注记</label>
+        <label for="cfgAnnotation" data-i18n="set.base.annot">天地图注记</label>
         <input id="cfgAnnotation" type="checkbox" checked>
       </div>
       <div class="field" id="cfgKeyField">
-        <label for="cfgKey">天地图密钥</label>
+        <label for="cfgKey" data-i18n="set.base.key">天地图密钥</label>
         <div class="key-row">
-          <input id="cfgKey" type="password" autocomplete="new-password" spellcheck="false" data-lpignore="true" placeholder="填一次就行，之后不用管">
-          <button id="keyPeek" class="key-eye" type="button" data-tip="显示密钥" aria-label="显示密钥">
+          <input id="cfgKey" type="password" autocomplete="new-password" spellcheck="false" data-lpignore="true" data-i18n-ph="set.base.keyPh" placeholder="填一次就行，之后不用管">
+          <button id="keyPeek" class="key-eye" type="button" data-i18n-tip="chrome.showKey" data-tip="显示密钥" aria-label="显示密钥">
             <svg class="eye-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/></svg>
             <svg class="eye-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.1 12.3a1 1 0 0 1 0-.6 10.7 10.7 0 0 1 19.8 0 1 1 0 0 1 0 .6 10.7 10.7 0 0 1-19.8 0z"/><circle cx="12" cy="12" r="3"/><path d="m2.6 2.6 18.8 18.8"/></svg>
           </button>
@@ -517,144 +517,151 @@
 
       <section class="set-pane" data-sec="render" hidden>
       <div class="field">
-        <label for="cfgRamp">色带</label>
+        <label for="cfgRamp" data-i18n="set.render.ramp">色带</label>
         <select id="cfgRamp">
           <option value="viridis">青绿渐变（默认）</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgClassCount">分级级数</label>
+        <label for="cfgClassCount" data-i18n="set.render.classes">分级级数</label>
         <select id="cfgClassCount">
-          <option value="3">3 级</option>
-          <option value="4">4 级</option>
-          <option value="5">5 级（默认）</option>
-          <option value="6">6 级</option>
-          <option value="7">7 级</option>
-          <option value="8">8 级</option>
-          <option value="9">9 级</option>
+          <option value="3" data-i18n="set.render.classN" data-i18n-args="3">3 级</option>
+          <option value="4" data-i18n="set.render.classN" data-i18n-args="4">4 级</option>
+          <option value="5" data-i18n="set.render.classDefault" data-i18n-args="5">5 级（默认）</option>
+          <option value="6" data-i18n="set.render.classN" data-i18n-args="6">6 级</option>
+          <option value="7" data-i18n="set.render.classN" data-i18n-args="7">7 级</option>
+          <option value="8" data-i18n="set.render.classN" data-i18n-args="8">8 级</option>
+          <option value="9" data-i18n="set.render.classN" data-i18n-args="9">9 级</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgNodata">无数据像元</label>
+        <label for="cfgNodata" data-i18n="set.render.nodata">无数据像元</label>
         <select id="cfgNodata">
-          <option value="transparent">透出底图（默认）</option>
-          <option value="black">涂黑</option>
-          <option value="white">涂白</option>
+          <option value="transparent" data-i18n="set.render.nodataTransparent">透出底图（默认）</option>
+          <option value="black" data-i18n="set.render.nodataBlack">涂黑</option>
+          <option value="white" data-i18n="set.render.nodataWhite">涂白</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgRasterDefault">多波段默认显示</label>
+        <label for="cfgRasterDefault" data-i18n="set.render.multi">多波段默认显示</label>
         <select id="cfgRasterDefault">
-          <option value="composite">前三个波段合成（默认）</option>
-          <option value="single">第一个波段，单色分级</option>
+          <option value="composite" data-i18n="set.render.multiComposite">前三个波段合成（默认）</option>
+          <option value="single" data-i18n="set.render.multiSingle">第一个波段，单色分级</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgVectorColor">要素颜色</label>
+        <label for="cfgVectorColor" data-i18n="set.render.vecColor">要素颜色</label>
         <div class="color-row">
           <select id="cfgVectorColor">
-            <option value="#d9781f">橙（默认）</option>
-            <option value="#e6b23a">明黄</option>
-            <option value="#1fb6c9">青</option>
-            <option value="#3fae5a">草绿</option>
-            <option value="#e0479c">品红</option>
+            <option value="#d9781f" data-i18n="set.render.colorOrange">橙（默认）</option>
+            <option value="#e6b23a" data-i18n="set.render.colorYellow">明黄</option>
+            <option value="#1fb6c9" data-i18n="set.render.colorCyan">青</option>
+            <option value="#3fae5a" data-i18n="set.render.colorGreen">草绿</option>
+            <option value="#e0479c" data-i18n="set.render.colorMagenta">品红</option>
           </select>
           <i id="cfgColorSwatch" class="swatch"></i>
         </div>
       </div>
       <div class="field">
-        <label for="cfgDrawLimit">视野内单次绘制</label>
+        <label for="cfgDrawLimit" data-i18n="set.render.drawLimit">视野内单次绘制</label>
         <select id="cfgDrawLimit">
-          <option value="2000">2000 个（快）</option>
-          <option value="5000">5000 个（默认）</option>
-          <option value="10000">10000 个</option>
-          <option value="20000">20000 个（大图层会慢）</option>
+          <option value="2000" data-i18n="set.render.limitFast" data-i18n-args="2000">2000 个（快）</option>
+          <option value="5000" data-i18n="set.render.limitDefault" data-i18n-args="5000">5000 个（默认）</option>
+          <option value="10000" data-i18n="set.render.limitN" data-i18n-args="10000">10000 个</option>
+          <option value="20000" data-i18n="set.render.limitSlow" data-i18n-args="20000">20000 个（大图层会慢）</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgVecPrecision">几何精度<i class="tip-ico" id="tipVecPrecision"></i></label>
+        <label for="cfgVecPrecision"><span data-i18n="set.render.precision">几何精度</span><i class="tip-ico" id="tipVecPrecision"></i></label>
         <select id="cfgVecPrecision">
-          <option value="auto">自动（推荐）</option>
-          <option value="accurate">精确优先</option>
-          <option value="fast">速度优先</option>
+          <option value="auto" data-i18n="set.render.precisionAuto">自动（推荐）</option>
+          <option value="accurate" data-i18n="set.render.precisionAccurate">精确优先</option>
+          <option value="fast" data-i18n="set.render.precisionFast">速度优先</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgMaxFeatures">属性表每批条数</label>
+        <label for="cfgMaxFeatures" data-i18n="set.render.attrBatch">属性表每批条数</label>
         <select id="cfgMaxFeatures">
-          <option value="200">200 条</option>
-          <option value="500">500 条（默认）</option>
-          <option value="2000">2000 条</option>
-          <option value="20000">20000 条（大图层会慢）</option>
+          <option value="200" data-i18n="set.render.rowsN" data-i18n-args="200">200 条</option>
+          <option value="500" data-i18n="set.render.rowsDefault" data-i18n-args="500">500 条（默认）</option>
+          <option value="2000" data-i18n="set.render.rowsN" data-i18n-args="2000">2000 条</option>
+          <option value="20000" data-i18n="set.render.rowsSlow" data-i18n-args="20000">20000 条（大图层会慢）</option>
         </select>
       </div>
       </section>
 
       <section class="set-pane" data-sec="look" hidden>
       <div class="field">
-        <label for="cfgTheme">主题</label>
-        <select id="cfgTheme">
-          <option value="auto">跟随系统</option>
-          <option value="light">浅色</option>
-          <option value="dark">深色</option>
-          <option value="paper">暖纸</option>
-          <option value="ink">墨黑</option>
-          <option value="slate">青岩</option>
+        <label for="cfgLang" data-i18n="set.look.lang">界面语言</label>
+        <select id="cfgLang">
+          <option value="zh" data-i18n="lang.zh">中文</option>
+          <option value="en" data-i18n="lang.en">English</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgFontUi">界面字体</label>
+        <label for="cfgTheme" data-i18n="set.look.theme">主题</label>
+        <select id="cfgTheme">
+          <option value="auto" data-i18n="set.look.themeAuto">跟随系统</option>
+          <option value="light" data-i18n="set.look.themeLight">浅色</option>
+          <option value="dark" data-i18n="set.look.themeDark">深色</option>
+          <option value="paper" data-i18n="set.look.themePaper">暖纸</option>
+          <option value="ink" data-i18n="set.look.themeInk">墨黑</option>
+          <option value="slate" data-i18n="set.look.themeSlate">青岩</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cfgFontUi" data-i18n="set.look.fontUi">界面字体</label>
         <select id="cfgFontUi"></select>
       </div>
       <div class="field">
-        <label for="cfgFontNum">数字与英文字体</label>
+        <label for="cfgFontNum" data-i18n="set.look.fontNum">数字与英文字体</label>
         <select id="cfgFontNum"></select>
       </div>
       <div class="field">
-        <label for="cfgUnitLang">单位显示</label>
+        <label for="cfgUnitLang" data-i18n="set.look.unit">单位显示</label>
         <select id="cfgUnitLang">
-          <option value="en">英文（m、km、°）</option>
-          <option value="zh">中文（米、千米、度）</option>
+          <option value="en" data-i18n="set.look.unitEn">英文（m、km、°）</option>
+          <option value="zh" data-i18n="set.look.unitZh">中文（米、千米、度）</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgZoom">界面字号</label>
+        <label for="cfgZoom" data-i18n="set.look.zoom">界面字号</label>
         <select id="cfgZoom">
-          <option value="90">90%（紧凑）</option>
-          <option value="100">100%（默认）</option>
-          <option value="110">110%</option>
-          <option value="120">120%</option>
-          <option value="130">130%（费眼）</option>
+          <option value="90" data-i18n="set.look.zoomCompact" data-i18n-args="90">90%（紧凑）</option>
+          <option value="100" data-i18n="set.look.zoomDefault" data-i18n-args="100">100%（默认）</option>
+          <option value="110" data-i18n="set.look.zoomN" data-i18n-args="110">110%</option>
+          <option value="120" data-i18n="set.look.zoomN" data-i18n-args="120">120%</option>
+          <option value="130" data-i18n="set.look.zoomTiring" data-i18n-args="130">130%（费眼）</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgAlpha">面板不透明度</label>
+        <label for="cfgAlpha" data-i18n="set.look.alpha">面板不透明度</label>
         <div class="range-row">
           <input id="cfgAlpha" type="range" min="60" max="100" step="1" value="93">
           <output id="cfgAlphaOut" for="cfgAlpha">93%</output>
         </div>
       </div>
       <div class="field">
-        <label for="cfgToastSec">浮窗停留时间</label>
+        <label for="cfgToastSec" data-i18n="set.look.toast">浮窗停留时间</label>
         <select id="cfgToastSec">
-          <option value="3">3 秒</option>
-          <option value="5">5 秒（默认）</option>
-          <option value="8">8 秒</option>
-          <option value="12">12 秒</option>
-          <option value="20">20 秒</option>
+          <option value="3" data-i18n="set.look.toastN" data-i18n-args="3">3 秒</option>
+          <option value="5" data-i18n="set.look.toastDefault" data-i18n-args="5">5 秒（默认）</option>
+          <option value="8" data-i18n="set.look.toastN" data-i18n-args="8">8 秒</option>
+          <option value="12" data-i18n="set.look.toastN" data-i18n-args="12">12 秒</option>
+          <option value="20" data-i18n="set.look.toastN" data-i18n-args="20">20 秒</option>
         </select>
       </div>
       </section>
 
       <section class="set-pane" data-sec="file" hidden>
       <div class="field inline">
-        <label for="cfgCtxMenu">资源管理器右键 <b class="ui-strong">用图览打开</b></label>
+        <label for="cfgCtxMenu"><span data-i18n="set.file.ctxMenu">资源管理器右键</span> <b class="ui-strong" data-i18n="set.file.ctxOpen">用图览打开</b></label>
         <input id="cfgCtxMenu" type="checkbox">
       </div>
       <div class="field">
-        <label for="cfgOpenDir">文件框起始目录</label>
+        <label for="cfgOpenDir" data-i18n="set.file.openDir">文件框起始目录</label>
         <div class="icon-row">
-          <input id="cfgOpenDir" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" placeholder="点右侧按钮选择，留空则跟随上次打开文件">
+          <input id="cfgOpenDir" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" data-i18n-ph="set.file.openDirPh" placeholder="点右侧按钮选择，留空则跟随上次打开文件">
 
           <button id="cfgOpenDirClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
           <button id="cfgOpenDirPick" class="icon-btn" type="button" data-tip="选择一个固定目录" aria-label="选择一个固定目录">
@@ -664,23 +671,23 @@
         <p class="field-status" id="cfgOpenDirStatus"><svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true"><path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/><path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg><span></span></p>
       </div>
       <div class="field inline">
-        <label for="cfgRestore">启动时恢复上次文件</label>
+        <label for="cfgRestore" data-i18n="set.file.restore">启动时恢复上次文件</label>
         <input id="cfgRestore" type="checkbox">
       </div>
       <div class="field">
-        <label for="cfgRecentMax">最近打开条数</label>
+        <label for="cfgRecentMax" data-i18n="set.file.recent">最近打开条数</label>
         <select id="cfgRecentMax">
-          <option value="3">3 条</option>
-          <option value="5">5 条（默认）</option>
-          <option value="8">8 条</option>
-          <option value="12">12 条</option>
-          <option value="20">20 条</option>
+          <option value="3" data-i18n="set.file.recentN" data-i18n-args="3">3 条</option>
+          <option value="5" data-i18n="set.file.recentDefault" data-i18n-args="5">5 条（默认）</option>
+          <option value="8" data-i18n="set.file.recentN" data-i18n-args="8">8 条</option>
+          <option value="12" data-i18n="set.file.recentN" data-i18n-args="12">12 条</option>
+          <option value="20" data-i18n="set.file.recentN" data-i18n-args="20">20 条</option>
         </select>
       </div>
       <div class="field">
-        <label for="cfgCache">副本存放位置</label>
+        <label for="cfgCache" data-i18n="set.file.cacheDir">副本存放位置</label>
         <div class="icon-row">
-          <input id="cfgCache" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" placeholder="点右侧按钮选择，留空则用系统临时目录">
+          <input id="cfgCache" type="text" readonly tabindex="-1" spellcheck="false" autocomplete="off" data-i18n-ph="set.file.cacheDirPh" placeholder="点右侧按钮选择，留空则用系统临时目录">
 
           <button id="cfgCacheClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
           <button id="cfgCachePick" class="icon-btn" type="button" data-tip="选择一个固定目录" aria-label="选择一个固定目录">
@@ -690,16 +697,16 @@
         <p class="field-status" id="cfgCacheStatus"><svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true"><path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/><path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg><span></span></p>
       </div>
       <div class="field">
-        <label for="cfgKeepHours">副本保留时长</label>
+        <label for="cfgKeepHours" data-i18n="set.file.keep">副本保留时长</label>
         <select id="cfgKeepHours">
-          <option value="12">12 小时（默认）</option>
-          <option value="24">1 天</option>
-          <option value="72">3 天</option>
-          <option value="168">7 天</option>
+          <option value="12" data-i18n="set.file.keepDefault" data-i18n-args="12">12 小时（默认）</option>
+          <option value="24" data-i18n="set.file.keepDays" data-i18n-args="1">1 天</option>
+          <option value="72" data-i18n="set.file.keepDays" data-i18n-args="3">3 天</option>
+          <option value="168" data-i18n="set.file.keepDays" data-i18n-args="7">7 天</option>
         </select>
       </div>
       <div class="field">
-        <label for="cachePath">缓存位置</label>
+        <label for="cachePath" data-i18n="set.file.cachePath">缓存位置</label>
         <div class="icon-row">
           <input id="cachePath" type="text" readonly tabindex="-1" autocomplete="off" value="">
           <button id="cachePathClear" class="icon-btn clear-btn" type="button" data-tip="清除，恢复默认" aria-label="清除，恢复默认" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="m7.8 7.8 8.4 8.4M16.2 7.8l-8.4 8.4"/></svg></button>
@@ -709,76 +716,76 @@
         </div>
         <p class="field-status" id="cachePathStatus"><svg class="ks-ico" viewBox="0 0 24 24" aria-hidden="true"><path class="ks-check" fill-rule="evenodd" d="M12 2a10 10 0 100 20 10 10 0 000-20zm-1.2 14.4-4-4 1.5-1.5 2.5 2.5 5.6-5.6 1.5 1.5z"/><path class="ks-warn" fill-rule="evenodd" d="M13.27 3.33c-.56-.97-1.98-.97-2.54 0l-9.2 15.94C.97 20.24 1.68 21.5 2.8 21.5h18.4c1.12 0 1.83-1.26 1.27-2.23zM12 8.4c-.46 0-.82.4-.79.85l.28 4.6c.03.53.47.95 1 .95h.02c.53 0 .97-.42 1-.95l.28-4.6c.03-.45-.33-.85-.79-.85h-1zm.5 8.05a1.15 1.15 0 110 2.3 1.15 1.15 0 010-2.3z"/></svg><span></span></p>
         <div class="upd-row">
-          <button id="cacheOpenBtn" class="btn ghost" type="button">打开文件夹</button>
-          <button id="cacheClearBtn" class="btn ghost" type="button">清空缓存</button>
-          <span class="hint" id="cacheSizeHint">正在统计…</span>
+          <button id="cacheOpenBtn" class="btn ghost" type="button" data-i18n="set.file.openFolder">打开文件夹</button>
+          <button id="cacheClearBtn" class="btn ghost" type="button" data-i18n="set.file.clearCache">清空缓存</button>
+          <span class="hint" id="cacheSizeHint" data-i18n="set.file.counting">正在统计…</span>
         </div>
       </div>
       </section>
 
       <section class="set-pane" data-sec="sys" hidden>
       <div class="field inline">
-        <label for="cfgAutoStart">开机自启动</label>
+        <label for="cfgAutoStart" data-i18n="set.sys.autostart">开机自启动</label>
         <input id="cfgAutoStart" type="checkbox">
       </div>
       <div class="field inline">
-        <label for="cfgTopMost">窗口置顶<i class="tip-ico" id="tipTopMost"></i></label>
+        <label for="cfgTopMost"><span data-i18n="set.sys.topmost">窗口置顶</span><i class="tip-ico" id="tipTopMost"></i></label>
         <input id="cfgTopMost" type="checkbox">
       </div>
       <div class="field inline">
-        <label for="cfgPyrAsk">打开大影像时询问创建金字塔<i class="tip-ico" id="tipPyrAsk"></i></label>
+        <label for="cfgPyrAsk"><span data-i18n="set.sys.pyrAsk">打开大影像时询问创建金字塔</span><i class="tip-ico" id="tipPyrAsk"></i></label>
         <input id="cfgPyrAsk" type="checkbox">
       </div>
       <div class="field inline">
-        <label for="cfgDeskLnk">桌面快捷方式</label>
+        <label for="cfgDeskLnk" data-i18n="set.sys.deskLnk">桌面快捷方式</label>
         <input id="cfgDeskLnk" type="checkbox">
       </div>
       <div class="field inline">
-        <label id="cfgCloseActLab">关闭按钮行为</label>
+        <label id="cfgCloseActLab" data-i18n="set.sys.closeAct">关闭按钮行为</label>
         <div class="seg" id="cfgCloseAct" role="group" aria-labelledby="cfgCloseActLab">
-          <button type="button" data-val="min">驻留托盘</button>
-          <button type="button" data-val="exit">直接退出</button>
+          <button type="button" data-val="min" data-i18n="set.sys.closeMin">驻留托盘</button>
+          <button type="button" data-val="exit" data-i18n="set.sys.closeExit">直接退出</button>
         </div>
       </div>
       <div class="field inline">
-        <label for="cfgCloseAsk">关闭时询问</label>
+        <label for="cfgCloseAsk" data-i18n="set.sys.closeAsk">关闭时询问</label>
         <input id="cfgCloseAsk" type="checkbox">
       </div>
       <div class="field">
-        <label>键盘操作</label>
+        <label data-i18n="set.sys.keys">键盘操作</label>
         <table class="key-table">
           <tbody>
             <tr>
-              <td>唤出或收起窗口</td>
-              <td class="k"><button id="hkBtn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+G</button></td>
-              <td class="act"><button id="hkReset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyToggle">唤出或收起窗口</td>
+              <td class="k"><button id="hkBtn" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+G</button></td>
+              <td class="act"><button id="hkReset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
             <tr>
-              <td>打开资源管理器中选中的文件</td>
-              <td class="k"><button id="hk2Btn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+空格</button></td>
-              <td class="act"><button id="hk2Reset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyOpen">打开资源管理器中选中的文件</td>
+              <td class="k"><button id="hk2Btn" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+空格</button></td>
+              <td class="act"><button id="hk2Reset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
             <tr>
-              <td>对资源管理器中选中的文件做体检</td>
-              <td class="k"><button id="hk3Btn" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+D</button></td>
-              <td class="act"><button id="hk3Reset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyCheck">对资源管理器中选中的文件做体检</td>
+              <td class="k"><button id="hk3Btn" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+Alt+D</button></td>
+              <td class="act"><button id="hk3Reset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
             <tr>
-              <td>收起提示、识别弹窗与属性表</td>
-              <td class="k"><button id="pageKeyClose" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Esc</button></td>
-              <td class="act"><button id="pageKeyCloseReset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyClose">收起提示、识别弹窗与属性表</td>
+              <td class="k"><button id="pageKeyClose" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Esc</button></td>
+              <td class="act"><button id="pageKeyCloseReset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
             <tr>
-              <td>回到全图</td>
-              <td class="k"><button id="pageKeyFit" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">F</button></td>
-              <td class="act"><button id="pageKeyFitReset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyFit">回到全图</td>
+              <td class="k"><button id="pageKeyFit" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">F</button></td>
+              <td class="act"><button id="pageKeyFitReset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
             <tr>
-              <td>定位到属性表查找框</td>
-              <td class="k"><button id="pageKeyFind" class="key-chip" type="button" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+F</button></td>
-              <td class="act"><button id="pageKeyFindReset" class="mini-btn" type="button">恢复默认</button></td>
+              <td data-i18n="set.sys.keyFind">定位到属性表查找框</td>
+              <td class="k"><button id="pageKeyFind" class="key-chip" type="button" data-i18n-tip="chrome.newHotkey" data-tip="点击后按下新的组合键" aria-label="点击后按下新的组合键">Ctrl+F</button></td>
+              <td class="act"><button id="pageKeyFindReset" class="mini-btn" type="button" data-i18n="set.sys.reset">恢复默认</button></td>
             </tr>
-            <tr><td>路径框回车：打开文件或按坐标定位</td><td class="k">Enter</td><td></td></tr>
+            <tr><td data-i18n="set.sys.keyEnter">路径框回车：打开文件或按坐标定位</td><td class="k">Enter</td><td></td></tr>
           </tbody>
         </table>
         <p class="hint" id="hkHint"></p>
@@ -790,11 +797,11 @@
 
       <section class="set-pane" data-sec="about" hidden>
       <div class="field inline">
-        <label>版本</label>
+        <label data-i18n="set.about.version">版本</label>
         <span class="ver-num" id="aboutVer">v0.15</span>
       </div>
       <div class="field inline">
-        <label>项目仓库</label>
+        <label data-i18n="set.about.repo">项目仓库</label>
         <a class="repo-btn" href="https://github.com/MorganWsy/GISViewer" target="_blank" rel="noreferrer" data-tip="在浏览器中打开 github.com/MorganWsy/GISViewer" aria-label="在浏览器中打开 github.com/MorganWsy/GISViewer">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
           <span>GitHub</span>
@@ -856,6 +863,7 @@
   </div>
 </div>
 
+<script src="/web/i18n.js"></script>
 <script src="/web/vendor/maplibre-gl.js"></script>
 <script src="/web/vendor/chart.umd.min.js"></script>
 <script src="/web/controls.js"></script>

@@ -740,24 +740,26 @@ function wireAttrGrip() {
 /* 收起/展开：grid-template-rows 过渡。收起后整块只剩一枚胶囊（加号 + 名字），点它展开 */
 const folds = [];
 
-function wireFold(btn, tab, hostId, foldTitle, unfoldTitle) {
+function wireFold(btn, tab, hostId, foldKey, unfoldKey) {
   const host = $(hostId);
+  // 传的是词典里的键，不是写死的中文：切语言时这些提示也要跟着换
   const paint = (folded) => {
-    btn.setAttribute('data-tip', (folded ? unfoldTitle : foldTitle));
-    btn.setAttribute('aria-label', (folded ? unfoldTitle : foldTitle));
+    const text = t(folded ? unfoldKey : foldKey);
+    btn.setAttribute('data-tip', text);
+    btn.setAttribute('aria-label', text);
     btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
   };
   btn.addEventListener('click', () => { paint(host.classList.toggle('folded')); });
   tab.addEventListener('click', () => { host.classList.remove('folded'); paint(false); });
-  folds.push({ host, btn, tab, foldTitle, unfoldTitle });
+  folds.push({ host, btn, tab, foldKey, unfoldKey });
 }
 
 /* 换图层时回到展开态：浮板自己记住上一次收着没意义，用户要看的是新图层 */
 function unfoldPanels() {
   folds.forEach((f) => {
     f.host.classList.remove('folded');
-    f.btn.setAttribute('data-tip', f.foldTitle);
-    f.btn.setAttribute('aria-label', f.foldTitle);
+    f.btn.setAttribute('data-tip', t(f.foldKey));
+    f.btn.setAttribute('aria-label', t(f.foldKey));
     f.btn.setAttribute('aria-expanded', 'true');
   });
 }

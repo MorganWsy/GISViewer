@@ -987,6 +987,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ramps": [
                     {"value": key,
                      "label": formats.RAMP_META.get(key, (key, False))[0],
+                     "label_en": formats.RAMP_LABEL_EN.get(key, key),
                      "discrete": bool(formats.RAMP_META.get(key, (key, False))[1]),
                      "colors": [f"rgb({c[0]},{c[1]},{c[2]})" for c in stops]}
                     for key, stops in formats.RAMPS.items()

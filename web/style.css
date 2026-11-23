@@ -2031,6 +2031,8 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: none;
+  width: 116px;
   padding-right: 8px;
   border-right: 1px solid var(--line);
 }
@@ -2038,6 +2040,7 @@ table.rail-table tr.wide .warn, table.rail-table tr.wide .err { margin-top: 0; }
   height: 29px;
   padding: 0 8px;
   text-align: left;
+  white-space: nowrap;
   font: inherit;
   font-size: 13px;
   color: var(--text-dim);

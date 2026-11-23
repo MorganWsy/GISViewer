@@ -1684,7 +1684,8 @@ function rampInfo(key) {
 
 function rampName(key) {
   const got = rampInfo(key);
-  return got ? got.label : key;
+  if (!got) return key;
+  return langNow() === 'en' && got.label_en ? got.label_en : got.label;
 }
 
 function rampGradient(ramp) {
@@ -1730,9 +1731,11 @@ function paintRampControl() {
   btn.hidden = !show;
   if (!show) return;
   $('legendRampBar').style.background = rampGradient(rampInfo(raster.ramp));
-  const name = raster.rampAuto ? '自动（' + rampName(raster.ramp) + '）' : rampName(raster.ramp);
-  btn.setAttribute('data-tip', '色带：' + name + '。点击更换');
-  btn.setAttribute('aria-label', '色带：' + name);
+  const shown = rampName(raster.ramp);
+  const name = raster.rampAuto ? t('ramp.autoWith', shown) : shown;
+  const tip = raster.rampAuto ? t('legend.ramp.auto', shown) : t('legend.ramp.pick', shown);
+  btn.setAttribute('data-tip', tip);
+  btn.setAttribute('aria-label', tip);
 }
 
 function rampItem(ramp, value, label, on) {
@@ -1751,15 +1754,15 @@ function buildRampPop() {
   const pop = $('rampPop');
   pop.textContent = '';
   const guess = (current && current.data && current.data.ramp) || {};
-  pop.appendChild(el('div', 'ramp-pop-title', '色带'));
+  pop.appendChild(el('div', 'ramp-pop-title', t('ramp.title')));
   const auto = el('div', 'ramp-grid');
   auto.appendChild(rampItem(rampInfo(guess.ramp || config.ramp), 'auto',
-    '自动，按数据类型（' + rampName(guess.ramp || config.ramp) + '）', raster.rampAuto));
+    t('ramp.autoWith', rampName(guess.ramp || config.ramp)), raster.rampAuto));
   pop.appendChild(auto);
-  [['连续数据', false], ['分类数据', true]].forEach(([title, discrete]) => {
+  [['ramp.cont', false], ['ramp.cat', true]].forEach(([titleKey, discrete]) => {
     const list = RAMP_LIST.filter((r) => !!r.discrete === discrete);
     if (!list.length) return;
-    pop.appendChild(el('div', 'ramp-pop-title', title));
+    pop.appendChild(el('div', 'ramp-pop-title', t(titleKey)));
     const grid = el('div', 'ramp-grid');
     list.forEach((r) => {
       const on = raster.rampAuto === false && raster.ramp === r.value;

@@ -1060,6 +1060,8 @@ function wireSettingsPanel() {
     hideConvPop();
     hideCmpPop();
     hidePickPop();
+    // 金字塔询问是居中的大对话框，留着会被设置面板压住一半，看着像没关
+    if (typeof hidePyramidAsk === 'function') hidePyramidAsk();
     fillSettings();
     $('settings').hidden = false;
     markBtn('settingsBtn', true);
@@ -1332,6 +1334,17 @@ function wireSettingInputs() {
     applyTheme(config.theme);
     paintThemeBtn();
   });
+  // 语言当场生效：设置页自己的字、右栏、图例一起换，不用重启
+  $('cfgLang').addEventListener('change', () => {
+    setLang($('cfgLang').value);
+    // 右栏、色带条、图例里是被代码写出来的字，重画一遍才跟着换
+    if (typeof renderRail === 'function' && typeof current !== 'undefined' && current.data) {
+      renderRail(current.data, false);
+    }
+    if (typeof paintRampControl === 'function') paintRampControl();
+    if (typeof syncLegendTips === 'function') syncLegendTips();
+    if (typeof paintNote === 'function') paintNote();
+  });
   /* 不透明度拖动时实时预览，松手（change）才落盘——每次 input 都 POST 配置太浪费 */
   $('cfgAlpha').addEventListener('input', () => {
     $('cfgAlphaOut').textContent = $('cfgAlpha').value + '%';
@@ -1426,8 +1439,8 @@ function wireLayerChip() {
     hideLayerPop();
   });
   window.addEventListener('resize', hideLayerPop);
-  wireFold($('legendFold'), $('legendTab'), 'legend', '收起图例', '展开图例');
-  wireFold($('chipFold'), $('chipTab'), 'fileChip', '收起文件信息', '展开文件信息');
+  wireFold($('legendFold'), $('legendTab'), 'legend', 'chrome.collapseLegend', 'chrome.expandLegend');
+  wireFold($('chipFold'), $('chipTab'), 'fileChip', 'chrome.collapseChip', 'chrome.expandChip');
   $('chipFold').addEventListener('click', hideLayerPop);
   $('chipTab').addEventListener('click', hideLayerPop);
 }

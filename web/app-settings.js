@@ -345,6 +345,7 @@ function fillLookSettings() {
   $('cfgAlphaOut').textContent = ($('cfgAlpha').value || '93') + '%';
   paintRange($('cfgAlpha'));
   $('cfgTheme').value = THEME_LABELS[config.theme] ? config.theme : 'auto';
+  $('cfgLang').value = langNow();
   $('aboutVer').textContent = 'v' + ((document.title || '图览').replace('图览', '').trim() || '0.1');
   $('cfgToastSec').value = String(Math.round(toastMs() / 1000));
   $('cfgUnitLang').value = config.unit_lang === 'zh' ? 'zh' : 'en';
